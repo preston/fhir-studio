@@ -80,6 +80,12 @@ export class SandboxService {
     return this.http.get<{ sandbox: Sandbox }>(`/api/sandboxes/${sandboxId}`);
   }
 
+  public checkSlugAvailability(slug: string): Observable<{ available: boolean; slug: string; reason?: string }> {
+    return this.http.get<{ available: boolean; slug: string; reason?: string }>('/api/sandboxes/check-availability', {
+      params: { slug },
+    });
+  }
+
   public createSandbox(data: {
     sandboxId: string;
     name: string;

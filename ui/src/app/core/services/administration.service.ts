@@ -10,6 +10,10 @@ import type {
   CreateJobPayload,
   AdministrationSandboxFilter,
   AdministrationSandboxListResponse,
+  ImplementationGuideSummary,
+  CreateImplementationGuidePayload,
+  UpdateImplementationGuidePayload,
+  ImplementationGuideFilter,
 } from '@fhir-studio/core';
 
 export interface AdministrationMetrics {
@@ -254,5 +258,59 @@ export class AdministrationService {
 
   public purgeCompletedJobs(): Observable<{ message: string; count: number }> {
     return this.http.delete<{ message: string; count: number }>('/api/administration/jobs/purge-completed');
+  }
+
+  // Implementation Guides & Package Registry Management
+  public getAdminImplementationGuides(filters: ImplementationGuideFilter = {}): Observable<{
+    implementationGuides: ImplementationGuideSummary[];
+  }> {
+    let params = new HttpParams();
+    if (filters.search) params = params.set('search', filters.search);
+    if (filters.category && filters.category !== 'all') params = params.set('category', filters.category);
+    if (filters.fhirVersion && filters.fhirVersion !== 'all') params = params.set('fhirVersion', filters.fhirVersion);
+    if (filters.recommendedForCreation !== undefined) {
+      params = params.set('recommendedForCreation', filters.recommendedForCreation.toString());
+    }
+    if (filters.isSuggested !== undefined) {
+      params = params.set('isSuggested', filters.isSuggested.toString());
+    }
+
+    return this.http.get<{ implementationGuides: ImplementationGuideSummary[] }>(
+      '/api/administration/implementation-guides',
+      { params },
+    );
+  }
+
+  public createImplementationGuide(
+    data: CreateImplementationGuidePayload,
+  ): Observable<{ implementationGuide: ImplementationGuideSummary }> {
+    return this.http.post<{ implementationGuide: ImplementationGuideSummary }>(
+      '/api/administration/implementation-guides',
+      data,
+    );
+  }
+
+  public updateImplementationGuide(
+    id: string,
+    data: UpdateImplementationGuidePayload,
+  ): Observable<{ implementationGuide: ImplementationGuideSummary }> {
+    return this.http.put<{ implementationGuide: ImplementationGuideSummary }>(
+      `/api/administration/implementation-guides/${id}`,
+      data,
+    );
+  }
+
+  public deleteImplementationGuide(id: string): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(`/api/administration/implementation-guides/${id}`);
+  }
+
+  public fetchRegistryPackageMetadata(
+    packageId: string,
+    version?: string,
+  ): Observable<{ metadata: Partial<CreateImplementationGuidePayload> }> {
+    return this.http.post<{ metadata: Partial<CreateImplementationGuidePayload> }>(
+      '/api/administration/implementation-guides/fetch-metadata',
+      { packageId, version },
+    );
   }
 }

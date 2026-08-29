@@ -2,7 +2,8 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, of, tap } from 'rxjs';
+import type { FhirCapabilityStatement, FhirRelease } from '@fhir-studio/core';
 
 export interface FhirBundleEntry<T = Record<string, unknown>> {
   resource: T;
@@ -46,18 +47,36 @@ export interface FhirOperationOutcome {
 export class FhirService {
   private readonly http = inject(HttpClient);
 
-  private getEndpoint(sandboxId: string, version = 'r4'): string {
+  private getEndpoint(sandboxId: string, version: FhirRelease | string): string {
     return `/api/sandboxes/${sandboxId}/fhir/${version.toLowerCase()}`;
   }
 
-  public getCapabilityStatement<T = Record<string, unknown>>(sandboxId: string, version = 'r4'): Observable<T> {
+  private readonly capabilityCache = new Map<string, FhirCapabilityStatement>();
+
+  public getCapabilityStatement(
+    sandboxId: string,
+    version: FhirRelease | string,
+    forceRefresh = false,
+  ): Observable<FhirCapabilityStatement> {
+    const cacheKey = `${sandboxId}:${version.toLowerCase()}`;
+    if (!forceRefresh && this.capabilityCache.has(cacheKey)) {
+      return of(this.capabilityCache.get(cacheKey)!);
+    }
     const url = `${this.getEndpoint(sandboxId, version)}/metadata`;
-    return this.http.get<T>(url);
+    return this.http.get<FhirCapabilityStatement>(url).pipe(
+      tap((cs) => {
+        this.capabilityCache.set(cacheKey, cs);
+      }),
+    );
+  }
+
+  public clearCapabilityCache(): void {
+    this.capabilityCache.clear();
   }
 
   public search<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     params?: Record<string, string | number>,
   ): Observable<FhirBundle<T>> {
@@ -73,7 +92,7 @@ export class FhirService {
 
   public getResource<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     id: string,
   ): Observable<T> {
@@ -83,7 +102,7 @@ export class FhirService {
 
   public createResource<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     body: T,
   ): Observable<T> {
@@ -93,7 +112,7 @@ export class FhirService {
 
   public updateResource<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     id: string,
     body: T,
@@ -104,7 +123,7 @@ export class FhirService {
 
   public deleteResource<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     id: string,
   ): Observable<T> {
@@ -114,7 +133,7 @@ export class FhirService {
 
   public postTransaction<T = Record<string, unknown>, R = FhirBundle>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     bundle: T,
   ): Observable<R> {
     const url = `${this.getEndpoint(sandboxId, version)}/`;
@@ -123,7 +142,7 @@ export class FhirService {
 
   public validateResource<T = Record<string, unknown>>(
     sandboxId: string,
-    version = 'r4',
+    version: FhirRelease | string,
     resourceType: string,
     body: T,
   ): Observable<FhirOperationOutcome> {

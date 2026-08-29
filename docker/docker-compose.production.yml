@@ -107,9 +107,8 @@ services:
       spring.datasource.password: password
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.partitioning_enabled: "true"
-      hapi.fhir.partitioning.tenant_identification_strategy: URL_BASE
-      hapi.fhir.partitioning.allow_partition_management: "true"
+      hapi.fhir.partitioning.allow_references_across_partitions: "true"
+      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
       hapi.fhir.expunge_enabled: "true"
       hapi.fhir.allow_multiple_delete: "true"
       hapi.fhir.bulk_export_enabled: "true"
@@ -151,9 +150,8 @@ services:
       spring.datasource.password: password
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.partitioning_enabled: "true"
-      hapi.fhir.partitioning.tenant_identification_strategy: URL_BASE
-      hapi.fhir.partitioning.allow_partition_management: "true"
+      hapi.fhir.partitioning.allow_references_across_partitions: "true"
+      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
       hapi.fhir.expunge_enabled: "true"
       hapi.fhir.allow_multiple_delete: "true"
       hapi.fhir.bulk_export_enabled: "true"
@@ -195,9 +193,8 @@ services:
       spring.datasource.password: password
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.partitioning_enabled: "true"
-      hapi.fhir.partitioning.tenant_identification_strategy: URL_BASE
-      hapi.fhir.partitioning.allow_partition_management: "true"
+      hapi.fhir.partitioning.allow_references_across_partitions: "true"
+      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
       hapi.fhir.expunge_enabled: "true"
       hapi.fhir.allow_multiple_delete: "true"
       hapi.fhir.bulk_export_enabled: "true"

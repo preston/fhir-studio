@@ -1,0 +1,66 @@
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+@if (loading()) {
+  <div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Loading metrics...</span>
+    </div>
+  </div>
+} @else if (metrics()) {
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-primary">
+        <span class="text-muted small fw-bold text-uppercase">Total Sandboxes</span>
+        <div class="display-6 fw-bold text-primary">{{ metrics()!.summary.totalSandboxes }}</div>
+        <div class="small text-muted mt-1">{{ metrics()!.summary.r4Sandboxes }} R4 &bull; {{ metrics()!.summary.r5Sandboxes }} R5</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-success">
+        <span class="text-muted small fw-bold text-uppercase">Total Users</span>
+        <div class="display-6 fw-bold text-success">{{ metrics()!.summary.totalUsers }}</div>
+        <div class="small text-muted mt-1">{{ metrics()!.summary.totalSessions }} Active Sessions</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-info">
+        <span class="text-muted small fw-bold text-uppercase">SMART Applications & Scenarios</span>
+        <div class="display-6 fw-bold text-info">{{ metrics()!.summary.totalApplications }} / {{ metrics()!.summary.totalScenarios }}</div>
+        <div class="small text-muted mt-1">Applications / Launch Scenarios</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-danger">
+        <span class="text-muted small fw-bold text-uppercase">Suspended Accounts</span>
+        <div class="display-6 fw-bold text-danger">{{ metrics()!.summary.suspendedUsers }}</div>
+        <div class="small text-muted mt-1">Enforced across API & SSO</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">FHIR Version Distribution</h6>
+        <div echarts [options]="versionChartOptions()" class="chart-container"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">Security Access Modes</h6>
+        <div echarts [options]="accessModeChartOptions()" class="chart-container"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">User Signups Over Time</h6>
+        <div echarts [options]="signupsTimelineOptions()" class="chart-container"></div>
+      </div>
+    </div>
+  </div>
+}

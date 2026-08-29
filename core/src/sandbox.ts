@@ -77,6 +77,12 @@ export interface AdministrationSandboxListResponse {
   totalPages: number;
 }
 
+export interface SandboxSlugAvailability {
+  available: boolean;
+  slug: string;
+  reason?: string;
+}
+
 export interface ApplicationRegistration {
   id: string;
   sandboxId: string | null;

@@ -1,0 +1,445 @@
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<div class="card bg-white p-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+    <div>
+      <h6 class="fw-bold mb-1">FHIR Implementation Guides & Package Registry</h6>
+      <p class="text-muted small mb-0">
+        Manage available Implementation Guides, configure wizard creation recommendations, and catalog suggested packages.
+      </p>
+    </div>
+    <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" (click)="openNewIgModal()">
+      <i class="bi bi-plus-circle"></i>
+      <span>Register Implementation Guide</span>
+    </button>
+  </div>
+
+  <!-- Filter & Search Toolbar -->
+  <div class="row g-2 mb-3 align-items-center">
+    <div class="col-md-5">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+        <input
+          type="text"
+          class="form-control"
+          placeholder="Search by package name, title, author..."
+          [ngModel]="search()"
+          (ngModelChange)="search.set($event); onFilterChange()"
+        />
+        @if (search()) {
+          <button class="btn btn-outline-secondary" (click)="search.set(''); onFilterChange()">
+            <i class="bi bi-x"></i>
+          </button>
+        }
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light">Category</span>
+        <select
+          class="form-select py-1 ps-2"
+          [ngModel]="selectedCategory()"
+          (ngModelChange)="selectedCategory.set($event); onFilterChange()"
+        >
+          <option value="all">All Categories</option>
+          @for (cat of categories; track cat.id) {
+            <option [value]="cat.id">{{ cat.label }}</option>
+          }
+        </select>
+      </div>
+    </div>
+    <div class="col-md-2">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light">FHIR</span>
+        <select
+          class="form-select py-1 ps-2"
+          [ngModel]="selectedFhirVersion()"
+          (ngModelChange)="selectedFhirVersion.set($event); onFilterChange()"
+        >
+          <option value="all">All Releases</option>
+          <option value="4.0.1">FHIR R4 (4.0.1)</option>
+          <option value="4.3.0">FHIR R4B (4.3.0)</option>
+          <option value="5.0.0">FHIR R5 (5.0.0)</option>
+        </select>
+      </div>
+    </div>
+    <div class="col-md-2 d-flex justify-content-end gap-2">
+      <button class="btn btn-sm btn-outline-secondary" (click)="loadImplementationGuides()" title="Refresh">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+      </button>
+      <button class="btn btn-sm btn-outline-dark" (click)="resetFilters()" title="Reset search & filters">
+        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+      </button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading implementation guides...</span>
+      </div>
+    </div>
+  } @else {
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="user-select-none cursor-pointer" (click)="setSort('packageId')" style="cursor: pointer;">
+              Package & Version
+              @if (sortBy() === 'packageId') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('title')" style="cursor: pointer;">
+              Title & Description
+              @if (sortBy() === 'title') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('fhirVersion')" style="cursor: pointer;">
+              FHIR Release
+              @if (sortBy() === 'fhirVersion') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('category')" style="cursor: pointer;">
+              Category
+              @if (sortBy() === 'category') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-center user-select-none cursor-pointer" (click)="setSort('recommended')" style="cursor: pointer;" title="Pre-selected / displayed in Sandbox Creation Wizard">
+              Creation Wizard
+              @if (sortBy() === 'recommended') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-center user-select-none cursor-pointer" (click)="setSort('suggested')" style="cursor: pointer;" title="Suggested in Registry Importer">
+              Suggested
+              @if (sortBy() === 'suggested') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (paginatedImplementationGuides().length === 0) {
+            <tr>
+              <td colspan="7" class="text-center py-5 text-muted">
+                <i class="bi bi-box-seam fs-2 d-block mb-2"></i>
+                <div class="fw-semibold">No implementation guides found matching criteria.</div>
+              </td>
+            </tr>
+          }
+          @for (ig of paginatedImplementationGuides(); track ig.id) {
+            <tr>
+              <td>
+                <div class="fw-bold font-monospace small text-primary">{{ ig.packageId }}</div>
+                <span class="badge bg-secondary font-monospace">v{{ ig.version }}</span>
+              </td>
+              <td>
+                <div class="fw-semibold text-truncate" style="max-width: 320px;" [title]="ig.title">{{ ig.title }}</div>
+                <div class="small text-muted text-truncate" style="max-width: 320px;" [title]="ig.description || ''">
+                  {{ ig.description || 'No description provided.' }}
+                </div>
+                @if (ig.author) {
+                  <div class="small text-secondary fst-italic">by {{ ig.author }}</div>
+                }
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ ig.fhirVersion }}</span>
+              </td>
+              <td>
+                <span class="badge" [ngClass]="{
+                  'bg-primary': ig.category === 'US_CORE',
+                  'bg-success': ig.category === 'SMART',
+                  'bg-info text-dark': ig.category === 'CLINICAL',
+                  'bg-warning text-dark': ig.category === 'FINANCIAL',
+                  'bg-dark': ig.category === 'DAVINCI',
+                  'bg-secondary': ig.category === 'INTERNATIONAL' || ig.category === 'OTHER' || ig.category === 'General'
+                }">
+                  {{ ig.category }}
+                </span>
+              </td>
+              <td class="text-center">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  [ngClass]="ig.recommendedForCreation ? 'btn-success' : 'btn-outline-secondary'"
+                  (click)="toggleRecommended(ig)"
+                  [title]="ig.recommendedForCreation ? 'Recommended in Creation Wizard (Click to remove)' : 'Not recommended in wizard (Click to recommend)'"
+                >
+                  <i class="bi" [ngClass]="ig.recommendedForCreation ? 'bi-check-circle-fill me-1' : 'bi-circle me-1'"></i>
+                  <span>{{ ig.recommendedForCreation ? 'Recommended' : 'Optional' }}</span>
+                </button>
+              </td>
+              <td class="text-center">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  [ngClass]="ig.isSuggested ? 'btn-info text-dark' : 'btn-outline-secondary'"
+                  (click)="toggleSuggested(ig)"
+                  [title]="ig.isSuggested ? 'Featured in Package Importer (Click to unfeature)' : 'Hidden from suggestions (Click to feature)'"
+                >
+                  <i class="bi" [ngClass]="ig.isSuggested ? 'bi-star-fill me-1' : 'bi-star me-1'"></i>
+                  <span>{{ ig.isSuggested ? 'Suggested' : 'Standard' }}</span>
+                </button>
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" (click)="openEditIgModal(ig)" title="Edit Implementation Guide">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-outline-danger" (click)="deleteImplementationGuide(ig)" title="Delete Implementation Guide">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Toolbar -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pt-3 mt-2 border-top">
+      <div class="small text-muted">
+        Showing <span class="fw-semibold text-dark">{{ getShowingStart() }}</span> to
+        <span class="fw-semibold text-dark">{{ getShowingEnd() }}</span> of
+        <span class="fw-semibold text-dark">{{ totalIgsCount() }}</span> guides
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- Page size picker -->
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-muted text-nowrap">Per page:</label>
+          <select
+            class="form-select form-select-sm py-1 ps-2"
+            style="width: auto;"
+            [ngModel]="limit()"
+            (ngModelChange)="setLimit($event)"
+          >
+            <option [value]="10">10</option>
+            <option [value]="25">25</option>
+            <option [value]="50">50</option>
+            <option [value]="100">100</option>
+          </select>
+        </div>
+
+        <!-- Page buttons -->
+        <div class="btn-group btn-group-sm">
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(1)"
+            title="First Page"
+          >
+            <i class="bi bi-chevron-double-left"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(page() - 1)"
+            title="Previous Page"
+          >
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+            Page {{ page() }} of {{ totalPages() }}
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(page() + 1)"
+            title="Next Page"
+          >
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(totalPages())"
+            title="Last Page"
+          >
+            <i class="bi bi-chevron-double-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>
+
+<!-- Add / Edit Implementation Guide Modal -->
+@if (showIgModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-journal-medical me-2 text-primary"></i>
+            {{ isEditing() ? 'Edit Implementation Guide' : 'Register Implementation Guide' }}
+          </h5>
+          <button type="button" class="btn-close" (click)="showIgModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-7">
+              <label class="form-label fw-semibold">Package ID / NPM Name <span class="text-danger">*</span></label>
+              <input
+                type="text"
+                class="form-control font-monospace"
+                [(ngModel)]="igForm.packageId"
+                placeholder="e.g. hl7.fhir.us.core"
+              />
+            </div>
+            <div class="col-md-5">
+              <label class="form-label fw-semibold">Version <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  [(ngModel)]="igForm.version"
+                  placeholder="e.g. 7.0.0"
+                />
+                <button
+                  type="button"
+                  class="btn btn-outline-primary d-flex align-items-center gap-1"
+                  (click)="fetchRegistryMetadata()"
+                  [disabled]="fetchingRegistry() || !igForm.packageId"
+                  title="Lookup and autofill from packages.fhir.org"
+                >
+                  @if (fetchingRegistry()) {
+                    <span class="spinner-border spinner-border-sm"></span>
+                  } @else {
+                    <i class="bi bi-cloud-arrow-down"></i>
+                  }
+                  <span>Fetch Info</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+            <input
+              type="text"
+              class="form-control"
+              [(ngModel)]="igForm.title"
+              placeholder="e.g. US Core Implementation Guide v7.0.0"
+            />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea
+              class="form-control"
+              rows="2"
+              [(ngModel)]="igForm.description"
+              placeholder="Brief summary of profiles, conformance rules, and clinical realm..."
+            ></textarea>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">FHIR Release Version <span class="text-danger">*</span></label>
+              <select class="form-select py-1 ps-2" [(ngModel)]="igForm.fhirVersion">
+                <option value="4.0.1">FHIR R4 (4.0.1)</option>
+                <option value="4.3.0">FHIR R4B (4.3.0)</option>
+                <option value="5.0.0">FHIR R5 (5.0.0)</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+              <select class="form-select py-1 ps-2" [(ngModel)]="igForm.category">
+                @for (cat of categories; track cat.id) {
+                  <option [value]="cat.id">{{ cat.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Author / Publisher</label>
+              <input
+                type="text"
+                class="form-control"
+                [(ngModel)]="igForm.author"
+                placeholder="e.g. HL7 International / US Realm"
+              />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Canonical URL</label>
+              <input
+                type="text"
+                class="form-control font-monospace small"
+                [(ngModel)]="igForm.canonicalUrl"
+                placeholder="e.g. http://hl7.org/fhir/us/core"
+              />
+            </div>
+          </div>
+
+          <div class="p-3 bg-light rounded border mb-2">
+            <div class="fw-semibold mb-2">Presentation & Visibility Options</div>
+            <div class="form-check form-switch mb-2">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                id="modalRecommended"
+                [(ngModel)]="igForm.recommendedForCreation"
+              />
+              <label class="form-check-label" for="modalRecommended">
+                <strong>Recommended for Sandbox Creation</strong>
+                <div class="text-muted small">Show as a selectable recommended option in the New Sandbox creation wizard.</div>
+              </label>
+            </div>
+            <div class="form-check form-switch">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                id="modalSuggested"
+                [(ngModel)]="igForm.isSuggested"
+              />
+              <label class="form-check-label" for="modalSuggested">
+                <strong>Featured / Suggested in Package Importer</strong>
+                <div class="text-muted small">Display in the popular/suggested Implementation Guides section on /registry-importer.</div>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showIgModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveImplementationGuide()">
+            <i class="bi bi-check-circle me-1"></i>
+            {{ isEditing() ? 'Update Guide' : 'Save & Register' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

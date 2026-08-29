@@ -62,3 +62,76 @@ export interface SubscriptionNotificationEvent {
   };
 }
 
+export interface FhirCapabilityStatementInteraction {
+  code: string;
+  documentation?: string;
+}
+
+export interface FhirCapabilityStatementSearchParam {
+  name: string;
+  definition?: string;
+  type?: 'number' | 'date' | 'string' | 'token' | 'reference' | 'composite' | 'quantity' | 'uri' | 'special' | string;
+  documentation?: string;
+}
+
+export interface FhirCapabilityStatementResource {
+  type: string;
+  profile?: string;
+  supportedProfile?: string[];
+  documentation?: string;
+  interaction?: FhirCapabilityStatementInteraction[];
+  searchParam?: FhirCapabilityStatementSearchParam[];
+  searchInclude?: string[];
+  searchRevInclude?: string[];
+  conditionalCreate?: boolean;
+  conditionalUpdate?: boolean;
+  conditionalDelete?: string;
+}
+
+export interface FhirCapabilityStatementRest {
+  mode: 'client' | 'server' | string;
+  documentation?: string;
+  security?: {
+    cors?: boolean;
+    service?: Array<{
+      coding?: Array<{
+        system?: string;
+        code?: string;
+        display?: string;
+      }>;
+      text?: string;
+    }>;
+    description?: string;
+  };
+  resource?: FhirCapabilityStatementResource[];
+  interaction?: FhirCapabilityStatementInteraction[];
+  searchParam?: FhirCapabilityStatementSearchParam[];
+}
+
+export interface FhirCapabilityStatement {
+  resourceType: 'CapabilityStatement';
+  id?: string;
+  url?: string;
+  version?: string;
+  name?: string;
+  title?: string;
+  status: 'draft' | 'active' | 'retired' | 'unknown' | string;
+  experimental?: boolean;
+  date?: string;
+  publisher?: string;
+  kind?: 'instance' | 'capability' | 'requirements' | string;
+  software?: {
+    name: string;
+    version?: string;
+    releaseDate?: string;
+  };
+  implementation?: {
+    description: string;
+    url?: string;
+  };
+  fhirVersion: string;
+  format?: string[];
+  rest?: FhirCapabilityStatementRest[];
+}
+
+

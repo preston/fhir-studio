@@ -1,0 +1,226 @@
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<div class="card bg-white p-3">
+  <!-- Search & Filter Toolbar -->
+  <div class="row g-2 mb-3 align-items-center">
+    <div class="col-md-5">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+        <input
+          type="text"
+          class="form-control"
+          placeholder="Search by name, email, SSO subject or ID..."
+          [ngModel]="search()"
+          (ngModelChange)="onSearchChange($event)"
+        />
+        @if (search()) {
+          <button class="btn btn-outline-secondary" (click)="onSearchChange('')">
+            <i class="bi bi-x"></i>
+          </button>
+        }
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light">Status</span>
+        <select
+          class="form-select py-1 ps-2"
+          [ngModel]="statusFilter()"
+          (ngModelChange)="onStatusFilterChange($event)"
+        >
+          <option value="all">All Accounts</option>
+          <option value="active">Active Only</option>
+          <option value="suspended">Suspended Only</option>
+        </select>
+      </div>
+    </div>
+    <div class="col-md-4 d-flex justify-content-end gap-2">
+      <button class="btn btn-sm btn-outline-secondary" (click)="loadUsers()" title="Refresh user list">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+      </button>
+      <button class="btn btn-sm btn-outline-dark" (click)="resetFilters()" title="Reset search & filters">
+        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+      </button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading users...</span>
+      </div>
+    </div>
+  } @else {
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="user-select-none cursor-pointer" (click)="setSort('name')" style="cursor: pointer;">
+              User
+              @if (sortBy() === 'name') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('email')" style="cursor: pointer;">
+              SSO Subject / Email
+              @if (sortBy() === 'email') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th>Roles & Groups</th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('sessions')" style="cursor: pointer;">
+              Active Sessions
+              @if (sortBy() === 'sessions') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('status')" style="cursor: pointer;">
+              Status
+              @if (sortBy() === 'status') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (paginatedUsers().length === 0) {
+            <tr>
+              <td colspan="6" class="text-center py-5 text-muted">
+                <i class="bi bi-people fs-2 d-block mb-2"></i>
+                <div class="fw-semibold">No users match the search criteria.</div>
+              </td>
+            </tr>
+          }
+          @for (user of paginatedUsers(); track user.id) {
+            <tr>
+              <td>
+                <div class="fw-bold">{{ user.displayName || 'No Name' }}</div>
+                <div class="small text-muted font-monospace">{{ user.id }}</div>
+              </td>
+              <td>
+                <div>{{ user.email || 'N/A' }}</div>
+                <div class="small text-muted font-monospace">{{ user.ssoSubject }}</div>
+              </td>
+              <td>
+                <div class="d-flex flex-wrap gap-1">
+                  @for (role of user.roles; track role.id) {
+                    <span class="badge bg-primary-subtle text-primary border">{{ role.name }}</span>
+                  }
+                  @for (m of user.memberships; track m.id) {
+                    <span class="badge bg-secondary-subtle text-secondary border">{{ m.group.name }}</span>
+                  }
+                </div>
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ user._count?.sessions || 0 }} sessions</span>
+              </td>
+              <td>
+                @if (user.isSuspended) {
+                  <span class="badge bg-danger">Suspended</span>
+                } @else {
+                  <span class="badge bg-success">Active</span>
+                }
+              </td>
+              <td class="text-end">
+                <button
+                  class="btn btn-sm"
+                  [ngClass]="user.isSuspended ? 'btn-outline-success' : 'btn-outline-danger'"
+                  (click)="toggleSuspend(user)"
+                >
+                  {{ user.isSuspended ? 'Unsuspend' : 'Suspend Account' }}
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Toolbar -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pt-3 mt-2 border-top">
+      <div class="small text-muted">
+        Showing <span class="fw-semibold text-dark">{{ getShowingStart() }}</span> to
+        <span class="fw-semibold text-dark">{{ getShowingEnd() }}</span> of
+        <span class="fw-semibold text-dark">{{ totalUsersCount() }}</span> users
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- Page size picker -->
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-muted text-nowrap">Per page:</label>
+          <select
+            class="form-select form-select-sm py-1 ps-2"
+            style="width: auto;"
+            [ngModel]="limit()"
+            (ngModelChange)="setLimit($event)"
+          >
+            <option [value]="10">10</option>
+            <option [value]="25">25</option>
+            <option [value]="50">50</option>
+            <option [value]="100">100</option>
+          </select>
+        </div>
+
+        <!-- Page buttons -->
+        <div class="btn-group btn-group-sm">
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(1)"
+            title="First Page"
+          >
+            <i class="bi bi-chevron-double-left"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(page() - 1)"
+            title="Previous Page"
+          >
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+            Page {{ page() }} of {{ totalPages() }}
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(page() + 1)"
+            title="Next Page"
+          >
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(totalPages())"
+            title="Last Page"
+          >
+            <i class="bi bi-chevron-double-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

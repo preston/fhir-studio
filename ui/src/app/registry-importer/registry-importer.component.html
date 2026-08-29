@@ -6,7 +6,7 @@
   <div class="input-group input-group-sm" style="width: 260px;">
     <span class="input-group-text bg-light">Target Sandbox</span>
     <select
-      class="form-select"
+      class="form-select py-1 ps-2"
       [ngModel]="sandboxService.activeSandbox()"
       (ngModelChange)="sandboxService.selectSandbox($event)"
     >
@@ -113,19 +113,47 @@
 </div>
 
 <!-- Popular Reference Implementation Guides -->
-<h5 class="fw-bold mb-3">Popular Implementation Guides & Data Sets</h5>
-<div class="row g-3">
-  @for (pkg of popularPackages; track pkg.name) {
-    <div class="col-md-6 col-xl-3">
-      <div class="card h-100 card-hover bg-white p-3 border-top border-4 border-info">
-        <h6 class="fw-bold mb-1">{{ pkg.title }}</h6>
-        <div class="font-monospace small text-muted mb-2">{{ pkg.name }}#{{ pkg.version }}</div>
-        <p class="small text-secondary flex-grow-1">{{ pkg.description }}</p>
-        <button class="btn btn-sm btn-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-2" (click)="importPackage(pkg.name, pkg.version)" [disabled]="isImporting()">
-          <i class="bi bi-download"></i>
-          <span>Import to Sandbox</span>
-        </button>
-      </div>
-    </div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0">Suggested Implementation Guides & Data Sets</h5>
+  @if (loadingSuggested()) {
+    <span class="spinner-border spinner-border-sm text-primary"></span>
   }
 </div>
+
+@if (suggestedPackages().length === 0 && !loadingSuggested()) {
+  <div class="card p-4 text-center text-muted bg-white">
+    <i class="bi bi-box-seam fs-3 mb-2"></i>
+    No suggested packages configured. Administrators can manage suggestions under <a routerLink="/administration/implementation-guides">Administration</a>.
+  </div>
+} @else {
+  <div class="row g-3">
+    @for (pkg of suggestedPackages(); track pkg.id) {
+      <div class="col-md-6 col-xl-3">
+        <div class="card h-100 card-hover bg-white p-3 border-top border-4" [ngClass]="{
+          'border-primary': pkg.category === 'US_CORE',
+          'border-success': pkg.category === 'SMART',
+          'border-info': pkg.category === 'CLINICAL',
+          'border-warning': pkg.category === 'FINANCIAL',
+          'border-dark': pkg.category === 'DAVINCI',
+          'border-secondary': pkg.category === 'INTERNATIONAL' || pkg.category === 'OTHER'
+        }">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <h6 class="fw-bold mb-0 text-truncate" [title]="pkg.title">{{ pkg.title }}</h6>
+            <span class="badge bg-light text-dark border ms-1 small">{{ pkg.fhirVersion }}</span>
+          </div>
+          <div class="font-monospace small text-muted mb-2">{{ pkg.packageId }}#{{ pkg.version }}</div>
+          <p class="small text-secondary flex-grow-1 text-truncate-3" [title]="pkg.description || ''">
+            {{ pkg.description || 'No description provided.' }}
+          </p>
+          <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+            <span class="badge bg-secondary-subtle text-secondary small">{{ pkg.category }}</span>
+            <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" (click)="importPackage(pkg.packageId, pkg.version, pkg.tarballUrl)" [disabled]="isImporting() || !sandboxService.activeSandbox()">
+              <i class="bi bi-download"></i>
+              <span>Import</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
+}

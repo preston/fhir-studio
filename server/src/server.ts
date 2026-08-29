@@ -18,6 +18,7 @@ import { createBulkExportRouter } from './bulk-export/routes.js';
 import { createSubscriptionsRouter } from './subscriptions/routes.js';
 import { SubscriptionHub } from './subscriptions/hub.js';
 import { createAdministrationRouter } from './administration/routes.js';
+import { createImplementationGuidesRouter } from './implementation-guides/routes.js';
 import { createJobsRouter } from './jobs/routes.js';
 import { JobWorker } from './jobs/worker.js';
 import { disconnectPrisma } from './db/prisma.js';
@@ -71,6 +72,7 @@ app.use(createHooksRouter());
 app.use(createBulkExportRouter());
 app.use(createSubscriptionsRouter());
 app.use(createAdministrationRouter());
+app.use(createImplementationGuidesRouter());
 app.use(createJobsRouter());
 
 // Global Error Handler

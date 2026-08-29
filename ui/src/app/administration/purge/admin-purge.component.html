@@ -1,0 +1,340 @@
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<div class="card bg-white p-3 border-danger border-2 shadow-sm">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center gap-2 text-danger">
+      <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+      <h5 class="fw-bold mb-0">Permanent Tenant & Partition Purge</h5>
+    </div>
+    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+      <i class="bi bi-shield-exclamation me-1"></i> Irreversible Action
+    </span>
+  </div>
+  <p class="text-muted small mb-4">
+    Purging permanently removes the sandbox metadata, all associated applications, launch scenarios, and collaborators from the PostgreSQL database, and executes <code>$partition-management-delete-partition</code> on the stock HAPI FHIR JPA server to completely wipe all stored clinical resources.
+  </p>
+
+  <!-- Filters & Search Toolbar -->
+  <div class="card bg-light border-0 p-3 mb-4">
+    <div class="row g-3">
+      <!-- Search -->
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold text-muted mb-1">Search Sandboxes</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+          <input
+            type="text"
+            class="form-control"
+            placeholder="Search by name, slug, description..."
+            [ngModel]="purgeFilters().search"
+            (ngModelChange)="onPurgeSearchChange($event)"
+          />
+          @if (purgeFilters().search) {
+            <button class="btn btn-outline-secondary" (click)="onPurgeSearchChange('')">
+              <i class="bi bi-x"></i>
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- User Filter -->
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold text-muted mb-1">Filter by Creator</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white"><i class="bi bi-person text-muted"></i></span>
+          <input
+            type="text"
+            class="form-control"
+            placeholder="Creator name or email..."
+            [ngModel]="purgeFilters().user"
+            (ngModelChange)="onPurgeUserChange($event)"
+          />
+          @if (purgeFilters().user) {
+            <button class="btn btn-outline-secondary" (click)="onPurgeUserChange('')">
+              <i class="bi bi-x"></i>
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- FHIR Version Filter -->
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold text-muted mb-1">FHIR Version</label>
+        <select
+          class="form-select form-select-sm py-1 ps-2"
+          [ngModel]="purgeFilters().fhirVersion"
+          (ngModelChange)="onPurgeFhirVersionChange($event)"
+        >
+          <option value="all">All Releases</option>
+          <option value="R4">FHIR R4</option>
+          <option value="R4B">FHIR R4B</option>
+          <option value="R5">FHIR R5</option>
+        </select>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="col-md-3 d-flex align-items-end justify-content-end gap-2">
+        <button class="btn btn-sm btn-outline-secondary" (click)="loadPurgeSandboxes()" title="Refresh list">
+          <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+        <button class="btn btn-sm btn-outline-dark" (click)="resetPurgeFilters()" title="Reset all filters">
+          <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+        </button>
+      </div>
+
+      <!-- Age Preset -->
+      <div class="col-md-6">
+        <label class="form-label small fw-semibold text-muted mb-1">
+          <i class="bi bi-calendar-event me-1"></i>Sandbox Age Preset
+        </label>
+        <select
+          class="form-select form-select-sm py-1 ps-2"
+          [ngModel]="purgeFilters().agePreset"
+          (ngModelChange)="onAgePresetChange($event)"
+        >
+          <option value="all">All Ages (Any Creation Date)</option>
+          <option value="7d">Created within last 7 days</option>
+          <option value="30d">Created within last 30 days</option>
+          <option value="90d">Created within last 90 days</option>
+          <option value="180d">Created within last 180 days</option>
+          <option value="365d">Created within last 1 year (365d)</option>
+          <option value="older_than_30d">Older than 30 days</option>
+          <option value="older_than_90d">Older than 90 days</option>
+          <option value="older_than_180d">Older than 180 days</option>
+          <option value="older_than_365d">Older than 1 year (365d)</option>
+        </select>
+      </div>
+
+      <!-- Last Used Preset -->
+      <div class="col-md-6">
+        <label class="form-label small fw-semibold text-muted mb-1">
+          <i class="bi bi-clock-history me-1"></i>Last Used Date Preset
+        </label>
+        <select
+          class="form-select form-select-sm py-1 ps-2"
+          [ngModel]="purgeFilters().lastUsedPreset"
+          (ngModelChange)="onLastUsedPresetChange($event)"
+        >
+          <option value="all">All Activity (Any Last Access Date)</option>
+          <option value="active_7d">Active within last 7 days</option>
+          <option value="active_30d">Active within last 30 days</option>
+          <option value="inactive_30d">Inactive &gt; 30 days (or never)</option>
+          <option value="inactive_90d">Inactive &gt; 90 days (or never)</option>
+          <option value="inactive_180d">Inactive &gt; 180 days (or never)</option>
+          <option value="inactive_365d">Inactive &gt; 1 year (or never)</option>
+          <option value="never">Never Accessed (No UI visits recorded)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sandboxes Table -->
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('name')" style="cursor: pointer;">
+            Sandbox Name
+            @if (purgeFilters().sortBy === 'name') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('fhirVersion')" style="cursor: pointer;">
+            FHIR Release
+            @if (purgeFilters().sortBy === 'fhirVersion') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('partitionId')" style="cursor: pointer;">
+            Partition ID
+            @if (purgeFilters().sortBy === 'partitionId') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('createdBy')" style="cursor: pointer;">
+            Created By
+            @if (purgeFilters().sortBy === 'createdBy') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('createdAt')" style="cursor: pointer;">
+            Created Date
+            @if (purgeFilters().sortBy === 'createdAt') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none cursor-pointer" (click)="setPurgeSort('lastAccessedAt')" style="cursor: pointer;">
+            Last Used
+            @if (purgeFilters().sortBy === 'lastAccessedAt') {
+              <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="text-end">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (purgeLoading()) {
+          <tr>
+            <td colspan="7" class="text-center py-4 text-muted">
+              <div class="spinner-border spinner-border-sm text-danger me-2" role="status"></div>
+              Loading sandboxes...
+            </td>
+          </tr>
+        } @else if (purgeSandboxes().length === 0) {
+          <tr>
+            <td colspan="7" class="text-center py-5 text-muted">
+              <i class="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>
+              <div class="fw-semibold">No sandboxes match the specified criteria.</div>
+              <div class="small text-muted mt-1">Try adjusting your search terms, user filter, or time presets.</div>
+            </td>
+          </tr>
+        } @else {
+          @for (sb of purgeSandboxes(); track sb.id) {
+            <tr>
+              <td>
+                <div class="fw-bold">{{ sb.name }}</div>
+                <div class="d-flex align-items-center gap-1 mt-1">
+                  <code class="text-dark bg-light px-1 py-0.5 rounded border small">{{ sb.sandboxId }}</code>
+                  @if (sb.description) {
+                    <span class="text-muted small text-truncate" style="max-width: 250px;" [title]="sb.description">{{ sb.description }}</span>
+                  }
+                </div>
+              </td>
+              <td>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ sb.fhirVersion }}</span>
+              </td>
+              <td>
+                <span class="font-monospace text-secondary">#{{ sb.partitionId }}</span>
+              </td>
+              <td>
+                @if (sb.createdByUser) {
+                  <div><i class="bi bi-person me-1 text-muted"></i>{{ sb.createdByUser.displayName || sb.createdByUser.email }}</div>
+                  @if (sb.createdByUser.displayName && sb.createdByUser.email) {
+                    <div class="small text-muted">{{ sb.createdByUser.email }}</div>
+                  }
+                } @else {
+                  <span class="text-muted fst-italic">Unknown</span>
+                }
+              </td>
+              <td>
+                <div class="small">
+                  <i class="bi bi-calendar3 me-1 text-muted"></i>{{ sb.createdAt | date:'mediumDate' }}
+                </div>
+                <div class="small text-muted">
+                  {{ sb.createdAt | date:'shortTime' }}
+                </div>
+              </td>
+              <td>
+                @if (sb.lastAccessedAt) {
+                  <div class="small">
+                    <i class="bi bi-clock-history me-1 text-success"></i>{{ sb.lastAccessedAt | date:'mediumDate' }}
+                  </div>
+                  <div class="small text-muted">
+                    {{ sb.lastAccessedAt | date:'shortTime' }}
+                  </div>
+                } @else {
+                  <span class="badge bg-secondary-subtle text-secondary border">Never accessed</span>
+                }
+              </td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" (click)="purgeSandbox(sb)" title="Purge partition and delete metadata">
+                  <i class="bi bi-trash3-fill me-1"></i> Purge Tenant
+                </button>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination Toolbar -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pt-3 mt-2 border-top">
+    <div class="small text-muted">
+      Showing <span class="fw-semibold text-dark">{{ getPurgeShowingStart() }}</span> to
+      <span class="fw-semibold text-dark">{{ getPurgeShowingEnd() }}</span> of
+      <span class="fw-semibold text-dark">{{ purgeTotal() }}</span> sandboxes
+    </div>
+
+    <div class="d-flex align-items-center gap-3">
+      <!-- Page size picker -->
+      <div class="d-flex align-items-center gap-2">
+        <label class="small text-muted text-nowrap">Per page:</label>
+        <select
+          class="form-select form-select-sm py-1 ps-2"
+          style="width: auto;"
+          [ngModel]="purgeFilters().limit"
+          (ngModelChange)="setPurgeLimit($event)"
+        >
+          <option [value]="10">10</option>
+          <option [value]="25">25</option>
+          <option [value]="50">50</option>
+          <option [value]="100">100</option>
+        </select>
+      </div>
+
+      <!-- Page buttons -->
+      <div class="btn-group btn-group-sm">
+        <button
+          class="btn btn-outline-secondary"
+          [disabled]="(purgeFilters().page || 1) <= 1 || purgeLoading()"
+          (click)="setPurgePage(1)"
+          title="First Page"
+        >
+          <i class="bi bi-chevron-double-left"></i>
+        </button>
+        <button
+          class="btn btn-outline-secondary"
+          [disabled]="(purgeFilters().page || 1) <= 1 || purgeLoading()"
+          (click)="setPurgePage((purgeFilters().page || 1) - 1)"
+          title="Previous Page"
+        >
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+          Page {{ purgeFilters().page || 1 }} of {{ purgeTotalPages() }}
+        </button>
+        <button
+          class="btn btn-outline-secondary"
+          [disabled]="(purgeFilters().page || 1) >= purgeTotalPages() || purgeLoading()"
+          (click)="setPurgePage((purgeFilters().page || 1) + 1)"
+          title="Next Page"
+        >
+          <i class="bi bi-chevron-right"></i>
+        </button>
+        <button
+          class="btn btn-outline-secondary"
+          [disabled]="(purgeFilters().page || 1) >= purgeTotalPages() || purgeLoading()"
+          (click)="setPurgePage(purgeTotalPages())"
+          title="Last Page"
+        >
+          <i class="bi bi-chevron-double-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

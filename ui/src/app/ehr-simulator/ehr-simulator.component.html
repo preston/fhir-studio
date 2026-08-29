@@ -11,7 +11,7 @@
       <div class="input-group input-group-sm" style="width: 240px;">
         <span class="input-group-text bg-light fw-semibold">Sandbox</span>
         <select
-          class="form-select"
+          class="form-select py-1 ps-2"
           [ngModel]="sandboxService.activeSandbox()"
           (ngModelChange)="sandboxService.selectSandbox($event)"
         >
@@ -26,7 +26,7 @@
       <!-- Practitioner Persona Switcher -->
       <div class="input-group input-group-sm" style="width: 250px;">
         <span class="input-group-text bg-light"><i class="bi bi-person-badge text-primary me-1"></i> User</span>
-        <select class="form-select" [ngModel]="selectedPersona()" (ngModelChange)="selectedPersona.set($event)">
+        <select class="form-select py-1 ps-2" [ngModel]="selectedPersona()" (ngModelChange)="selectedPersona.set($event)">
           @for (persona of personas(); track persona.id) {
             <option [ngValue]="persona">{{ persona.personaName }}</option>
           }
@@ -137,16 +137,16 @@
 @if (activeTab() === 'application') {
   <div class="card p-3 mb-3 bg-white">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-      <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 550px;">
+      <div class="d-flex align-items-center gap-2 flex-grow-1">
         <label class="form-label fw-bold mb-0 text-nowrap">Application:</label>
-        <select class="form-select form-select-sm" [ngModel]="selectedApplication()" (ngModelChange)="selectedApplication.set($event)">
+        <select class="form-select form-select-sm py-1 ps-2" [ngModel]="selectedApplication()" (ngModelChange)="selectedApplication.set($event)">
           @for (application of applications(); track application.id) {
             <option [ngValue]="application">{{ application.clientName }} ({{ application.isSample ? 'Sample' : 'Custom' }})</option>
           }
         </select>
 
         <!-- Launch Mode Selector -->
-        <div class="btn-group btn-group-sm" role="group">
+        <div class="btn-group btn-group-sm flex-shrink-0" role="group">
           <input
             type="radio"
             class="btn-check"
@@ -156,7 +156,7 @@
             [ngModel]="launchMode()"
             (ngModelChange)="launchMode.set($event)"
           />
-          <label class="btn btn-outline-secondary" for="modeIframe" title="Embedded Iframe Mode">
+          <label class="btn btn-outline-secondary text-nowrap px-3 d-inline-flex align-items-center gap-1" for="modeIframe" title="Embedded Iframe Mode">
             <i class="bi bi-window"></i> Iframe
           </label>
           <input
@@ -168,12 +168,12 @@
             [ngModel]="launchMode()"
             (ngModelChange)="launchMode.set($event)"
           />
-          <label class="btn btn-outline-secondary" for="modePopup" title="Pop-up / New Window Mode (bypasses CSP/X-Frame-Options)">
+          <label class="btn btn-outline-secondary text-nowrap px-3 d-inline-flex align-items-center gap-1" for="modePopup" title="Pop-up / New Window Mode (bypasses CSP/X-Frame-Options)">
             <i class="bi bi-box-arrow-up-right"></i> Pop-up
           </label>
         </div>
 
-        <button class="btn btn-sm btn-primary text-nowrap d-flex align-items-center gap-1" (click)="launchApplication()" [disabled]="launching()">
+        <button class="btn btn-sm btn-primary text-nowrap flex-shrink-0 d-flex align-items-center gap-1 px-3" (click)="launchApplication()" [disabled]="launching()">
           @if (launching()) {
             <span class="spinner-border spinner-border-sm"></span>
           } @else {
@@ -226,7 +226,7 @@
     <div class="row g-3 mb-4">
       <div class="col-md-3">
         <label class="form-label fw-semibold">CDS Hook Trigger</label>
-        <select class="form-select form-select-sm" [ngModel]="selectedCdsHook()" (ngModelChange)="selectedCdsHook.set($event)">
+        <select class="form-select form-select-sm py-1 ps-2" [ngModel]="selectedCdsHook()" (ngModelChange)="selectedCdsHook.set($event)">
           <option value="patient-view">patient-view (Chart Open)</option>
           <option value="order-select">order-select (Order Selection)</option>
           <option value="order-sign">order-sign (Order Sign-off)</option>

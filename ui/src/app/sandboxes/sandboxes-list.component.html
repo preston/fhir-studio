@@ -135,6 +135,9 @@
             <div class="text-muted small mb-3">
               <code>ID: {{ sandbox.sandboxId }}</code> &bull;
               <span>Partition #{{ sandbox.partitionId }}</span>
+              @if (sandbox.visibility === 'PUBLIC') {
+                &bull; <span class="badge bg-light text-dark border">Public</span>
+              }
             </div>
 
             <p class="card-text text-secondary small flex-grow-1">
@@ -167,17 +170,22 @@
               </div>
 
               <div class="dropdown">
-                <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
+                <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                   <i class="bi bi-three-dots-vertical fs-5"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                  <li>
+                    <button class="dropdown-item" (click)="openSettingsModal(sandbox)">
+                      <i class="bi bi-gear me-2"></i> Sandbox Settings
+                    </button>
+                  </li>
                   <li>
                     <button class="dropdown-item" (click)="openCollaboratorsModal(sandbox)">
                       <i class="bi bi-people me-2"></i> Collaborators
                     </button>
                   </li>
                   <li>
-                    <button class="dropdown-item text-warning" (click)="resetPartition(sandbox)">
+                    <button class="dropdown-item" (click)="resetPartition(sandbox)">
                       <i class="bi bi-arrow-counterclockwise me-2"></i> Reset FHIR Data
                     </button>
                   </li>
@@ -213,9 +221,67 @@
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold">Sandbox ID (Slug) <span class="text-danger">*</span></label>
-            <input type="text" class="form-control font-monospace" [(ngModel)]="newSandbox.sandboxId" placeholder="cardiology-clinic">
-            <div class="form-text">Used for endpoint URLs: <code>/api/sandboxes/{{ newSandbox.sandboxId || 'slug' }}/fhir/r4</code></div>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label fw-semibold mb-0" for="sandboxSlugInput">
+                Sandbox ID (Slug) <span class="text-danger">*</span>
+              </label>
+              @if (slugManuallyEdited() && newSandbox.name.trim()) {
+                <button
+                  type="button"
+                  class="btn btn-sm btn-link text-decoration-none p-0"
+                  (click)="resetSlugToSuggested()"
+                  title="Reset slug to auto-suggest from Sandbox Name"
+                >
+                  <i class="bi bi-arrow-clockwise me-1"></i>Reset to suggested
+                </button>
+              }
+            </div>
+            <div class="input-group">
+              <input
+                id="sandboxSlugInput"
+                type="text"
+                class="form-control font-monospace"
+                [class.is-valid]="slugAvailable() === true"
+                [class.is-invalid]="slugAvailable() === false"
+                [value]="newSandbox.sandboxId"
+                (input)="onSlugInput($event)"
+                (blur)="onSlugBlur()"
+                placeholder="cardiology-clinic"
+                maxlength="64"
+                autocomplete="off"
+                spellcheck="false"
+              >
+              <span class="input-group-text bg-white">
+                @if (slugChecking()) {
+                  <span class="spinner-border spinner-border-sm text-primary" role="status" title="Checking availability...">
+                    <span class="visually-hidden">Checking...</span>
+                  </span>
+                } @else if (slugAvailable() === true) {
+                  <i class="bi bi-check-circle-fill text-success" title="Available"></i>
+                } @else if (slugAvailable() === false) {
+                  <i class="bi bi-x-circle-fill text-danger" title="Unavailable"></i>
+                } @else {
+                  <i class="bi bi-link-45deg text-muted"></i>
+                }
+              </span>
+            </div>
+            @if (slugValidationMessage()) {
+              <div
+                class="small mt-1"
+                [ngClass]="slugAvailable() === true ? 'text-success' : 'text-danger'"
+              >
+                @if (slugAvailable() === true) {
+                  <i class="bi bi-check me-1"></i>
+                } @else {
+                  <i class="bi bi-exclamation-circle me-1"></i>
+                }
+                {{ slugValidationMessage() }}
+              </div>
+            }
+            <div class="form-text mt-1">
+              Must be URL-safe (lowercase letters, numbers, and hyphens).
+              <div>Endpoint URL: <code>/api/sandboxes/{{ newSandbox.sandboxId || 'slug' }}/fhir/r4</code></div>
+            </div>
           </div>
 
           <div class="mb-3">
@@ -226,46 +292,56 @@
           <div class="row g-3 mb-3">
             <div class="col-6">
               <label class="form-label fw-semibold">FHIR Release</label>
-              <select class="form-select" [(ngModel)]="newSandbox.fhirVersion">
-                <option value="R4">FHIR R4 (v4.0.1 - Standard)</option>
+              <select class="form-select py-1 ps-2" [(ngModel)]="newSandbox.fhirVersion" (ngModelChange)="onFhirVersionChange()">
+                <option value="R4">FHIR R4 (v4.0.1)</option>
                 <option value="R4B">FHIR R4B (v4.3.0)</option>
-                <option value="R5">FHIR R5 (v5.0.0 - Final)</option>
+                <option value="R5">FHIR R5 (v5.0.0)</option>
               </select>
             </div>
             <div class="col-6">
               <label class="form-label fw-semibold">Visibility</label>
-              <select class="form-select" [(ngModel)]="newSandbox.visibility">
+              <select class="form-select py-1 ps-2" [(ngModel)]="newSandbox.visibility">
                 <option value="PRIVATE">Private</option>
                 <option value="PUBLIC">Public</option>
               </select>
             </div>
           </div>
 
-          <!-- Notable FHIR Implementation Guides Wizard Selection -->
+          <!-- Notable FHIR Implementation Guides Dynamic Selection -->
           <div class="card bg-light border-0 p-3 mb-3">
-            <label class="form-label fw-bold mb-1">
-              <i class="bi bi-journal-bookmark-fill text-primary me-1"></i> Pre-load Implementation Guides (US Core & Notable IGs)
+            <label class="form-label fw-bold mb-1 d-flex justify-content-between align-items-center">
+              <span><i class="bi bi-journal-bookmark-fill text-primary me-1"></i> Pre-load Implementation Guides</span>
+              @if (loadingIgs()) {
+                <span class="spinner-border spinner-border-sm text-primary"></span>
+              }
             </label>
             <div class="text-muted small mb-3">
               Select standard FHIR Implementation Guides to automatically index profiles, ValueSets, and CodeSystems into this sandbox upon creation.
             </div>
 
-            <div class="row g-2">
-              @for (ig of igOptions; track ig.id) {
-                <div class="col-md-6">
-                  <div class="form-check card p-2 bg-white border h-100 shadow-sm">
-                    <input class="form-check-input ms-0 me-2" type="checkbox" [id]="ig.id" [(ngModel)]="ig.selected">
-                    <label class="form-check-label w-100 cursor-pointer" [for]="ig.id">
-                      <div class="d-flex justify-content-between align-items-center">
-                        <span class="fw-bold text-dark small">{{ ig.title }}</span>
-                        <span class="badge bg-secondary-subtle text-secondary small">{{ ig.category }}</span>
-                      </div>
-                      <div class="text-muted small">{{ ig.description }}</div>
-                    </label>
+            @if (igOptions().length === 0 && !loadingIgs()) {
+              <div class="text-muted small fst-italic p-2 bg-white rounded border">
+                No recommended Implementation Guides found for FHIR {{ newSandbox.fhirVersion }}. You can import additional packages later in the Registry Importer.
+              </div>
+            } @else {
+              <div class="row g-2">
+                @for (ig of igOptions(); track ig.id) {
+                  <div class="col-md-6">
+                    <div class="form-check card p-2 bg-white border h-100 shadow-sm">
+                      <input class="form-check-input ms-0 me-2" type="checkbox" [id]="ig.id" [(ngModel)]="ig.selected">
+                      <label class="form-check-label w-100 cursor-pointer" [for]="ig.id">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                          <span class="fw-bold text-dark small text-truncate" style="max-width: 220px;" [title]="ig.title">{{ ig.title }}</span>
+                          <span class="badge bg-secondary-subtle text-secondary small">{{ ig.category }}</span>
+                        </div>
+                        <div class="text-muted small text-truncate" [title]="ig.description">{{ ig.description }}</div>
+                        <div class="text-secondary small font-monospace">{{ ig.name }}@{{ ig.version }}</div>
+                      </label>
+                    </div>
                   </div>
-                </div>
-              }
-            </div>
+                }
+              </div>
+            }
           </div>
 
           <!-- Seed Synthetic Clinical Data Selection -->
@@ -300,7 +376,170 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="createSandbox()">Create Sandbox</button>
+          <button
+            type="button"
+            class="btn btn-primary d-flex align-items-center gap-2"
+            [disabled]="!newSandbox.name.trim() || !newSandbox.sandboxId.trim() || slugChecking() || slugAvailable() === false || loading()"
+            (click)="createSandbox()"
+          >
+            @if (loading()) {
+              <span class="spinner-border spinner-border-sm" role="status"></span>
+              <span>Creating...</span>
+            } @else {
+              <span>Create Sandbox</span>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Sandbox Settings Modal -->
+@if (showSettingsModal() && selectedSandboxForSettings()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title fw-bold mb-0">
+              <i class="bi bi-sliders me-2 text-primary"></i>
+              Sandbox Settings & Configuration
+            </h5>
+            <div class="small text-muted font-monospace mt-1">
+              {{ selectedSandboxForSettings()!.sandboxId }} &bull; Partition #{{ selectedSandboxForSettings()!.partitionId }}
+            </div>
+          </div>
+          <button type="button" class="btn-close" (click)="showSettingsModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <!-- Technical Specs Banner -->
+          <div class="row g-2 p-3 bg-light rounded border mb-4">
+            <div class="col-sm-4">
+              <span class="text-muted small fw-bold text-uppercase d-block">FHIR Version</span>
+              <span class="badge fs-6 mt-1" [ngClass]="selectedSandboxForSettings()!.fhirVersion === 'R4' ? 'bg-primary' : 'bg-success'">
+                FHIR {{ selectedSandboxForSettings()!.fhirVersion }}
+              </span>
+            </div>
+            <div class="col-sm-4">
+              <span class="text-muted small fw-bold text-uppercase d-block">Created On</span>
+              <span class="small fw-semibold mt-1 d-block">{{ selectedSandboxForSettings()!.createdAt | date:'mediumDate' }}</span>
+            </div>
+            <div class="col-sm-4">
+              <span class="text-muted small fw-bold text-uppercase d-block">Access Endpoint</span>
+              <code class="small text-truncate d-block">/api/sandboxes/{{ selectedSandboxForSettings()!.sandboxId }}/fhir/{{ selectedSandboxForSettings()!.fhirVersion.toLowerCase() }}</code>
+            </div>
+          </div>
+
+          <!-- General Details -->
+          <h6 class="fw-bold mb-3 border-bottom pb-2">General Information</h6>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sandbox Name <span class="text-danger">*</span></label>
+            <input
+              type="text"
+              class="form-control"
+              [(ngModel)]="settingsForm.name"
+              placeholder="e.g. Cardiology Clinic Sandbox"
+            />
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea
+              class="form-control"
+              rows="2"
+              [(ngModel)]="settingsForm.description"
+              placeholder="Purpose, active clinical study, or team notes..."
+            ></textarea>
+          </div>
+
+          <!-- Security & Access Mode -->
+          <h6 class="fw-bold mb-3 border-bottom pb-2">Security & Access Control</h6>
+          <div class="card p-3 mb-3 bg-light border-0">
+            <div class="form-check form-switch mb-2">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="editOpenAccessSwitch"
+                [(ngModel)]="settingsForm.allowOpenAccess"
+              />
+              <label class="form-check-label fw-bold text-dark cursor-pointer" for="editOpenAccessSwitch">
+                Allow Open Access (Bypass OAuth2 Authorization)
+              </label>
+            </div>
+            <div class="small text-muted">
+              When <strong>Open Access</strong> is enabled, FHIR endpoints can be queried directly without SMART Bearer tokens.
+              When disabled, strict SMART on FHIR v2 authorization, PKCE S256, and granular scopes are enforced.
+            </div>
+          </div>
+
+          <!-- Visibility & Sharing -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Catalog Visibility</label>
+              <select class="form-select py-1 ps-2" [(ngModel)]="settingsForm.visibility">
+                <option value="PRIVATE">Private (Owner & Collaborators only)</option>
+                <option value="PUBLIC">Public (Visible in public directory)</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Team Collaboration</label>
+              <div class="form-check form-switch mt-2">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="editSharedSwitch"
+                  [(ngModel)]="settingsForm.isShared"
+                />
+                <label class="form-check-label fw-semibold" for="editSharedSwitch">
+                  Shared Sandbox
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Danger Zone -->
+          <h6 class="fw-bold mb-3 border-bottom pb-2 text-danger">Advanced & Danger Zone</h6>
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center p-3 border border-danger-subtle rounded bg-danger-subtle bg-opacity-10">
+            <div>
+              <div class="fw-bold text-danger">Partition Maintenance</div>
+              <div class="small text-muted">Reset FHIR resources or manage collaborators.</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-warning"
+                (click)="resetPartition(selectedSandboxForSettings()!)"
+                title="Wipe and recreate HAPI JPA Partition resources"
+              >
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset FHIR Data
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-danger"
+                (click)="deleteSandbox(selectedSandboxForSettings()!)"
+                title="Permanently remove sandbox and partition"
+              >
+                <i class="bi bi-trash me-1"></i> Delete Sandbox
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showSettingsModal.set(false)">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary d-flex align-items-center gap-1"
+            (click)="saveSandboxSettings()"
+            [disabled]="savingSettings() || !settingsForm.name.trim()"
+          >
+            @if (savingSettings()) {
+              <span class="spinner-border spinner-border-sm"></span>
+            } @else {
+              <i class="bi bi-check-circle"></i>
+            }
+            <span>Save Settings</span>
+          </button>
         </div>
       </div>
     </div>
@@ -319,7 +558,7 @@
         <div class="modal-body">
           <div class="d-flex gap-2 mb-4">
             <input type="email" class="form-control" [(ngModel)]="newCollaboratorEmail" placeholder="user@example.com">
-            <select class="form-select w-auto" [(ngModel)]="newCollaboratorRole">
+            <select class="form-select py-1 ps-2 w-auto" [(ngModel)]="newCollaboratorRole">
               <option value="READ_WRITE">Read/Write</option>
               <option value="READ_ONLY">Read Only</option>
               <option value="MANAGE">Administrator</option>

@@ -3,7 +3,7 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { SandboxService } from '../core/services/sandbox.service.js';
 
@@ -117,7 +117,7 @@ function parseJwtPayload(token?: string): Record<string, any> | null {
 @Component({
   selector: 'app-example-application',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule],
   templateUrl: './example-application.component.html',
   styleUrls: ['./example-application.component.scss'],
 })
@@ -206,7 +206,6 @@ export class ExampleApplicationComponent implements OnInit {
 
     if (
       urlPath === 'example-application/launch' ||
-      urlPath === 'example-app/launch' ||
       (queryParams['iss'] && queryParams['launch'])
     ) {
       // 1. EHR Launch Flow

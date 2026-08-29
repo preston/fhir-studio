@@ -1,6 +1,7 @@
 // Author: Preston Lee
 
 import express, { type Request, type Response, type Router } from 'express';
+import axios from 'axios';
 import { AppointmentEntityType, type Prisma } from '@prisma/client';
 import { getPrisma } from '../db/prisma.js';
 import { HapiPartitionClient } from '../hapi/partition_client.js';
@@ -596,6 +597,201 @@ export function createAdministrationRouter(): Router {
     await prisma.sandbox.delete({ where: { id: sandbox.id } });
 
     res.json({ message: `Sandbox '${sandboxId}' and its HAPI FHIR partition were permanently purged.` });
+  });
+
+  // ==========================================
+  // 7. IMPLEMENTATION GUIDES MANAGEMENT
+  // ==========================================
+  router.get('/api/administration/implementation-guides', async (req: Request, res: Response): Promise<void> => {
+    const { search, category, fhirVersion } = req.query;
+
+    const where: Prisma.ImplementationGuideWhereInput = {};
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      where.OR = [
+        { packageId: { contains: q, mode: 'insensitive' } },
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { author: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    if (category && String(category) !== 'all') {
+      where.category = String(category).toUpperCase();
+    }
+
+    if (fhirVersion && String(fhirVersion) !== 'all') {
+      where.fhirVersion = String(fhirVersion);
+    }
+
+    const implementationGuides = await prisma.implementationGuide.findMany({
+      where,
+      orderBy: [{ recommendedForCreation: 'desc' }, { title: 'asc' }],
+    });
+
+    res.json({ implementationGuides });
+  });
+
+  router.post('/api/administration/implementation-guides', async (req: Request, res: Response): Promise<void> => {
+    const {
+      packageId,
+      version,
+      title,
+      description,
+      fhirVersion = '4.0.1',
+      category = 'General',
+      canonicalUrl,
+      url,
+      recommendedForCreation = false,
+      isSuggested = true,
+      author,
+      dependencies = {},
+      tarballUrl,
+    } = req.body;
+
+    if (!packageId || !version || !title) {
+      res.status(400).json({ error: 'packageId, version, and title are required.' });
+      return;
+    }
+
+    const cleanPackageId = packageId.trim().toLowerCase();
+    const cleanVersion = version.trim();
+
+    const existing = await prisma.implementationGuide.findUnique({
+      where: {
+        packageId_version: {
+          packageId: cleanPackageId,
+          version: cleanVersion,
+        },
+      },
+    });
+
+    if (existing) {
+      res.status(409).json({ error: `Implementation Guide '${cleanPackageId}@${cleanVersion}' already exists.` });
+      return;
+    }
+
+    const created = await prisma.implementationGuide.create({
+      data: {
+        packageId: cleanPackageId,
+        version: cleanVersion,
+        title: title.trim(),
+        description: description?.trim() || null,
+        fhirVersion: fhirVersion.trim(),
+        category: category.trim().toUpperCase(),
+        canonicalUrl: canonicalUrl?.trim() || null,
+        url: url?.trim() || null,
+        recommendedForCreation: Boolean(recommendedForCreation),
+        isSuggested: Boolean(isSuggested),
+        author: author?.trim() || null,
+        dependencies: dependencies || {},
+        tarballUrl: tarballUrl?.trim() || null,
+      },
+    });
+
+    res.status(201).json({ implementationGuide: created });
+  });
+
+  router.put('/api/administration/implementation-guides/:id', async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const {
+      packageId,
+      version,
+      title,
+      description,
+      fhirVersion,
+      category,
+      canonicalUrl,
+      url,
+      recommendedForCreation,
+      isSuggested,
+      author,
+      dependencies,
+      tarballUrl,
+    } = req.body;
+
+    const ig = await prisma.implementationGuide.findUnique({ where: { id } });
+    if (!ig) {
+      res.status(404).json({ error: `Implementation Guide with ID '${id}' not found.` });
+      return;
+    }
+
+    const updated = await prisma.implementationGuide.update({
+      where: { id },
+      data: {
+        ...(packageId !== undefined ? { packageId: packageId.trim().toLowerCase() } : {}),
+        ...(version !== undefined ? { version: version.trim() } : {}),
+        ...(title !== undefined ? { title: title.trim() } : {}),
+        ...(description !== undefined ? { description: description?.trim() || null } : {}),
+        ...(fhirVersion !== undefined ? { fhirVersion: fhirVersion.trim() } : {}),
+        ...(category !== undefined ? { category: category.trim().toUpperCase() } : {}),
+        ...(canonicalUrl !== undefined ? { canonicalUrl: canonicalUrl?.trim() || null } : {}),
+        ...(url !== undefined ? { url: url?.trim() || null } : {}),
+        ...(recommendedForCreation !== undefined ? { recommendedForCreation: Boolean(recommendedForCreation) } : {}),
+        ...(isSuggested !== undefined ? { isSuggested: Boolean(isSuggested) } : {}),
+        ...(author !== undefined ? { author: author?.trim() || null } : {}),
+        ...(dependencies !== undefined ? { dependencies } : {}),
+        ...(tarballUrl !== undefined ? { tarballUrl: tarballUrl?.trim() || null } : {}),
+      },
+    });
+
+    res.json({ implementationGuide: updated });
+  });
+
+  router.delete('/api/administration/implementation-guides/:id', async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const ig = await prisma.implementationGuide.findUnique({ where: { id } });
+    if (!ig) {
+      res.status(404).json({ error: `Implementation Guide with ID '${id}' not found.` });
+      return;
+    }
+
+    await prisma.implementationGuide.delete({ where: { id } });
+    res.json({ message: `Implementation Guide '${ig.packageId}@${ig.version}' deleted successfully.` });
+  });
+
+  router.post('/api/administration/implementation-guides/fetch-metadata', async (req: Request, res: Response): Promise<void> => {
+    const { packageId, version } = req.body;
+
+    if (!packageId) {
+      res.status(400).json({ error: 'packageId is required.' });
+      return;
+    }
+
+    try {
+      const cleanPkg = packageId.trim().toLowerCase();
+      const url = version
+        ? `https://packages.fhir.org/${cleanPkg}/${version.trim()}`
+        : `https://packages.fhir.org/${cleanPkg}`;
+
+      const resp = await axios.get(url, {
+        timeout: 10_000,
+        headers: { Accept: 'application/json' },
+      });
+
+      const data = resp.data;
+      const latestVer = data['dist-tags']?.latest || Object.keys(data.versions || {})[0] || version || 'current';
+      const versionData = data.versions ? data.versions[latestVer] || Object.values(data.versions)[0] : data;
+
+      res.json({
+        metadata: {
+          packageId: cleanPkg,
+          version: versionData?.version || latestVer,
+          title: versionData?.title || data.title || cleanPkg,
+          description: versionData?.description || data.description || '',
+          fhirVersion: versionData?.fhirVersion || (Array.isArray(data.fhirVersions) ? data.fhirVersions[0] : '4.0.1'),
+          canonicalUrl: versionData?.canonical || data.canonical || '',
+          url: versionData?.url || data.url || `https://packages.fhir.org/${cleanPkg}`,
+          author: versionData?.author || data.author || '',
+          dependencies: versionData?.dependencies || data.dependencies || {},
+        },
+      });
+    } catch (err: any) {
+      res.status(502).json({
+        error: `Failed to fetch metadata from packages.fhir.org: ${err?.message}`,
+      });
+    }
   });
 
   return router;

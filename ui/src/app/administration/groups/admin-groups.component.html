@@ -1,0 +1,225 @@
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<div class="card bg-white p-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h6 class="fw-bold mb-0">Access Groups</h6>
+      <span class="text-muted small">Manage organizational and role groupings for user permissions</span>
+    </div>
+    <button class="btn btn-sm btn-primary" (click)="openNewGroupModal()">
+      <i class="bi bi-plus-circle me-1"></i> New Group
+    </button>
+  </div>
+
+  <!-- Search and Actions Toolbar -->
+  <div class="row g-2 mb-3 align-items-center">
+    <div class="col-md-6">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+        <input
+          type="text"
+          class="form-control"
+          placeholder="Search by group name, description, SSO claim..."
+          [ngModel]="search()"
+          (ngModelChange)="onSearchChange($event)"
+        />
+        @if (search()) {
+          <button class="btn btn-outline-secondary" (click)="onSearchChange('')">
+            <i class="bi bi-x"></i>
+          </button>
+        }
+      </div>
+    </div>
+    <div class="col-md-6 d-flex justify-content-end gap-2">
+      <button class="btn btn-sm btn-outline-secondary" (click)="loadGroups()" title="Refresh group list">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+      </button>
+      <button class="btn btn-sm btn-outline-dark" (click)="resetFilters()" title="Reset search">
+        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+      </button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading groups...</span>
+      </div>
+    </div>
+  } @else {
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="user-select-none cursor-pointer" (click)="setSort('name')" style="cursor: pointer;">
+              Group Name
+              @if (sortBy() === 'name') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('description')" style="cursor: pointer;">
+              Description
+              @if (sortBy() === 'description') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('ssoRoleMapping')" style="cursor: pointer;">
+              SSO Role Mapping Claim
+              @if (sortBy() === 'ssoRoleMapping') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setSort('membersCount')" style="cursor: pointer;">
+              Members Count
+              @if (sortBy() === 'membersCount') {
+                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (paginatedGroups().length === 0) {
+            <tr>
+              <td colspan="5" class="text-center py-5 text-muted">
+                <i class="bi bi-collection fs-2 d-block mb-2"></i>
+                <div class="fw-semibold">No access groups match the search criteria.</div>
+              </td>
+            </tr>
+          }
+          @for (group of paginatedGroups(); track group.id) {
+            <tr>
+              <td class="fw-bold">{{ group.name }}</td>
+              <td class="text-muted">{{ group.description || 'N/A' }}</td>
+              <td><code>{{ group.ssoRoleMapping || 'None' }}</code></td>
+              <td><span class="badge bg-info text-dark">{{ group.members?.length || 0 }} members</span></td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" (click)="deleteGroup(group.id)" title="Delete group">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Toolbar -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pt-3 mt-2 border-top">
+      <div class="small text-muted">
+        Showing <span class="fw-semibold text-dark">{{ getShowingStart() }}</span> to
+        <span class="fw-semibold text-dark">{{ getShowingEnd() }}</span> of
+        <span class="fw-semibold text-dark">{{ totalGroupsCount() }}</span> groups
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- Page size picker -->
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-muted text-nowrap">Per page:</label>
+          <select
+            class="form-select form-select-sm py-1 ps-2"
+            style="width: auto;"
+            [ngModel]="limit()"
+            (ngModelChange)="setLimit($event)"
+          >
+            <option [value]="10">10</option>
+            <option [value]="25">25</option>
+            <option [value]="50">50</option>
+            <option [value]="100">100</option>
+          </select>
+        </div>
+
+        <!-- Page buttons -->
+        <div class="btn-group btn-group-sm">
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(1)"
+            title="First Page"
+          >
+            <i class="bi bi-chevron-double-left"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() <= 1 || loading()"
+            (click)="setPage(page() - 1)"
+            title="Previous Page"
+          >
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+            Page {{ page() }} of {{ totalPages() }}
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(page() + 1)"
+            title="Next Page"
+          >
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="page() >= totalPages() || loading()"
+            (click)="setPage(totalPages())"
+            title="Last Page"
+          >
+            <i class="bi bi-chevron-double-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>
+
+<!-- Create/Edit Group Modal -->
+@if (showGroupModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">{{ groupForm.id ? 'Edit Group' : 'Manage Group' }}</h5>
+          <button type="button" class="btn-close" (click)="showGroupModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="groupForm.name" placeholder="e.g. Clinical Staff">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">SSO Role Mapping Claim</label>
+            <input type="text" class="form-control font-monospace" [(ngModel)]="groupForm.ssoRoleMapping" placeholder="e.g. clinical-staff">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <input type="text" class="form-control" [(ngModel)]="groupForm.description">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showGroupModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveGroup()">Save Group</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

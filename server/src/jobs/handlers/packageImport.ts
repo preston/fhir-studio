@@ -3,6 +3,7 @@
 import axios from 'axios';
 import { gunzipSync } from 'fflate';
 import type { JobHandler } from '../types.js';
+import { fetchPackageTarball } from '../../implementation-guides/registry.js';
 
 function extractJsonResourcesFromTar(tarBytes: Uint8Array): any[] {
   const resources: any[] = [];
@@ -70,18 +71,14 @@ export const packageImportHandler: JobHandler = async (ctx) => {
 
   await ctx.updateProgress(10, `Downloading FHIR Package ${packageName}#${packageVersion}...`);
 
-  const tarballUrl = `https://packages.fhir.org/${packageName}/${packageVersion}`;
-  const resp = await axios.get(tarballUrl, {
-    responseType: 'arraybuffer',
-    timeout: 60_000,
-  });
+  const { buffer } = await fetchPackageTarball(packageName, packageVersion);
 
   if (ctx.signal.aborted || (await ctx.isCancelled())) {
     throw new Error('Job was cancelled.');
   }
 
   await ctx.updateProgress(30, 'Decompressing package archive...');
-  const gz = new Uint8Array(resp.data);
+  const gz = new Uint8Array(buffer);
   const tar = gunzipSync(gz);
   const resources = extractJsonResourcesFromTar(tar);
 

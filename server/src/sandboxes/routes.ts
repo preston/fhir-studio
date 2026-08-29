@@ -7,6 +7,30 @@ import { requirePermission } from '../authorization/requirePermission.js';
 import { hasPermission } from '../authorization/permissions.js';
 import { JobService } from '../jobs/service.js';
 
+const RESERVED_SLUGS = new Set([
+  'check-availability',
+  'access',
+  'default',
+  'system',
+  'admin',
+  'api',
+  'fhir',
+  'undefined',
+  'null',
+  'new',
+  'create',
+  'search',
+]);
+
+export function sanitizeSlug(input: string): string {
+  return String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export function createSandboxesRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -73,6 +97,58 @@ export function createSandboxesRouter(): Router {
     });
 
     res.json({ sandboxes });
+  });
+
+  // 1b. GET /api/sandboxes/check-availability (Check if sandboxId slug is available)
+  router.get('/api/sandboxes/check-availability', async (req: Request, res: Response): Promise<void> => {
+    const raw = String(req.query.slug || req.query.sandboxId || '');
+    const cleanSlug = sanitizeSlug(raw);
+
+    if (!cleanSlug) {
+      res.json({
+        available: false,
+        slug: cleanSlug,
+        reason: 'Sandbox ID cannot be empty.',
+      });
+      return;
+    }
+
+    if (cleanSlug.length < 2) {
+      res.json({
+        available: false,
+        slug: cleanSlug,
+        reason: 'Sandbox ID must be at least 2 characters long.',
+      });
+      return;
+    }
+
+    if (RESERVED_SLUGS.has(cleanSlug)) {
+      res.json({
+        available: false,
+        slug: cleanSlug,
+        reason: `'${cleanSlug}' is a reserved system identifier.`,
+      });
+      return;
+    }
+
+    const existing = await prisma.sandbox.findUnique({
+      where: { sandboxId: cleanSlug },
+      select: { id: true, sandboxId: true },
+    });
+
+    if (existing) {
+      res.json({
+        available: false,
+        slug: cleanSlug,
+        reason: `Sandbox ID '${cleanSlug}' is already in use.`,
+      });
+      return;
+    }
+
+    res.json({
+      available: true,
+      slug: cleanSlug,
+    });
   });
 
   // 2. GET /api/sandboxes/:sandboxId (Sandbox details)
@@ -142,6 +218,7 @@ export function createSandboxesRouter(): Router {
         visibility = 'PRIVATE',
         isShared = false,
         seedData = true,
+        initialIgs = [],
       } = req.body;
 
       if (!sandboxId || !name) {
@@ -149,7 +226,16 @@ export function createSandboxesRouter(): Router {
         return;
       }
 
-      const cleanSlug = String(sandboxId).trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+      const cleanSlug = sanitizeSlug(sandboxId);
+      if (!cleanSlug || cleanSlug.length < 2) {
+        res.status(400).json({ error: 'Sandbox ID must be at least 2 characters and contain valid URL characters.' });
+        return;
+      }
+
+      if (RESERVED_SLUGS.has(cleanSlug)) {
+        res.status(400).json({ error: `'${cleanSlug}' is a reserved system identifier.` });
+        return;
+      }
 
       if (isShared && !hasPermission(req.effectivePermissions, 'sandboxes_shared')) {
         res.status(403).json({ error: 'Permission denied: shared sandbox creation requires permission_sandboxes_shared.' });
@@ -234,6 +320,39 @@ export function createSandboxesRouter(): Router {
           },
           req.sessionAuth!.userId,
         );
+      }
+
+      // Asynchronously import any selected initial implementation guide packages
+      if (Array.isArray(initialIgs) && initialIgs.length > 0) {
+        const jobService = new JobService(prisma);
+        for (const ig of initialIgs) {
+          let pkgName = '';
+          let pkgVer = '';
+          if (typeof ig === 'string') {
+            const parts = ig.split(/[@#]/);
+            pkgName = parts[0]?.trim() || '';
+            pkgVer = parts[1]?.trim() || '';
+          } else if (ig && typeof ig === 'object') {
+            pkgName = (ig.name || ig.packageId || '').trim();
+            pkgVer = (ig.version || '').trim();
+          }
+
+          if (pkgName) {
+            await jobService.enqueueJob(
+              {
+                name: `Import Implementation Guide ${pkgName}#${pkgVer || 'latest'} for '${created.name}'`,
+                jobType: 'PACKAGE_IMPORT',
+                sandboxId: created.id,
+                input: {
+                  packageName: pkgName,
+                  packageVersion: pkgVer || 'latest',
+                  sandboxId: created.sandboxId,
+                },
+              },
+              req.sessionAuth!.userId,
+            );
+          }
+        }
       }
 
       res.status(201).json({ sandbox: created });

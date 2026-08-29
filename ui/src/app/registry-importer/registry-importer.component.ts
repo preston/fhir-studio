@@ -3,73 +3,31 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
+import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { gunzipSync } from 'fflate';
+import type { ImplementationGuideSummary } from '@fhir-studio/core';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { FhirService } from '../core/services/fhir.service.js';
-
-export interface PopularPackage {
-  name: string;
-  version: string;
-  title: string;
-  description: string;
-  fhirVersion: string;
-}
-
-export interface RegistrySearchResult {
-  name: string;
-  description?: string;
-  title?: string;
-  version?: string;
-  'dist-tags'?: { latest?: string };
-}
+import { ImplementationGuideService, type RegistryCatalogSearchResult } from '../core/services/implementation-guide.service.js';
 
 @Component({
   selector: 'app-registry-importer',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './registry-importer.component.html',
   styleUrls: ['./registry-importer.component.scss'],
 })
 export class RegistryImporterComponent implements OnInit {
-  private readonly http = inject(HttpClient);
   public readonly sandboxService = inject(SandboxService);
   private readonly fhirService = inject(FhirService);
+  private readonly igService = inject(ImplementationGuideService);
 
-  public readonly popularPackages: PopularPackage[] = [
-    {
-      name: 'hl7.fhir.us.core',
-      version: '6.1.0',
-      title: 'US Core Implementation Guide',
-      description: 'US Realm conformance profiles and synthetic data definitions.',
-      fhirVersion: '4.0.1',
-    },
-    {
-      name: 'hl7.fhir.us.mcode',
-      version: '3.0.0',
-      title: 'mCODE (Minimal Common Oncology Data Elements)',
-      description: 'Standardized oncology clinical data models for cancer research.',
-      fhirVersion: '4.0.1',
-    },
-    {
-      name: 'hl7.fhir.us.qicore',
-      version: '5.0.0',
-      title: 'QI-Core Implementation Guide',
-      description: 'Quality Improvement Core framework for electronic clinical quality measures.',
-      fhirVersion: '4.0.1',
-    },
-    {
-      name: 'hl7.fhir.uv.smart-app-launch',
-      version: '2.2.0',
-      title: 'SMART App Launch IG',
-      description: 'SMART on FHIR application launch framework definitions and capabilities.',
-      fhirVersion: '4.0.1',
-    },
-  ];
+  public readonly suggestedPackages = signal<ImplementationGuideSummary[]>([]);
+  public readonly loadingSuggested = signal<boolean>(false);
 
   public readonly searchQuery = signal<string>('');
-  public readonly searchResults = signal<RegistrySearchResult[]>([]);
+  public readonly searchResults = signal<RegistryCatalogSearchResult[]>([]);
   public readonly isSearching = signal<boolean>(false);
 
   // Upload / Import State
@@ -84,6 +42,20 @@ export class RegistryImporterComponent implements OnInit {
     if (this.sandboxService.sandboxes().length === 0) {
       this.sandboxService.getSandboxes().subscribe();
     }
+    this.loadSuggestedPackages();
+  }
+
+  public loadSuggestedPackages(): void {
+    this.loadingSuggested.set(true);
+    this.igService.getImplementationGuides({ isSuggested: true }).subscribe({
+      next: (res) => {
+        this.suggestedPackages.set(res.implementationGuides || []);
+        this.loadingSuggested.set(false);
+      },
+      error: () => {
+        this.loadingSuggested.set(false);
+      },
+    });
   }
 
   public searchRegistry(): void {
@@ -91,27 +63,15 @@ export class RegistryImporterComponent implements OnInit {
     if (!q) return;
 
     this.isSearching.set(true);
-    const url = `https://packages.fhir.org/catalog?name=${encodeURIComponent(q)}`;
+    this.errorMessage.set(null);
 
-    this.http.get<RegistrySearchResult[]>(url).subscribe({
+    this.igService.searchRegistry(q).subscribe({
       next: (res) => {
-        this.searchResults.set(Array.isArray(res) ? res : []);
+        this.searchResults.set(res.results || []);
         this.isSearching.set(false);
       },
-      error: () => {
-        // Fallback filter over popular packages
-        const filtered = this.popularPackages
-          .filter((p) =>
-            p.name.toLowerCase().includes(q.toLowerCase()) ||
-            p.title.toLowerCase().includes(q.toLowerCase()),
-          )
-          .map((p) => ({
-            name: p.name,
-            version: p.version,
-            title: p.title,
-            description: p.description,
-          }));
-        this.searchResults.set(filtered);
+      error: (err) => {
+        this.errorMessage.set(err?.error?.error || 'Failed to search registry.');
         this.isSearching.set(false);
       },
     });
@@ -131,23 +91,44 @@ export class RegistryImporterComponent implements OnInit {
     }
   }
 
-  public importPackage(pkgName: string, version: string): void {
+  public importPackage(pkgName: string, version?: string, tarballUrl?: string | null): void {
     const current = this.sandboxService.activeSandbox();
-    if (!current) return;
+    if (!current) {
+      this.errorMessage.set('Please select a target sandbox before importing.');
+      return;
+    }
 
+    const targetVersion = version || 'latest';
     this.isImporting.set(true);
+    this.errorMessage.set(null);
+    this.successMessage.set(null);
     this.importProgress.set(10);
-    this.importStatusText.set(`Downloading ${pkgName}#${version}...`);
-    this.importLogs.set([`Starting download for ${pkgName}@${version}`]);
+    this.importStatusText.set(`Downloading ${pkgName}#${targetVersion}...`);
+    this.importLogs.set([`Starting download for ${pkgName}@${targetVersion}`]);
 
-    const tarballUrl = `https://packages.fhir.org/${pkgName}/${version}`;
-
-    this.http.get(tarballUrl, { responseType: 'arraybuffer' }).subscribe({
+    this.igService.downloadPackage(pkgName, targetVersion, tarballUrl).subscribe({
       next: (arrayBuffer) => {
-        this.processTarballBytes(arrayBuffer, `${pkgName}-${version}.tgz`);
+        this.processTarballBytes(arrayBuffer, `${pkgName}-${targetVersion}.tgz`);
       },
-      error: (err) => {
-        this.errorMessage.set(`Failed to download package from registry: ${err.message}. You may upload the .tgz file manually.`);
+      error: (err: unknown) => {
+        let parsedMessage = 'Unknown network error';
+        const httpErr = err as { error?: unknown; message?: string };
+        if (httpErr.error instanceof ArrayBuffer) {
+          try {
+            const text = new TextDecoder().decode(httpErr.error);
+            const parsed = JSON.parse(text);
+            parsedMessage = parsed.message ? `${parsed.error}: ${parsed.message}` : (parsed.error || text);
+          } catch {
+            const text = new TextDecoder().decode(httpErr.error);
+            if (text) parsedMessage = text;
+          }
+        } else if (httpErr.error && typeof httpErr.error === 'object') {
+          const body = httpErr.error as { error?: string; message?: string };
+          parsedMessage = body.message ? `${body.error}: ${body.message}` : (body.error || httpErr.message || parsedMessage);
+        } else if (httpErr.message) {
+          parsedMessage = httpErr.message;
+        }
+        this.errorMessage.set(`Failed to download package from registry: ${parsedMessage}. You may upload the .tgz file manually.`);
         this.isImporting.set(false);
       },
     });
