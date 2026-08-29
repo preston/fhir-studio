@@ -1,0 +1,46 @@
+{
+  "name": "@fhir-studio/ui",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "typecheck": "tsc --noEmit",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test"
+  },
+  "dependencies": {
+    "@angular/animations": "^22.1.4",
+    "@angular/cdk": "^22.1.4",
+    "@angular/common": "^22.1.4",
+    "@angular/compiler": "^22.1.4",
+    "@angular/core": "^22.1.4",
+    "@angular/forms": "^22.1.4",
+    "@angular/platform-browser": "^22.1.4",
+    "@angular/platform-browser-dynamic": "^22.1.4",
+    "@angular/router": "^22.1.4",
+    "@fhir-studio/core": "file:../core",
+    "@popperjs/core": "^2.11.8",
+    "bootstrap": "^5.3.8",
+    "bootswatch": "^5.3.8",
+    "bootstrap-icons": "^1.13.1",
+    "echarts": "^6.1.0",
+    "fflate": "^0.8.3",
+    "ngx-echarts": "^22.0.0",
+    "ngx-toastr": "^20.0.5",
+    "prismjs": "^1.30.0",
+    "rxjs": "~7.8.2",
+    "tslib": "^2.8.1",
+    "uuid": "^14.0.2"
+  },
+  "devDependencies": {
+    "@angular/build": "^22.1.6",
+    "@angular/cli": "^22.1.6",
+    "@angular/compiler-cli": "^22.1.4",
+    "@types/bootstrap": "^5.2.11",
+    "@types/fhir": "^0.0.44",
+    "@types/node": "^26.4.0",
+    "typescript": "<7"
+  }
+}

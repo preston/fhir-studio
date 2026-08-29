@@ -1,0 +1,1197 @@
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="fw-bold mb-1">Administration & System Control</h2>
+  </div>
+</div>
+
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<!-- Administration Tabs Navigation -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'metrics'" (click)="setTab('metrics')">
+      <i class="bi bi-graph-up me-1"></i> System Metrics
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'users'" (click)="setTab('users')">
+      <i class="bi bi-people me-1"></i> Users ({{ users().length }})
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'groups'" (click)="setTab('groups')">
+      <i class="bi bi-collection me-1"></i> Groups ({{ groups().length }})
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'roles'" (click)="setTab('roles')">
+      <i class="bi bi-person-badge me-1"></i> Roles & Permissions ({{ roles().length }})
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'appointments'" (click)="setTab('appointments')">
+      <i class="bi bi-diagram-3 me-1"></i> Appointments ({{ appointments().length }})
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'jobs'" (click)="setTab('jobs')">
+      <i class="bi bi-cpu me-1"></i> Jobs & Workers
+      @if (jobsSummary() && jobsSummary()!.inProgress > 0) {
+        <span class="badge bg-warning text-dark ms-1">{{ jobsSummary()!.inProgress }} active</span>
+      }
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link text-danger" [class.active]="activeTab() === 'purge'" (click)="setTab('purge')">
+      <i class="bi bi-trash3 me-1"></i> Purge Sandboxes
+    </button>
+  </li>
+</ul>
+
+<!-- TAB 1: SYSTEM METRICS -->
+@if (activeTab() === 'metrics' && metrics()) {
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-primary">
+        <span class="text-muted small fw-bold text-uppercase">Total Sandboxes</span>
+        <div class="display-6 fw-bold text-primary">{{ metrics()!.summary.totalSandboxes }}</div>
+        <div class="small text-muted mt-1">{{ metrics()!.summary.r4Sandboxes }} R4 &bull; {{ metrics()!.summary.r5Sandboxes }} R5</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-success">
+        <span class="text-muted small fw-bold text-uppercase">Total Users</span>
+        <div class="display-6 fw-bold text-success">{{ metrics()!.summary.totalUsers }}</div>
+        <div class="small text-muted mt-1">{{ metrics()!.summary.totalSessions }} Active Sessions</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-info">
+        <span class="text-muted small fw-bold text-uppercase">SMART Applications & Scenarios</span>
+        <div class="display-6 fw-bold text-info">{{ metrics()!.summary.totalApplications }} / {{ metrics()!.summary.totalScenarios }}</div>
+        <div class="small text-muted mt-1">Applications / Launch Scenarios</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-white h-100 border-start border-4 border-danger">
+        <span class="text-muted small fw-bold text-uppercase">Suspended Accounts</span>
+        <div class="display-6 fw-bold text-danger">{{ metrics()!.summary.suspendedUsers }}</div>
+        <div class="small text-muted mt-1">Enforced across API & SSO</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">FHIR Version Distribution</h6>
+        <div echarts [options]="versionChartOptions()" class="chart-container"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">Security Access Modes</h6>
+        <div echarts [options]="accessModeChartOptions()" class="chart-container"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 bg-white h-100">
+        <h6 class="fw-bold mb-3">User Signups Over Time</h6>
+        <div echarts [options]="signupsTimelineOptions()" class="chart-container"></div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- TAB 2: USERS & SUSPENSION -->
+@if (activeTab() === 'users') {
+  <div class="card bg-white p-3">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>User</th>
+            <th>SSO Subject / Email</th>
+            <th>Roles & Groups</th>
+            <th>Active Sessions</th>
+            <th>Status</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (user of users(); track user.id) {
+            <tr>
+              <td>
+                <div class="fw-bold">{{ user.displayName || 'No Name' }}</div>
+                <div class="small text-muted font-monospace">{{ user.id }}</div>
+              </td>
+              <td>
+                <div>{{ user.email || 'N/A' }}</div>
+                <div class="small text-muted font-monospace">{{ user.ssoSubject }}</div>
+              </td>
+              <td>
+                <div class="d-flex flex-wrap gap-1">
+                  @for (role of user.roles; track role.id) {
+                    <span class="badge bg-primary-subtle text-primary border">{{ role.name }}</span>
+                  }
+                  @for (m of user.memberships; track m.id) {
+                    <span class="badge bg-secondary-subtle text-secondary border">{{ m.group.name }}</span>
+                  }
+                </div>
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ user._count?.sessions || 0 }} sessions</span>
+              </td>
+              <td>
+                @if (user.isSuspended) {
+                  <span class="badge bg-danger">Suspended</span>
+                } @else {
+                  <span class="badge bg-success">Active</span>
+                }
+              </td>
+              <td class="text-end">
+                <button
+                  class="btn btn-sm"
+                  [ngClass]="user.isSuspended ? 'btn-outline-success' : 'btn-outline-danger'"
+                  (click)="toggleSuspend(user)"
+                >
+                  {{ user.isSuspended ? 'Unsuspend' : 'Suspend Account' }}
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- TAB 3: GROUPS -->
+@if (activeTab() === 'groups') {
+  <div class="card bg-white p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h6 class="fw-bold mb-0">Access Groups</h6>
+      <button class="btn btn-sm btn-primary" (click)="groupForm = { id: '', name: '', description: '', ssoRoleMapping: '' }; showGroupModal.set(true)">
+        <i class="bi bi-plus-circle me-1"></i> New Group
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Group Name</th>
+            <th>Description</th>
+            <th>SSO Role Mapping Claim</th>
+            <th>Members Count</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (group of groups(); track group.id) {
+            <tr>
+              <td class="fw-bold">{{ group.name }}</td>
+              <td class="text-muted">{{ group.description || 'N/A' }}</td>
+              <td><code>{{ group.ssoRoleMapping || 'None' }}</code></td>
+              <td><span class="badge bg-info text-dark">{{ group.members?.length || 0 }} members</span></td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" (click)="deleteGroup(group.id)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- TAB 4: ROLES & BOOLEAN PERMISSIONS -->
+@if (activeTab() === 'roles') {
+  <div class="card bg-white p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h6 class="fw-bold mb-0">Role-Based Access Control (RBAC)</h6>
+      <button class="btn btn-sm btn-primary" (click)="roleForm = { name: '', description: '', default: false, permission_sandboxes_create: true, permission_sandboxes_shared: true, permission_ehr_simulator: true, permission_data_manager: true, permission_applications_register: true, permission_package_import: true, permission_global_manage: false }; showRoleModal.set(true)">
+        <i class="bi bi-plus-circle me-1"></i> New Role
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Role</th>
+            <th>SSO Mapping</th>
+            <th>Permissions Matrix</th>
+            <th>Default</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (role of roles(); track role.id) {
+            <tr>
+              <td>
+                <div class="fw-bold">{{ role.name }}</div>
+                <div class="small text-muted">{{ role.description }}</div>
+              </td>
+              <td><code>{{ role.ssoRoleMapping || 'None' }}</code></td>
+              <td>
+                <div class="d-flex flex-wrap gap-1 small">
+                  @if (role.permission_global_manage) {
+                    <span class="badge bg-danger">global.manage</span>
+                  }
+                  @if (role.permission_sandboxes_create) {
+                    <span class="badge bg-primary">sandboxes.create</span>
+                  }
+                  @if (role.permission_sandboxes_shared) {
+                    <span class="badge bg-info text-dark">sandboxes.shared</span>
+                  }
+                  @if (role.permission_ehr_simulator) {
+                    <span class="badge bg-success">ehr.simulator</span>
+                  }
+                  @if (role.permission_data_manager) {
+                    <span class="badge bg-warning text-dark">data.manager</span>
+                  }
+                  @if (role.permission_applications_register) {
+                    <span class="badge bg-secondary">applications.register</span>
+                  }
+                  @if (role.permission_package_import) {
+                    <span class="badge bg-dark">package.import</span>
+                  }
+                </div>
+              </td>
+              <td>
+                @if (role.default) {
+                  <span class="badge bg-success">Yes</span>
+                } @else {
+                  <span class="text-muted small">No</span>
+                }
+              </td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" (click)="deleteRole(role.id)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- TAB 5: APPOINTMENTS -->
+@if (activeTab() === 'appointments') {
+  <div class="card bg-white p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h6 class="fw-bold mb-0">Polymorphic Role Appointments</h6>
+      <button class="btn btn-sm btn-primary" (click)="showAppointmentModal.set(true)">
+        <i class="bi bi-plus-circle me-1"></i> New Appointment
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Entity Type</th>
+            <th>Entity ID</th>
+            <th>Assigned Role</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (appointment of appointments(); track appointment.id) {
+            <tr>
+              <td><span class="badge bg-secondary">{{ appointment.entityType }}</span></td>
+              <td class="font-monospace small">{{ appointment.entityId }}</td>
+              <td><span class="badge bg-primary">{{ appointment.role.name }}</span></td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" (click)="deleteAppointment(appointment.id)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- TAB 6: JOBS & WORKERS -->
+@if (activeTab() === 'jobs') {
+  <!-- Summary metrics cards -->
+  @if (jobsSummary()) {
+    <div class="row g-3 mb-4">
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-primary">
+          <span class="text-muted small fw-bold text-uppercase">Total Jobs</span>
+          <div class="h3 fw-bold text-primary mb-0">{{ jobsSummary()!.total }}</div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-warning">
+          <span class="text-muted small fw-bold text-uppercase">In Progress</span>
+          <div class="h3 fw-bold text-warning mb-0">{{ jobsSummary()!.inProgress }}</div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-info">
+          <span class="text-muted small fw-bold text-uppercase">Queued</span>
+          <div class="h3 fw-bold text-info mb-0">{{ jobsSummary()!.queued }}</div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-success">
+          <span class="text-muted small fw-bold text-uppercase">Completed</span>
+          <div class="h3 fw-bold text-success mb-0">{{ jobsSummary()!.completed }}</div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-danger">
+          <span class="text-muted small fw-bold text-uppercase">Failed</span>
+          <div class="h3 fw-bold text-danger mb-0">{{ jobsSummary()!.failed }}</div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="card p-3 bg-white h-100 border-start border-4 border-secondary">
+          <span class="text-muted small fw-bold text-uppercase">Cancelled</span>
+          <div class="h3 fw-bold text-secondary mb-0">{{ jobsSummary()!.cancelled }}</div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Controls and Toolbar -->
+  <div class="card bg-white p-3 mb-3">
+    <div class="row g-2 align-items-center justify-content-between">
+      <div class="col-md-7 d-flex flex-wrap gap-2 align-items-center">
+        <!-- Status filter -->
+        <select class="form-select form-select-sm w-auto" [ngModel]="jobFilters().status" (ngModelChange)="filterByStatus($event)">
+          <option [ngValue]="undefined">All Statuses</option>
+          <option value="in_progress">In Progress</option>
+          <option value="queued">Queued</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+
+        <!-- Search -->
+        <div class="input-group input-group-sm" style="max-width: 260px;">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input
+            type="text"
+            class="form-control"
+            placeholder="Search jobs..."
+            [ngModel]="jobFilters().search"
+            (ngModelChange)="onJobSearchChange($event)"
+            (keyup.enter)="loadJobs()"
+          />
+        </div>
+
+        <button class="btn btn-sm btn-outline-secondary" (click)="loadJobs()" title="Refresh job list">
+          <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+
+        <div class="form-check form-switch ms-2">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            id="autoRefreshSwitch"
+            [checked]="autoRefreshJobs()"
+            (change)="toggleAutoRefresh()"
+          />
+          <label class="form-check-label small" for="autoRefreshSwitch">
+            Auto-refresh (4s)
+          </label>
+        </div>
+      </div>
+
+      <div class="col-md-5 d-flex justify-content-end gap-2">
+        <button class="btn btn-sm btn-outline-danger" (click)="purgeCompletedJobs()">
+          <i class="bi bi-trash me-1"></i> Purge Finished
+        </button>
+        <button class="btn btn-sm btn-primary" (click)="openTestJobModal()">
+          <i class="bi bi-play-circle-fill me-1"></i> Trigger Test Job
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Jobs List Table -->
+  <div class="card bg-white p-3">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Job Name & Type</th>
+            <th>Sandbox & User</th>
+            <th>Progress & Stage</th>
+            <th>Status</th>
+            <th>Timestamps & Duration</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (jobs().length === 0) {
+            <tr>
+              <td colspan="6" class="text-center py-4 text-muted">
+                <i class="bi bi-inbox fs-3 d-block mb-1"></i>
+                No background jobs match the current filters.
+              </td>
+            </tr>
+          }
+          @for (job of jobs(); track job.id) {
+            <tr>
+              <td>
+                <div class="fw-bold">{{ job.name }}</div>
+                <div class="d-flex align-items-center gap-1 mt-1">
+                  <span class="badge bg-secondary-subtle text-secondary font-monospace border">{{ job.jobType }}</span>
+                  <span class="small text-muted font-monospace">{{ job.id.slice(0, 8) }}</span>
+                </div>
+              </td>
+              <td>
+                @if (job.sandbox) {
+                  <div><i class="bi bi-box me-1 text-primary"></i><strong>{{ job.sandbox.name }}</strong> (<code>{{ job.sandbox.sandboxId }}</code>)</div>
+                } @else {
+                  <span class="text-muted small">System Level</span>
+                }
+                @if (job.createdByUser) {
+                  <div class="small text-muted"><i class="bi bi-person me-1"></i>{{ job.createdByUser.displayName || job.createdByUser.email }}</div>
+                }
+              </td>
+              <td style="min-width: 220px; max-width: 320px;">
+                <div class="d-flex justify-content-between align-items-center mb-1 small">
+                  <span class="text-truncate text-muted me-2" [title]="job.stage || ''">{{ job.stage || 'Executing...' }}</span>
+                  <span class="fw-bold">{{ job.progress }}%</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                  <div
+                    class="progress-bar"
+                    [ngClass]="{
+                      'bg-warning progress-bar-striped progress-bar-animated': job.status === 'in_progress',
+                      'bg-success': job.status === 'completed',
+                      'bg-danger': job.status === 'failed',
+                      'bg-secondary': job.status === 'queued' || job.status === 'cancelled'
+                    }"
+                    role="progressbar"
+                    [style.width.%]="job.progress"
+                  ></div>
+                </div>
+              </td>
+              <td>
+                @switch (job.status) {
+                  @case ('in_progress') {
+                    <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Running</span>
+                  }
+                  @case ('queued') {
+                    <span class="badge bg-info text-dark"><i class="bi bi-clock me-1"></i>Queued</span>
+                  }
+                  @case ('completed') {
+                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Completed</span>
+                  }
+                  @case ('failed') {
+                    <span class="badge bg-danger" [title]="job.error || ''"><i class="bi bi-exclamation-octagon-fill me-1"></i>Failed</span>
+                  }
+                  @case ('cancelled') {
+                    <span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Cancelled</span>
+                  }
+                }
+              </td>
+              <td>
+                <div class="small">
+                  <i class="bi bi-clock-history me-1 text-muted"></i>{{ job.createdAt | date:'short' }}
+                </div>
+                <div class="small text-muted">
+                  Duration: <span class="fw-semibold">{{ calculateDuration(job.startedAt || job.createdAt, job.completedAt || job.cancelledAt) }}</span>
+                </div>
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-primary" (click)="inspectJob(job)" title="Inspect job details">
+                    <i class="bi bi-info-circle"></i>
+                  </button>
+                  @if (job.status === 'in_progress' || job.status === 'queued') {
+                    <button class="btn btn-outline-danger" (click)="cancelJob(job)" title="Cancel job">
+                      <i class="bi bi-stop-circle"></i>
+                    </button>
+                  }
+                  @if (job.status === 'failed' || job.status === 'cancelled') {
+                    <button class="btn btn-outline-success" (click)="retryJob(job)" title="Retry job">
+                      <i class="bi bi-arrow-repeat"></i>
+                    </button>
+                  }
+                  <button class="btn btn-outline-secondary" (click)="deleteJob(job)" title="Delete record">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- TAB 7: PURGE SANDBOXES -->
+@if (activeTab() === 'purge') {
+  <div class="card bg-white p-3 border-danger border-2 shadow-sm">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-2 text-danger">
+        <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+        <h5 class="fw-bold mb-0">Permanent Tenant & Partition Purge</h5>
+      </div>
+      <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+        <i class="bi bi-shield-exclamation me-1"></i> Irreversible Action
+      </span>
+    </div>
+    <p class="text-muted small mb-4">
+      Purging permanently removes the sandbox metadata, all associated applications, launch scenarios, and collaborators from the PostgreSQL database, and executes <code>$partition-management-delete-partition</code> on the stock HAPI FHIR JPA server to completely wipe all stored clinical resources.
+    </p>
+
+    <!-- Filters & Search Toolbar -->
+    <div class="card bg-light border-0 p-3 mb-4">
+      <div class="row g-3">
+        <!-- Search -->
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold text-muted mb-1">Search Sandboxes</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+            <input
+              type="text"
+              class="form-control"
+              placeholder="Search by name, slug, description..."
+              [ngModel]="purgeFilters().search"
+              (ngModelChange)="onPurgeSearchChange($event)"
+            />
+            @if (purgeFilters().search) {
+              <button class="btn btn-outline-secondary" (click)="onPurgeSearchChange('')">
+                <i class="bi bi-x"></i>
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- User Filter -->
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold text-muted mb-1">Filter by Creator</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-white"><i class="bi bi-person text-muted"></i></span>
+            <input
+              type="text"
+              class="form-control"
+              placeholder="Creator name or email..."
+              [ngModel]="purgeFilters().user"
+              (ngModelChange)="onPurgeUserChange($event)"
+            />
+            @if (purgeFilters().user) {
+              <button class="btn btn-outline-secondary" (click)="onPurgeUserChange('')">
+                <i class="bi bi-x"></i>
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- FHIR Version Filter -->
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold text-muted mb-1">FHIR Version</label>
+          <select
+            class="form-select form-select-sm"
+            [ngModel]="purgeFilters().fhirVersion"
+            (ngModelChange)="onPurgeFhirVersionChange($event)"
+          >
+            <option value="all">All Releases</option>
+            <option value="R4">FHIR R4</option>
+            <option value="R4B">FHIR R4B</option>
+            <option value="R5">FHIR R5</option>
+          </select>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="col-md-3 d-flex align-items-end justify-content-end gap-2">
+          <button class="btn btn-sm btn-outline-secondary" (click)="loadPurgeSandboxes()" title="Refresh list">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+          </button>
+          <button class="btn btn-sm btn-outline-dark" (click)="resetPurgeFilters()" title="Reset all filters">
+            <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+          </button>
+        </div>
+
+        <!-- Age Preset -->
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-muted mb-1">
+            <i class="bi bi-calendar-event me-1"></i>Sandbox Age Preset
+          </label>
+          <select
+            class="form-select form-select-sm"
+            [ngModel]="purgeFilters().agePreset"
+            (ngModelChange)="onAgePresetChange($event)"
+          >
+            <option value="all">All Ages (Any Creation Date)</option>
+            <option value="7d">Created within last 7 days</option>
+            <option value="30d">Created within last 30 days</option>
+            <option value="90d">Created within last 90 days</option>
+            <option value="180d">Created within last 180 days</option>
+            <option value="365d">Created within last 1 year (365d)</option>
+            <option value="older_than_30d">Older than 30 days</option>
+            <option value="older_than_90d">Older than 90 days</option>
+            <option value="older_than_180d">Older than 180 days</option>
+            <option value="older_than_365d">Older than 1 year (365d)</option>
+          </select>
+        </div>
+
+        <!-- Last Used Preset -->
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-muted mb-1">
+            <i class="bi bi-clock-history me-1"></i>Last Used Date Preset
+          </label>
+          <select
+            class="form-select form-select-sm"
+            [ngModel]="purgeFilters().lastUsedPreset"
+            (ngModelChange)="onLastUsedPresetChange($event)"
+          >
+            <option value="all">All Activity (Any Last Access Date)</option>
+            <option value="active_7d">Active within last 7 days</option>
+            <option value="active_30d">Active within last 30 days</option>
+            <option value="inactive_30d">Inactive &gt; 30 days (or never)</option>
+            <option value="inactive_90d">Inactive &gt; 90 days (or never)</option>
+            <option value="inactive_180d">Inactive &gt; 180 days (or never)</option>
+            <option value="inactive_365d">Inactive &gt; 1 year (or never)</option>
+            <option value="never">Never Accessed (No UI visits recorded)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sandboxes Table -->
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('name')" style="cursor: pointer;">
+              Sandbox Name
+              @if (purgeFilters().sortBy === 'name') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('fhirVersion')" style="cursor: pointer;">
+              FHIR Release
+              @if (purgeFilters().sortBy === 'fhirVersion') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('partitionId')" style="cursor: pointer;">
+              Partition ID
+              @if (purgeFilters().sortBy === 'partitionId') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('createdBy')" style="cursor: pointer;">
+              Created By
+              @if (purgeFilters().sortBy === 'createdBy') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('createdAt')" style="cursor: pointer;">
+              Created Date
+              @if (purgeFilters().sortBy === 'createdAt') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="user-select-none cursor-pointer" (click)="setPurgeSort('lastAccessedAt')" style="cursor: pointer;">
+              Last Used
+              @if (purgeFilters().sortBy === 'lastAccessedAt') {
+                <i class="bi ms-1" [class.bi-arrow-up]="purgeFilters().sortOrder === 'asc'" [class.bi-arrow-down]="purgeFilters().sortOrder === 'desc'"></i>
+              } @else {
+                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+              }
+            </th>
+            <th class="text-end">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (purgeLoading()) {
+            <tr>
+              <td colspan="7" class="text-center py-4 text-muted">
+                <div class="spinner-border spinner-border-sm text-danger me-2" role="status"></div>
+                Loading sandboxes...
+              </td>
+            </tr>
+          } @else if (purgeSandboxes().length === 0) {
+            <tr>
+              <td colspan="7" class="text-center py-5 text-muted">
+                <i class="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>
+                <div class="fw-semibold">No sandboxes match the specified criteria.</div>
+                <div class="small text-muted mt-1">Try adjusting your search terms, user filter, or time presets.</div>
+              </td>
+            </tr>
+          } @else {
+            @for (sb of purgeSandboxes(); track sb.id) {
+              <tr>
+                <td>
+                  <div class="fw-bold">{{ sb.name }}</div>
+                  <div class="d-flex align-items-center gap-1 mt-1">
+                    <code class="text-dark bg-light px-1 py-0.5 rounded border small">{{ sb.sandboxId }}</code>
+                    @if (sb.description) {
+                      <span class="text-muted small text-truncate" style="max-width: 250px;" [title]="sb.description">{{ sb.description }}</span>
+                    }
+                  </div>
+                </td>
+                <td>
+                  <span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ sb.fhirVersion }}</span>
+                </td>
+                <td>
+                  <span class="font-monospace text-secondary">#{{ sb.partitionId }}</span>
+                </td>
+                <td>
+                  @if (sb.createdByUser) {
+                    <div><i class="bi bi-person me-1 text-muted"></i>{{ sb.createdByUser.displayName || sb.createdByUser.email }}</div>
+                    @if (sb.createdByUser.displayName && sb.createdByUser.email) {
+                      <div class="small text-muted">{{ sb.createdByUser.email }}</div>
+                    }
+                  } @else {
+                    <span class="text-muted fst-italic">Unknown</span>
+                  }
+                </td>
+                <td>
+                  <div class="small">
+                    <i class="bi bi-calendar3 me-1 text-muted"></i>{{ sb.createdAt | date:'mediumDate' }}
+                  </div>
+                  <div class="small text-muted">
+                    {{ sb.createdAt | date:'shortTime' }}
+                  </div>
+                </td>
+                <td>
+                  @if (sb.lastAccessedAt) {
+                    <div class="small">
+                      <i class="bi bi-clock-history me-1 text-success"></i>{{ sb.lastAccessedAt | date:'mediumDate' }}
+                    </div>
+                    <div class="small text-muted">
+                      {{ sb.lastAccessedAt | date:'shortTime' }}
+                    </div>
+                  } @else {
+                    <span class="badge bg-secondary-subtle text-secondary border">Never accessed</span>
+                  }
+                </td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-danger" (click)="purgeSandbox(sb)" title="Purge partition and delete metadata">
+                    <i class="bi bi-trash3-fill me-1"></i> Purge Tenant
+                  </button>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Toolbar -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pt-3 mt-2 border-top">
+      <div class="small text-muted">
+        Showing <span class="fw-semibold text-dark">{{ getPurgeShowingStart() }}</span> to
+        <span class="fw-semibold text-dark">{{ getPurgeShowingEnd() }}</span> of
+        <span class="fw-semibold text-dark">{{ purgeTotal() }}</span> sandboxes
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- Page size picker -->
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-muted text-nowrap">Per page:</label>
+          <select
+            class="form-select form-select-sm"
+            style="width: auto;"
+            [ngModel]="purgeFilters().limit"
+            (ngModelChange)="setPurgeLimit($event)"
+          >
+            <option [value]="10">10</option>
+            <option [value]="25">25</option>
+            <option [value]="50">50</option>
+            <option [value]="100">100</option>
+          </select>
+        </div>
+
+        <!-- Page buttons -->
+        <div class="btn-group btn-group-sm">
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="(purgeFilters().page || 1) <= 1 || purgeLoading()"
+            (click)="setPurgePage(1)"
+            title="First Page"
+          >
+            <i class="bi bi-chevron-double-left"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="(purgeFilters().page || 1) <= 1 || purgeLoading()"
+            (click)="setPurgePage((purgeFilters().page || 1) - 1)"
+            title="Previous Page"
+          >
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+            Page {{ purgeFilters().page || 1 }} of {{ purgeTotalPages() }}
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="(purgeFilters().page || 1) >= purgeTotalPages() || purgeLoading()"
+            (click)="setPurgePage((purgeFilters().page || 1) + 1)"
+            title="Next Page"
+          >
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <button
+            class="btn btn-outline-secondary"
+            [disabled]="(purgeFilters().page || 1) >= purgeTotalPages() || purgeLoading()"
+            (click)="setPurgePage(purgeTotalPages())"
+            title="Last Page"
+          >
+            <i class="bi bi-chevron-double-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Create Role Modal -->
+@if (showRoleModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Configure Role & Permissions</h5>
+          <button type="button" class="btn-close" (click)="showRoleModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Role Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" [(ngModel)]="roleForm.name" placeholder="e.g. Clinical Researcher">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">SSO Role Mapping Claim</label>
+              <input type="text" class="form-control font-monospace" [(ngModel)]="roleForm.ssoRoleMapping" placeholder="e.g. researcher">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <input type="text" class="form-control" [(ngModel)]="roleForm.description" placeholder="Brief notes on role permissions">
+          </div>
+
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="roleDefault" [(ngModel)]="roleForm.default">
+            <label class="form-check-label fw-semibold" for="roleDefault">Default Role for New Users</label>
+          </div>
+
+          <h6 class="fw-bold mb-2">Boolean Permission Flags</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permCreate" [(ngModel)]="roleForm.permission_sandboxes_create">
+                <label class="form-check-label" for="permCreate">permission_sandboxes_create</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permShared" [(ngModel)]="roleForm.permission_sandboxes_shared">
+                <label class="form-check-label" for="permShared">permission_sandboxes_shared</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permEhr" [(ngModel)]="roleForm.permission_ehr_simulator">
+                <label class="form-check-label" for="permEhr">permission_ehr_simulator</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permData" [(ngModel)]="roleForm.permission_data_manager">
+                <label class="form-check-label" for="permData">permission_data_manager</label>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permApps" [(ngModel)]="roleForm.permission_applications_register">
+                <label class="form-check-label" for="permApps">permission_applications_register</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permPkg" [(ngModel)]="roleForm.permission_package_import">
+                <label class="form-check-label" for="permPkg">permission_package_import</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permGlobal" [(ngModel)]="roleForm.permission_global_manage">
+                <label class="form-check-label text-danger fw-bold" for="permGlobal">permission_global_manage (Administration)</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showRoleModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveRole()">Save Role</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Create Group Modal -->
+@if (showGroupModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Manage Group</h5>
+          <button type="button" class="btn-close" (click)="showGroupModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="groupForm.name" placeholder="e.g. Clinical Staff">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">SSO Role Mapping Claim</label>
+            <input type="text" class="form-control font-monospace" [(ngModel)]="groupForm.ssoRoleMapping" placeholder="e.g. clinical-staff">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <input type="text" class="form-control" [(ngModel)]="groupForm.description">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showGroupModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveGroup()">Save Group</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Create Appointment Modal -->
+@if (showAppointmentModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Assign Role Appointment</h5>
+          <button type="button" class="btn-close" (click)="showAppointmentModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Entity Type</label>
+            <select class="form-select" [(ngModel)]="appointmentForm.entityType">
+              <option value="User">User</option>
+              <option value="Group">Group</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Target {{ appointmentForm.entityType }}</label>
+            @if (appointmentForm.entityType === 'User') {
+              <select class="form-select" [(ngModel)]="appointmentForm.entityId">
+                @for (u of users(); track u.id) {
+                  <option [value]="u.id">{{ u.displayName || u.email }} ({{ u.email }})</option>
+                }
+              </select>
+            } @else {
+              <select class="form-select" [(ngModel)]="appointmentForm.entityId">
+                @for (g of groups(); track g.id) {
+                  <option [value]="g.id">{{ g.name }}</option>
+                }
+              </select>
+            }
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Role to Appoint</label>
+            <select class="form-select" [(ngModel)]="appointmentForm.roleId">
+              @for (r of roles(); track r.id) {
+                <option [value]="r.id">{{ r.name }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showAppointmentModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveAppointment()">Create Appointment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Inspect Job Details Modal -->
+@if (showJobDetailModal() && selectedJob()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title fw-bold mb-0">Job Details: {{ selectedJob()!.name }}</h5>
+            <span class="small text-muted font-monospace">{{ selectedJob()!.id }}</span>
+          </div>
+          <button type="button" class="btn-close" (click)="showJobDetailModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="text-muted small fw-bold text-uppercase d-block">Status</label>
+              @switch (selectedJob()!.status) {
+                @case ('in_progress') {
+                  <span class="badge bg-warning text-dark fs-6">Running ({{ selectedJob()!.progress }}%)</span>
+                }
+                @case ('queued') {
+                  <span class="badge bg-info text-dark fs-6">Queued</span>
+                }
+                @case ('completed') {
+                  <span class="badge bg-success fs-6">Completed</span>
+                }
+                @case ('failed') {
+                  <span class="badge bg-danger fs-6">Failed</span>
+                }
+                @case ('cancelled') {
+                  <span class="badge bg-secondary fs-6">Cancelled</span>
+                }
+              }
+            </div>
+            <div class="col-md-4">
+              <label class="text-muted small fw-bold text-uppercase d-block">Job Type</label>
+              <code>{{ selectedJob()!.jobType }}</code>
+            </div>
+            <div class="col-md-4">
+              <label class="text-muted small fw-bold text-uppercase d-block">Duration</label>
+              <strong>{{ calculateDuration(selectedJob()!.startedAt || selectedJob()!.createdAt, selectedJob()!.completedAt || selectedJob()!.cancelledAt) }}</strong>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="text-muted small fw-bold text-uppercase d-block">Execution Stage</label>
+            <div class="p-2 bg-light rounded border text-muted">
+              {{ selectedJob()!.stage || 'No current stage description' }}
+            </div>
+          </div>
+
+          @if (selectedJob()!.error) {
+            <div class="mb-3">
+              <label class="text-danger small fw-bold text-uppercase d-block">Error Details</label>
+              <div class="p-3 bg-danger-subtle text-danger border border-danger rounded font-monospace small">
+                {{ selectedJob()!.error }}
+              </div>
+            </div>
+          }
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="text-muted small fw-bold text-uppercase d-block mb-1">Input Parameters</label>
+              <pre class="bg-dark text-light p-3 rounded small font-monospace mb-0" style="max-height: 200px; overflow-y: auto;"><code>{{ formatJson(selectedJob()!.input) }}</code></pre>
+            </div>
+            <div class="col-md-6">
+              <label class="text-muted small fw-bold text-uppercase d-block mb-1">Execution Output</label>
+              <pre class="bg-dark text-light p-3 rounded small font-monospace mb-0" style="max-height: 200px; overflow-y: auto;"><code>{{ formatJson(selectedJob()!.output) }}</code></pre>
+            </div>
+          </div>
+
+          <div class="row g-2 text-muted small border-top pt-2">
+            <div class="col-6"><strong>Created:</strong> {{ selectedJob()!.createdAt | date:'medium' }}</div>
+            <div class="col-6"><strong>Started:</strong> {{ selectedJob()!.startedAt ? (selectedJob()!.startedAt | date:'medium') : 'Not started' }}</div>
+            <div class="col-6"><strong>Completed:</strong> {{ selectedJob()!.completedAt ? (selectedJob()!.completedAt | date:'medium') : '-' }}</div>
+            <div class="col-6"><strong>Cancelled:</strong> {{ selectedJob()!.cancelledAt ? (selectedJob()!.cancelledAt | date:'medium') : '-' }}</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          @if (selectedJob()!.status === 'in_progress' || selectedJob()!.status === 'queued') {
+            <button type="button" class="btn btn-danger btn-sm" (click)="cancelJob(selectedJob()!)">
+              <i class="bi bi-stop-circle me-1"></i> Cancel Job
+            </button>
+          }
+          @if (selectedJob()!.status === 'failed' || selectedJob()!.status === 'cancelled') {
+            <button type="button" class="btn btn-success btn-sm" (click)="retryJob(selectedJob()!)">
+              <i class="bi bi-arrow-repeat me-1"></i> Retry Job
+            </button>
+          }
+          <button type="button" class="btn btn-secondary btn-sm" (click)="showJobDetailModal.set(false)">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Trigger Test Job Modal -->
+@if (showTestJobModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Trigger Background Test Job</h5>
+          <button type="button" class="btn-close" (click)="showTestJobModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            Enqueues a test task to the background generic job worker to test worker concurrency, execution stages, and real-time progress reporting.
+          </p>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Job Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="testJobForm.name" placeholder="e.g. Test Job">
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Total Steps</label>
+              <input type="number" class="form-control" [(ngModel)]="testJobForm.steps" min="1" max="20">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Delay per Step (ms)</label>
+              <input type="number" class="form-control" [(ngModel)]="testJobForm.stepDelayMs" min="200" max="5000" step="200">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Step Message Description</label>
+            <input type="text" class="form-control" [(ngModel)]="testJobForm.message" placeholder="Task description">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Associate with Sandbox (Optional)</label>
+            <select class="form-select" [(ngModel)]="testJobForm.sandboxId">
+              <option value="">None (System Job)</option>
+              @for (sb of allSandboxes(); track sb.id) {
+                <option [value]="sb.sandboxId">{{ sb.name }} ({{ sb.sandboxId }})</option>
+              }
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Simulate Failure at Step (Optional)</label>
+            <input type="number" class="form-control" [(ngModel)]="testJobForm.failAtStep" placeholder="Leave empty for success" min="1" [max]="testJobForm.steps">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showTestJobModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="triggerTestJob()">
+            <i class="bi bi-play-circle-fill me-1"></i> Enqueue Job
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

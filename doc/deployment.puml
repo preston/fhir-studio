@@ -1,0 +1,86 @@
+@startuml deployment
+title FHIR Studio Platform Deployment Footprint & Architecture
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 35
+skinparam ranksep 45
+
+cloud "Client Layer" as Clients {
+  actor "Developer / Clinician\n(Browser)" as DevUser
+  [SMART on FHIR App\n(Custom / Sample)] as SmartApp
+  [Remote CDS Service\n(Hooks Endpoint)] as CdsService
+}
+
+node "FHIR Studio UI" as UiTier {
+  [Angular SPA\n(Bootstrap & ECharts)] as UI
+}
+
+node "FHIR Studio Server (Express / Node.js ESM)" as ServerTier {
+  [BFF Auth & Sessions\n(HttpOnly Cookies)] as BffAuth
+  [SMART on FHIR v2 IdP\n(OAuth2 / OIDC / PKCE / JWKS)] as SmartIdp
+  [FHIR Gateway & Proxy\n(Scope & Partition Enforcement)] as FhirGateway
+  [CDS Hooks 2.0 Engine\n(Service Dispatch & Testing)] as CdsEngine
+  [Bulk Export Engine\n(Async $export / NDJSON)] as BulkExport
+  [Subscription Hub\n(WebSocket & Webhooks)] as SubHub
+  [Sandbox & App Manager\n(Personas, Scenarios, IAM)] as CoreServices
+}
+
+node "Identity & SSO" as SsoTier {
+  [Authentik SSO Server\n(OIDC Provider)] as AuthentikServer
+  [Authentik Worker] as AuthentikWorker
+  database "Redis" as AuthentikRedis
+}
+
+node "FHIR Storage Layer" as FhirTier {
+  [HAPI FHIR R4 JPA\n(Partitioned)] as HapiR4
+  [HAPI FHIR R4B JPA\n(Partitioned)] as HapiR4B
+  [HAPI FHIR R5 JPA\n(Partitioned)] as HapiR5
+}
+
+database "PostgreSQL 18" as DatabaseTier {
+  database "FHIR Studio DB\n(Prisma Schema)" as AppDb
+  database "Authentik DB" as AuthentikDb
+  database "HAPI R4 DB" as HapiR4Db
+  database "HAPI R4B DB" as HapiR4BDb
+  database "HAPI R5 DB" as HapiR5Db
+}
+
+DevUser --> UI : HTTPS (Port 4200)
+UI --> ServerTier : REST API / WebSocket (Port 3000)\n(Session Cookie)
+DevUser ..> AuthentikServer : OIDC Authorize (BFF flow)
+BffAuth --> AuthentikServer : Token Exchange / Discovery (Port 9000)
+
+SmartApp --> SmartIdp : SMART v2 Authorize / Token\n(OAuth2, PKCE S256, JWKS)
+SmartApp --> FhirGateway : FHIR REST API (Bearer Token)\n/api/sandboxes/:id/fhir/:ver
+FhirGateway --> HapiR4 : Reverse Proxy + Tenant Header\n(Port 8083)
+FhirGateway --> HapiR4B : Reverse Proxy + Tenant Header\n(Port 8084)
+FhirGateway --> HapiR5 : Reverse Proxy + Tenant Header\n(Port 8085)
+
+CdsEngine --> CdsService : HTTP POST (Hook Context)
+SubHub --> SmartApp : WebSocket / Webhook Notifications
+
+ServerTier --> AppDb : Prisma ORM (Port 5433)
+AuthentikServer --> AuthentikDb : Relational Store
+AuthentikServer --> AuthentikRedis : Session / Tasks Cache
+AuthentikWorker --> AuthentikRedis : Claim Tasks
+HapiR4 --> HapiR4Db : JPA Resource Storage
+HapiR4B --> HapiR4BDb : JPA Resource Storage
+HapiR5 --> HapiR5Db : JPA Resource Storage
+
+note right of FhirGateway
+  FHIR Gateway dynamically injects
+  HAPI multi-tenant partition IDs,
+  enforces SMART v2 fine-grained scopes,
+  and rewrites resource URLs.
+end note
+
+note bottom of SmartIdp
+  SMART on FHIR v2 IdP supports:
+  - Dynamic Client Registration (RFC 7591)
+  - Confidential & Public Clients (PKCE S256)
+  - Asymmetric Private Key JWT (RFC 7523)
+  - Granular Scopes & Custom Context Params
+end note
+
+@enduml

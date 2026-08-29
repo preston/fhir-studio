@@ -1,0 +1,41 @@
+# Both ui/Dockerfile and server/Dockerfile use the repo root as build context.
+
+# Version control, CI, and IDE
+.git
+.github
+.gitignore
+.cursor
+**/.vscode
+.DS_Store
+Thumbs.db
+
+# Dependencies and build artifacts (reinstalled/rebuilt in the image)
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.angular
+**/out-tsc
+ui/tmp
+
+# Secrets and local environment
+**/.env
+**/.env.*
+!**/.env.example
+
+# Documentation, design assets, and non-runtime content
+**/*.md
+**/*.pdf
+doc/
+private/
+
+# Local development stack
+docker/
+
+# Dev/test tooling not copied by either Dockerfile
+**/test-results/
+**/*.spec.ts
+
+# Docker metadata (Dockerfile path is passed via -f, not from context)
+.dockerignore
+**/Dockerfile

@@ -1,0 +1,496 @@
+<!-- EHR Simulator Top Bar: Sandbox & Persona Controls -->
+<div class="card bg-white p-3 mb-3 border shadow-sm">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div class="d-flex align-items-center gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-display fs-4 text-primary"></i>
+        <h5 class="fw-bold mb-0">EHR Simulator</h5>
+      </div>
+
+      <!-- Active Sandbox Selector -->
+      <div class="input-group input-group-sm" style="width: 240px;">
+        <span class="input-group-text bg-light fw-semibold">Sandbox</span>
+        <select
+          class="form-select"
+          [ngModel]="sandboxService.activeSandbox()"
+          (ngModelChange)="sandboxService.selectSandbox($event)"
+        >
+          @for (sb of sandboxService.sandboxes(); track sb.id) {
+            <option [ngValue]="sb">{{ sb.name }} ({{ sb.fhirVersion }})</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+      <!-- Practitioner Persona Switcher -->
+      <div class="input-group input-group-sm" style="width: 250px;">
+        <span class="input-group-text bg-light"><i class="bi bi-person-badge text-primary me-1"></i> User</span>
+        <select class="form-select" [ngModel]="selectedPersona()" (ngModelChange)="selectedPersona.set($event)">
+          @for (persona of personas(); track persona.id) {
+            <option [ngValue]="persona">{{ persona.personaName }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Context Selectors Button Group -->
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-primary d-flex align-items-center gap-1" (click)="showPatientModal.set(true)">
+          <i class="bi bi-person-lines-fill"></i>
+          <span>Patient</span>
+        </button>
+        <button class="btn btn-outline-secondary d-flex align-items-center gap-1" (click)="showEncounterModal.set(true)">
+          <i class="bi bi-clipboard2-pulse"></i>
+          <span>Encounter</span>
+        </button>
+        <button class="btn btn-outline-secondary d-flex align-items-center gap-1" (click)="showLocationModal.set(true)">
+          <i class="bi bi-geo-alt"></i>
+          <span>Location</span>
+        </button>
+      </div>
+
+      <!-- SMART Inspector Button -->
+      <button class="btn btn-sm btn-outline-dark d-flex align-items-center gap-1" (click)="showInspectorModal.set(true)">
+        <i class="bi bi-code-slash text-info"></i>
+        <span>SMART Inspector</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- EHR Demographic Patient Banner -->
+<div class="patient-banner bg-white border rounded p-3 mb-3 shadow-sm">
+  <div class="row align-items-center g-3">
+    <div class="col-md-3 border-end">
+      <div class="d-flex align-items-center gap-3">
+        <div class="avatar-circle bg-primary text-white fs-4 fw-bold">
+          {{ selectedPatient().name.charAt(0) }}
+        </div>
+        <div>
+          <h5 class="fw-bold text-dark mb-0">{{ selectedPatient().name }}</h5>
+          <div class="text-muted small">
+            <span>{{ selectedPatient().gender | titlecase }}</span> &bull;
+            <span>DOB: {{ selectedPatient().birthDate }}</span>
+            @if (selectedPatient().age) {
+              <span> ({{ selectedPatient().age }} yrs)</span>
+            }
+          </div>
+          <div class="font-monospace small text-primary">{{ selectedPatient().mrn }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3 border-end">
+      <div class="small fw-bold text-muted text-uppercase mb-1">
+        <i class="bi bi-activity text-danger me-1"></i> Conditions & Diagnoses
+      </div>
+      <div class="d-flex flex-wrap gap-1">
+        @for (cond of patientConditions(); track cond) {
+          <span class="badge bg-light text-dark border">{{ cond }}</span>
+        }
+        @if (patientConditions().length === 0) {
+          <span class="text-muted small fst-italic">No active conditions</span>
+        }
+      </div>
+    </div>
+
+    <div class="col-md-3 border-end">
+      <div class="small fw-bold text-muted text-uppercase mb-1">
+        <i class="bi bi-exclamation-octagon text-warning me-1"></i> Allergies & Alerts
+      </div>
+      <div class="d-flex flex-wrap gap-1">
+        @for (allergy of patientAllergies(); track allergy) {
+          <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ allergy }}</span>
+        }
+        @if (patientAllergies().length === 0) {
+          <span class="text-muted small fst-italic">No known allergies</span>
+        }
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="small text-muted">
+        Encounter: <strong class="text-dark">{{ selectedEncounter().displayName }}</strong>
+      </div>
+      <div class="small text-muted">
+        Location: <strong class="text-dark">{{ selectedLocation().name }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs: SMART Application Launcher vs CDS Hooks Viewer -->
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'application'" (click)="activeTab.set('application')">
+      <i class="bi bi-window-fullscreen me-1"></i> SMART Application Launch
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" [class.active]="activeTab() === 'cds'" (click)="activeTab.set('cds')">
+      <i class="bi bi-lightning-charge me-1"></i> CDS Hooks 2.0 Testing
+    </button>
+  </li>
+</ul>
+
+<!-- Tab 1: SMART Application Launcher -->
+@if (activeTab() === 'application') {
+  <div class="card p-3 mb-3 bg-white">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 550px;">
+        <label class="form-label fw-bold mb-0 text-nowrap">Application:</label>
+        <select class="form-select form-select-sm" [ngModel]="selectedApplication()" (ngModelChange)="selectedApplication.set($event)">
+          @for (application of applications(); track application.id) {
+            <option [ngValue]="application">{{ application.clientName }} ({{ application.isSample ? 'Sample' : 'Custom' }})</option>
+          }
+        </select>
+
+        <!-- Launch Mode Selector -->
+        <div class="btn-group btn-group-sm" role="group">
+          <input
+            type="radio"
+            class="btn-check"
+            name="launchModeRadio"
+            id="modeIframe"
+            value="iframe"
+            [ngModel]="launchMode()"
+            (ngModelChange)="launchMode.set($event)"
+          />
+          <label class="btn btn-outline-secondary" for="modeIframe" title="Embedded Iframe Mode">
+            <i class="bi bi-window"></i> Iframe
+          </label>
+          <input
+            type="radio"
+            class="btn-check"
+            name="launchModeRadio"
+            id="modePopup"
+            value="popup"
+            [ngModel]="launchMode()"
+            (ngModelChange)="launchMode.set($event)"
+          />
+          <label class="btn btn-outline-secondary" for="modePopup" title="Pop-up / New Window Mode (bypasses CSP/X-Frame-Options)">
+            <i class="bi bi-box-arrow-up-right"></i> Pop-up
+          </label>
+        </div>
+
+        <button class="btn btn-sm btn-primary text-nowrap d-flex align-items-center gap-1" (click)="launchApplication()" [disabled]="launching()">
+          @if (launching()) {
+            <span class="spinner-border spinner-border-sm"></span>
+          } @else {
+            <i class="bi bi-play-fill"></i>
+          }
+          <span>Launch</span>
+        </button>
+      </div>
+
+      @if (rawLaunchUrl()) {
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-light text-dark font-monospace small border">
+            launch: {{ activeLaunchToken()?.substring(0, 8) }}...
+          </span>
+          <a [href]="rawLaunchUrl()" target="_blank" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
+            <i class="bi bi-box-arrow-up-right"></i>
+            <span>Open in Tab</span>
+          </a>
+        </div>
+      }
+    </div>
+
+    <!-- Iframe Host -->
+    @if (launchMode() === 'iframe' && iframeSrc()) {
+      <div class="border rounded bg-light overflow-hidden">
+        <iframe [src]="iframeSrc()!" class="iframe-container" allow="camera; microphone; geolocation"></iframe>
+      </div>
+    } @else if (launchMode() === 'popup' && rawLaunchUrl()) {
+      <div class="p-5 text-center bg-light rounded text-muted">
+        <i class="bi bi-box-arrow-up-right display-4 text-primary mb-2"></i>
+        <h5>Application Launched in Pop-up Window</h5>
+        <p class="small">The SMART Application was opened in a standalone window to bypass CSP or X-Frame-Options embedding policies.</p>
+        <a [href]="rawLaunchUrl()" target="_blank" class="btn btn-outline-primary btn-sm">
+          Re-open Window
+        </a>
+      </div>
+    } @else {
+      <div class="p-5 text-center bg-light rounded text-muted">
+        <i class="bi bi-app-indicator display-4 mb-2"></i>
+        <h5>Select an Application and click "Launch"</h5>
+        <p class="small">The EHR Simulator will automatically mint a SMART on FHIR v2 launch token with the active Patient, Encounter, and Location context.</p>
+      </div>
+    }
+  </div>
+}
+
+<!-- Tab 2: CDS Hooks 2.0 Testing -->
+@if (activeTab() === 'cds') {
+  <div class="card p-3 mb-3 bg-white">
+    <div class="row g-3 mb-4">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">CDS Hook Trigger</label>
+        <select class="form-select form-select-sm" [ngModel]="selectedCdsHook()" (ngModelChange)="selectedCdsHook.set($event)">
+          <option value="patient-view">patient-view (Chart Open)</option>
+          <option value="order-select">order-select (Order Selection)</option>
+          <option value="order-sign">order-sign (Order Sign-off)</option>
+          <option value="order-dispatch">order-dispatch (Dispatch)</option>
+          <option value="appointment-book">appointment-book (Booking)</option>
+          <option value="encounter-start">encounter-start (Admission)</option>
+          <option value="encounter-discharge">encounter-discharge (Discharge)</option>
+        </select>
+      </div>
+
+      <div class="col-md-7">
+        <label class="form-label fw-semibold">CDS Service Endpoint URL</label>
+        <input type="text" class="form-control form-control-sm" [ngModel]="customCdsServiceUrl()" (ngModelChange)="customCdsServiceUrl.set($event)" placeholder="https://example.com/cds-services/service-id">
+      </div>
+
+      <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-sm btn-success w-100 d-flex align-items-center justify-content-center gap-1" (click)="evaluateCdsHooks()" [disabled]="evaluatingCds()">
+          @if (evaluatingCds()) {
+            <span class="spinner-border spinner-border-sm"></span>
+          } @else {
+            <i class="bi bi-lightning-charge-fill"></i>
+          }
+          <span>Invoke Hook</span>
+        </button>
+      </div>
+    </div>
+
+    <h6 class="fw-bold mb-3">Returned CDS Decision Support Cards</h6>
+    @if (cdsCards().length === 0) {
+      <p class="text-muted small fst-italic">No CDS cards returned for this hook evaluation.</p>
+    } @else {
+      <div class="d-flex flex-column gap-3">
+        @for (card of cdsCards(); track card.summary) {
+          <div class="card border-start border-4" [ngClass]="{
+            'border-danger': card.indicator === 'critical',
+            'border-warning': card.indicator === 'warning',
+            'border-info': card.indicator === 'info' || !card.indicator
+          }">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start mb-2">
+                <h6 class="fw-bold mb-0">{{ card.summary }}</h6>
+                <span class="badge" [ngClass]="{
+                  'bg-danger': card.indicator === 'critical',
+                  'bg-warning text-dark': card.indicator === 'warning',
+                  'bg-info': card.indicator === 'info' || !card.indicator
+                }">{{ (card.indicator || 'info') | uppercase }}</span>
+              </div>
+              <p class="card-text text-secondary small mb-2">{{ card.detail }}</p>
+              @if (card.source) {
+                <div class="small text-muted mb-2">
+                  Source: <strong>{{ card.source.label }}</strong>
+                </div>
+              }
+              @if (card.suggestions && card.suggestions.length > 0) {
+                <div class="d-flex gap-2 mt-2">
+                  @for (sug of card.suggestions; track sug.label) {
+                    <button class="btn btn-sm btn-outline-primary">{{ sug.label }}</button>
+                  }
+                </div>
+              }
+              @if (card.links && card.links.length > 0) {
+                <div class="d-flex gap-2 mt-2">
+                  @for (link of card.links; track link.label) {
+                    <a [href]="link.url" target="_blank" class="btn btn-sm btn-outline-info">
+                      <i class="bi bi-box-arrow-up-right me-1"></i> {{ link.label }} ({{ link.type }})
+                    </a>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+}
+
+<!-- Patient Search Modal -->
+@if (showPatientModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Select Active Patient</h5>
+          <button type="button" class="btn-close" (click)="showPatientModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <input
+            type="text"
+            class="form-control mb-3"
+            [ngModel]="patientSearchQuery()"
+            (ngModelChange)="patientSearchQuery.set($event)"
+            placeholder="Filter by patient name or MRN..."
+          />
+          <div class="list-group">
+            @for (p of filteredPatients(); track p.id) {
+              <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" (click)="selectPatient(p)">
+                <div>
+                  <div class="fw-bold">{{ p.name }}</div>
+                  <div class="small text-muted">
+                    <span>{{ p.gender | titlecase }}</span> &bull;
+                    <span>DOB: {{ p.birthDate }}</span>
+                    @if (p.age) { <span> ({{ p.age }} yrs)</span> }
+                  </div>
+                </div>
+                <div class="font-monospace text-primary small">{{ p.mrn }}</div>
+              </button>
+            }
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showPatientModal.set(false)">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Encounter Search Modal -->
+@if (showEncounterModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Select Active Encounter</h5>
+          <button type="button" class="btn-close" (click)="showEncounterModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="list-group">
+            @for (enc of encounters(); track enc.id) {
+              <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" (click)="selectEncounter(enc)">
+                <div>
+                  <div class="fw-bold">{{ enc.displayName }}</div>
+                  <div class="small text-muted">Class: {{ enc.class }} &bull; Status: {{ enc.status }}</div>
+                </div>
+                <span class="badge bg-secondary font-monospace">{{ enc.id }}</span>
+              </button>
+            }
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showEncounterModal.set(false)">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Location Search Modal -->
+@if (showLocationModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Select Active Location</h5>
+          <button type="button" class="btn-close" (click)="showLocationModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="list-group">
+            @for (loc of locations(); track loc.id) {
+              <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" (click)="selectLocation(loc)">
+                <div>
+                  <div class="fw-bold">{{ loc.name }}</div>
+                  <div class="small text-muted">Status: {{ loc.status }} &bull; Type: {{ loc.type || 'Clinic' }}</div>
+                </div>
+                <span class="badge bg-secondary font-monospace">{{ loc.id }}</span>
+              </button>
+            }
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showLocationModal.set(false)">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- SMART & Token Network Inspector Modal -->
+@if (showInspectorModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-shield-lock-fill text-info me-2"></i> SMART on FHIR v2 & Token Inspector
+          </h5>
+          <button type="button" class="btn-close btn-close-white" (click)="showInspectorModal.set(false)"></button>
+        </div>
+        <div class="modal-body p-4">
+          <ul class="nav nav-pills mb-3">
+            <li class="nav-item">
+              <button class="nav-link" [class.active]="inspectorActiveTab() === 'jwt'" (click)="inspectorActiveTab.set('jwt')">
+                <i class="bi bi-key-fill me-1"></i> Decoded ID Token & Claims
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" [class.active]="inspectorActiveTab() === 'timeline'" (click)="inspectorActiveTab.set('timeline')">
+                <i class="bi bi-clock-history me-1"></i> SMART Auth Timeline
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" [class.active]="inspectorActiveTab() === 'network'" (click)="inspectorActiveTab.set('network')">
+                <i class="bi bi-hdd-network me-1"></i> FHIR Gateway Endpoints
+              </button>
+            </li>
+          </ul>
+
+          @if (inspectorActiveTab() === 'jwt') {
+            <div class="row g-3">
+              <div class="col-md-6">
+                <h6 class="fw-bold text-muted small text-uppercase">Structured Launch Context Claims</h6>
+                <div class="card p-3 bg-light font-monospace small">
+                  <div><strong>launch:</strong> {{ activeLaunchToken() || 'None (Launch not initiated)' }}</div>
+                  <div><strong>patient:</strong> {{ selectedPatient().id }}</div>
+                  <div><strong>encounter:</strong> {{ selectedEncounter().id }}</div>
+                  <div><strong>location:</strong> {{ selectedLocation().id }}</div>
+                  <div><strong>user:</strong> {{ selectedPersona()?.personaUserId || 'practitioner-1' }}</div>
+                  <div><strong>scope:</strong> {{ selectedApplication()?.scope || 'patient/*.rs launch openid fhirUser' }}</div>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <h6 class="fw-bold text-muted small text-uppercase">Decoded id_token JWT Payload</h6>
+                <pre class="bg-dark text-light p-3 rounded small font-monospace overflow-auto" style="max-height: 250px;">{{ simulatedIdTokenPayload() | json }}</pre>
+              </div>
+            </div>
+          }
+
+          @if (inspectorActiveTab() === 'timeline') {
+            <div class="list-group list-group-flush">
+              @for (evt of simulatedTimelineEvents(); track evt.step) {
+                <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                  <div>
+                    <div class="fw-bold">{{ evt.step }}</div>
+                    <div class="small text-muted">{{ evt.detail }}</div>
+                  </div>
+                  <div class="text-end">
+                    <span class="badge bg-success-subtle text-success border border-success-subtle">{{ evt.time }}</span>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          @if (inspectorActiveTab() === 'network') {
+            <div class="card p-3 bg-light">
+              <h6 class="fw-bold">Active Partition Proxy Routing</h6>
+              <div class="small font-monospace text-muted mb-2">
+                Proxy Base: <code>/api/sandboxes/{{ sandboxService.activeSandbox()?.sandboxId }}/fhir/{{ sandboxService.activeSandbox()?.fhirVersion | lowercase }}</code>
+              </div>
+              <div class="small font-monospace text-muted mb-2">
+                SMART Configuration: <code>/api/sandboxes/{{ sandboxService.activeSandbox()?.sandboxId }}/fhir/{{ sandboxService.activeSandbox()?.fhirVersion | lowercase }}/.well-known/smart-configuration</code>
+              </div>
+              <div class="small font-monospace text-muted">
+                Token Introspection: <code>/oauth/introspect</code> &bull; Revocation: <code>/oauth/revoke</code>
+              </div>
+            </div>
+          }
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showInspectorModal.set(false)">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

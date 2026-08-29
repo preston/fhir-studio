@@ -1,0 +1,377 @@
+// Author: Preston Lee
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AppointmentEntityType {
+  User
+  Group
+}
+
+model User {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ssoIssuer   String    @map("sso_issuer")
+  ssoSubject  String    @map("sso_subject")
+  email       String?
+  displayName String?   @map("display_name")
+  isSuspended Boolean   @default(false) @map("is_suspended")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  sessions          Session[]
+  memberships       Member[]
+  apiTokens         ApiToken[]
+  sandboxesCreated  Sandbox[]             @relation("SandboxCreator")
+  collaborations    SandboxCollaborator[]
+  launchScenarios   LaunchScenario[]      @relation("ScenarioCreator")
+  personas          UserPersona[]         @relation("PersonaCreator")
+  applicationsCreated Application[]       @relation("ApplicationCreator")
+  jobsCreated       Job[]                 @relation("JobCreator")
+
+
+
+  @@unique([ssoIssuer, ssoSubject])
+  @@index([email])
+  @@index([isSuspended])
+  @@map("users")
+}
+
+model Session {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  expiresAt            DateTime  @map("expires_at")
+  idleExpiresAt        DateTime  @map("idle_expires_at")
+  encryptedTokenBundle String?   @map("encrypted_token_bundle")
+  accessTokenExpiresAt DateTime? @map("access_token_expires_at")
+  ssoRoles             Json      @default("[]") @map("sso_roles")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([idleExpiresAt])
+  @@map("sessions")
+}
+
+model ApiToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @map("token_hash")
+  prefix     String
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_tokens")
+}
+
+model Group {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique
+  description    String?
+  ssoRoleMapping String?  @map("sso_role_mapping")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  members Member[]
+
+  @@map("groups")
+}
+
+model Role {
+  id                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                       String   @unique
+  description                String?
+  default                    Boolean  @default(false)
+  ssoRoleMapping             String?  @map("sso_role_mapping")
+  
+  permission_sandboxes_create Boolean  @default(true) @map("permission_sandboxes_create")
+  permission_sandboxes_shared Boolean  @default(false) @map("permission_sandboxes_shared")
+  permission_ehr_simulator   Boolean  @default(true) @map("permission_ehr_simulator")
+  permission_data_manager    Boolean  @default(true) @map("permission_data_manager")
+  permission_applications_register Boolean  @default(true) @map("permission_applications_register")
+  permission_package_import  Boolean  @default(true) @map("permission_package_import")
+  permission_global_manage   Boolean  @default(false) @map("permission_global_manage")
+  permissions                Json     @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  appointments Appointment[]
+
+  @@index([default])
+  @@map("roles")
+}
+
+model Member {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+  @@map("members")
+}
+
+model Appointment {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType AppointmentEntityType @map("entity_type")
+  entityId   String                @map("entity_id") @db.Uuid
+  roleId     String                @map("role_id") @db.Uuid
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([entityType, entityId, roleId])
+  @@index([entityId])
+  @@index([roleId])
+  @@map("appointments")
+}
+
+model Sandbox {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId       String   @unique @map("sandbox_id")
+  name            String
+  description     String?
+  fhirVersion     String   @default("R4") @map("fhir_version")
+  partitionId     Int      @map("partition_id")
+  allowOpenAccess Boolean  @default(false) @map("allow_open_access")
+  visibility      String   @default("PRIVATE")
+  isShared        Boolean  @default(false) @map("is_shared")
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  lastAccessedAt  DateTime? @map("last_accessed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  createdByUser   User                  @relation("SandboxCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  collaborators   SandboxCollaborator[]
+  launchScenarios LaunchScenario[]
+  personas        UserPersona[]
+  cdsEndpoints    CdsServiceEndpoint[]
+  bulkExports     BulkExportJob[]
+  jobs            Job[]
+  applications    Application[]
+
+
+  @@index([createdByUserId])
+  @@index([fhirVersion])
+  @@index([partitionId])
+  @@index([lastAccessedAt])
+  @@index([createdAt])
+  @@map("sandboxes")
+}
+
+model SandboxCollaborator {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId String   @map("sandbox_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @default("READ_WRITE")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sandbox Sandbox @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sandboxId, userId])
+  @@index([userId])
+  @@map("sandbox_collaborators")
+}
+
+model Application {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId               String?  @map("sandbox_id") @db.Uuid
+  clientId                String   @unique @map("client_id")
+  clientSecret            String?  @map("client_secret")
+  clientName              String   @map("client_name")
+  clientUri               String?  @map("client_uri")
+  logoUri                 String?  @map("logo_uri")
+  launchUri               String   @map("launch_uri")
+  redirectUris            Json     @default("[]") @map("redirect_uris")
+  scope                   String   @default("openid profile email patient/*.rs user/*.cruds launch launch/patient")
+  isCustom                Boolean  @default(true) @map("is_custom")
+  isSample                Boolean  @default(false) @map("is_sample")
+  briefDescription        String?  @map("brief_description")
+  author                  String?
+  samplePatients          String?  @map("sample_patients")
+  manifestUrl             String?  @map("manifest_url")
+  tokenEndpointAuthMethod String   @default("client_secret_basic") @map("token_endpoint_auth_method")
+  jwksUri                 String?  @map("jwks_uri")
+  jwks                    Json?
+  pkceRequired            Boolean  @default(false) @map("pkce_required")
+  createdByUserId         String?  @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  sandbox         Sandbox?         @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  createdByUser   User?            @relation("ApplicationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  launchScenarios LaunchScenario[]
+
+  @@index([sandboxId])
+  @@map("applications")
+}
+
+model LaunchScenario {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId         String    @map("sandbox_id") @db.Uuid
+  title             String
+  description       String?
+  applicationId     String?   @map("application_id") @db.Uuid
+  userPersonaId     String?   @map("user_persona_id") @db.Uuid
+  patientFhirId     String?   @map("patient_fhir_id")
+  patientName       String?   @map("patient_name")
+  encounterFhirId   String?   @map("encounter_fhir_id")
+  locationFhirId    String?   @map("location_fhir_id")
+  intent            String?
+  smartStyleUrl     String?   @map("smart_style_url")
+  needPatientBanner Boolean   @default(true) @map("need_patient_banner")
+  fhirContext       Json      @default("[]") @map("fhir_context")
+  contextParams     Json      @default("{}") @map("context_params")
+  lastLaunchAt      DateTime? @map("last_launch_at")
+  createdByUserId   String?   @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  sandbox       Sandbox      @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  userPersona   UserPersona? @relation(fields: [userPersonaId], references: [id], onDelete: SetNull)
+  createdByUser User?        @relation("ScenarioCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([sandboxId])
+  @@map("launch_scenarios")
+}
+
+model UserPersona {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId        String   @map("sandbox_id") @db.Uuid
+  personaUserId    String   @map("persona_user_id")
+  personaName      String   @map("persona_name")
+  fhirResourceType String   @default("Practitioner") @map("fhir_resource_type")
+  fhirResourceId   String   @map("fhir_resource_id")
+  fhirResourceName String   @map("fhir_resource_name")
+  createdByUserId  String?  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  sandbox         Sandbox          @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  createdByUser   User?            @relation("PersonaCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  launchScenarios LaunchScenario[]
+
+  @@unique([sandboxId, personaUserId])
+  @@index([sandboxId])
+  @@map("user_personas")
+}
+
+model CdsServiceEndpoint {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId    String   @map("sandbox_id") @db.Uuid
+  name         String
+  url          String
+  servicesJson Json     @default("[]") @map("services_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sandbox Sandbox @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+
+  @@index([sandboxId])
+  @@map("cds_service_endpoints")
+}
+
+model SmartAuthSession {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId             String    @map("sandbox_id")
+  clientId              String    @map("client_id")
+  code                  String?   @unique
+  codeChallenge         String?   @map("code_challenge")
+  codeChallengeMethod   String?   @map("code_challenge_method")
+  redirectUri           String    @map("redirect_uri")
+  scope                 String
+  launchId              String?   @map("launch_id")
+  patientFhirId         String?   @map("patient_fhir_id")
+  encounterFhirId       String?   @map("encounter_fhir_id")
+  userPersonaId         String?   @map("user_persona_id")
+  fhirVersion           String    @default("R4") @map("fhir_version")
+  fhirUser              String?   @map("fhir_user")
+  fhirContext           Json?     @map("fhir_context")
+  accessToken           String?   @unique @map("access_token")
+  refreshToken          String?   @unique @map("refresh_token")
+  tokenType             String    @default("Bearer") @map("token_type")
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  codeExpiresAt         DateTime? @map("code_expires_at")
+  isRevoked             Boolean   @default(false) @map("is_revoked")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([launchId])
+  @@index([accessToken])
+  @@index([refreshToken])
+  @@map("smart_auth_sessions")
+}
+
+model BulkExportJob {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sandboxId       String   @map("sandbox_id") @db.Uuid
+  exportType      String   @default("system") @map("export_type")
+  status          String   @default("queued")
+  requestUrl      String   @map("request_url")
+  outputFiles     Json     @default("[]") @map("output_files")
+  error           String?
+  transactionTime DateTime @default(now()) @map("transaction_time")
+  expiresAt       DateTime @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  sandbox Sandbox @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+
+  @@index([sandboxId])
+  @@index([status])
+  @@map("bulk_export_jobs")
+}
+
+model Job {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String
+  jobType         String    @map("job_type")
+  status          String    @default("queued")
+  progress        Int       @default(0)
+  stage           String?
+  input           Json      @default("{}")
+  output          Json      @default("{}")
+  error           String?
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  cancelledAt     DateTime? @map("cancelled_at")
+  sandboxId       String?   @map("sandbox_id") @db.Uuid
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sandbox       Sandbox? @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  createdByUser User?    @relation("JobCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([jobType])
+  @@index([sandboxId])
+  @@index([createdByUserId])
+  @@index([createdAt])
+  @@map("jobs")
+}
+
+

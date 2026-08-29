@@ -1,0 +1,86 @@
+@startuml custom-app-launch-workflow
+title Custom SMART on FHIR Application Launch & Execution Workflow
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam BoxPadding 8
+
+actor "Developer /\nClinician" as User
+participant "FHIR Studio UI\n(EHR Simulator)" as UI
+participant "Custom SMART App\n(Web / Client)" as App
+participant "SMART IdP\n(FHIR Studio Server)" as IdP
+participant "FHIR Gateway\n(FHIR Studio Server)" as Gateway
+database "HAPI FHIR JPA\n(Partitioned)" as HAPI
+
+== 1. App Registration & Sandbox Preparation ==
+
+User -> UI : Register Custom App\n(Client ID, Launch URI, Redirect URIs, Scopes, Auth Method)
+UI -> IdP : Create/Update App record
+IdP --> UI : App Registered
+
+User -> UI : Select Sandbox, Target Patient & User Persona
+UI -> UI : Configure Launch Scenario / Context
+
+== 2. SMART EHR Launch Initiation ==
+
+User -> UI : Launch Application (via EHR Simulator or Scenario)
+UI -> IdP : POST /api/sandboxes/{id}/launch-context\n{patientFhirId, userPersonaId, encounterFhirId, appId, fhirContext}
+activate IdP
+IdP -> IdP : Generate unique launchId\nStore pending context in DB (15 min TTL)
+IdP --> UI : 201 Created { launch: "uuid", sandboxId: "id" }
+deactivate IdP
+
+UI -> App : Load launch_uri in Simulator Iframe\n?launch={launchId}&iss={fhirBaseUrl}
+activate App
+
+== 3. SMART Authorization (OAuth2 + PKCE) ==
+
+App -> App : Generate PKCE code_verifier\nand code_challenge (S256)
+App -> IdP : GET /oauth/authorize\n?response_type=code&client_id={clientId}\n&redirect_uri={redirectUri}&scope={scopes}\n&launch={launchId}&code_challenge={challenge}&state={state}
+activate IdP
+
+IdP -> IdP : Validate client & redirect_uri\nResolve launch context (patient, persona, sandbox)\nVerify user authorization / persona context
+IdP -> IdP : Generate authorization code\nBind PKCE challenge & session context
+IdP --> App : 302 Redirect to {redirectUri}?code={authCode}&state={state}
+deactivate IdP
+
+== 4. Token Exchange ==
+
+App -> IdP : POST /oauth/token\n(grant_type=authorization_code, code={authCode},\nredirect_uri={redirectUri}, client_id={clientId},\ncode_verifier={verifier} / client_secret / client_assertion)
+activate IdP
+
+IdP -> IdP : Verify authorization code & code_verifier (PKCE)\nValidate client credentials / JWT signature
+IdP -> IdP : Mint signed access_token (JWT / opaque)\nGenerate id_token & SMART launch context
+IdP --> App : 200 OK\n{\n  "access_token": "...",\n  "token_type": "Bearer",\n  "expires_in": 3600,\n  "scope": "...",\n  "patient": "{patientId}",\n  "need_patient_banner": true,\n  "smart_style_url": "...",\n  "id_token": "..."\n}
+deactivate IdP
+
+== 5. FHIR Resource Data Access ==
+
+App -> Gateway : GET /api/sandboxes/{id}/fhir/R4/Patient/{patientId}\nAuthorization: Bearer {access_token}
+activate Gateway
+
+Gateway -> Gateway : Verify access_token signature & expiry\nValidate SMART scope permissions (e.g. patient/*.rs)\nResolve Sandbox partition ID
+Gateway -> HAPI : GET /fhir/Patient/{patientId}\nTenant-Identification: Partition-ID {partitionId}
+activate HAPI
+HAPI --> Gateway : FHIR Patient Resource (JSON)
+deactivate HAPI
+
+Gateway -> Gateway : Rewrite absolute bundle / server URLs to Gateway base URL
+Gateway --> App : 200 OK FHIR Patient JSON
+deactivate Gateway
+
+App -> Gateway : GET /api/sandboxes/{id}/fhir/R4/Observation?patient={patientId}\nAuthorization: Bearer {access_token}
+activate Gateway
+Gateway -> HAPI : Query Observation resources (Partition ID)
+activate HAPI
+HAPI --> Gateway : Observation Searchset Bundle
+deactivate HAPI
+Gateway --> App : 200 OK FHIR Observation Bundle
+deactivate Gateway
+
+App -> App : Render clinical data in UI / EHR Simulator
+
+deactivate App
+
+@enduml

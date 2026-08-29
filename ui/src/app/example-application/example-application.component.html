@@ -1,0 +1,512 @@
+<div class="container-fluid py-4 example-application-container">
+  <!-- Header / Application Banner -->
+  <div class="card shadow-sm border-0 mb-4 bg-primary text-white">
+    <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 54px; height: 54px;">
+          <i class="bi bi-hospital fs-3"></i>
+        </div>
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <h3 class="fw-bold mb-0">Example Application</h3>
+            <span class="badge bg-light text-primary fw-semibold">SMART on FHIR v2</span>
+            <span class="badge bg-info text-dark fw-semibold">Built-in</span>
+          </div>
+          <p class="mb-0 text-white-50 small">Reference client implementation demonstrating SMART v2 EHR launch, Standalone launch, PKCE S256, and live FHIR access.</p>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-2">
+        @if (mode() === 'connected') {
+          <button class="btn btn-outline-light btn-sm d-flex align-items-center gap-1" (click)="disconnect()">
+            <i class="bi bi-power"></i>
+            <span>Disconnect</span>
+          </button>
+        }
+        <a routerLink="/sandboxes" class="btn btn-light btn-sm text-primary fw-semibold d-flex align-items-center gap-1">
+          <i class="bi bi-arrow-left"></i>
+          <span>FHIR Studio</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Alerts -->
+  @if (errorMessage()) {
+    <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+        <div>
+          <strong>Authorization Error:</strong> {{ errorMessage() }}
+        </div>
+      </div>
+      <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+    </div>
+  }
+
+  <!-- Loading State -->
+  @if (loading()) {
+    <div class="card shadow-sm border-0 my-5 text-center py-5">
+      <div class="card-body">
+        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="fw-bold text-dark">{{ currentStep() }}</h5>
+        <p class="text-muted small mb-0">Performing OAuth2 handshake with PKCE S256 challenge...</p>
+      </div>
+    </div>
+  }
+
+  <!-- Standalone Launcher Mode -->
+  @if (!loading() && mode() === 'standalone') {
+    <div class="row justify-content-center">
+      <div class="col-lg-8 col-xl-7">
+        <div class="card shadow-sm border-0">
+          <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2">
+              <i class="bi bi-rocket-takeoff text-primary"></i>
+              <span>Launch in Standalone Mode</span>
+            </h5>
+          </div>
+          <div class="card-body p-4">
+            <p class="text-secondary small mb-4">
+              Standalone launch allows the SMART application to initiate authorization directly with the FHIR server without prior EHR launch context. Select a sandbox below to start:
+            </p>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Target FHIR Studio Sandbox</label>
+              <select class="form-select" [ngModel]="selectedSandboxId()" (ngModelChange)="selectedSandboxId.set($event); customIssUrl.set('')">
+                @for (sb of sandboxService.sandboxes(); track sb.sandboxId) {
+                  <option [value]="sb.sandboxId">
+                    {{ sb.name }} ({{ sb.sandboxId }}) - FHIR {{ sb.fhirVersion }}
+                  </option>
+                }
+              </select>
+              <div class="form-text">The application will query the sandbox's SMART configuration endpoint.</div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Or Custom FHIR Base URL (Optional)</label>
+              <input type="text" class="form-control" [ngModel]="customIssUrl()" (ngModelChange)="customIssUrl.set($event)" placeholder="http://localhost:3000/api/sandboxes/my-sandbox/fhir/r4">
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label fw-semibold">Requested OAuth Scopes</label>
+              <input type="text" class="form-control font-monospace small" [ngModel]="clientScope()" (ngModelChange)="clientScope.set($event)">
+              <div class="form-text">Adheres to SMART v2 granular scope grammar and PKCE S256 verification.</div>
+            </div>
+
+            <div class="d-grid">
+              <button class="btn btn-primary btn-lg fw-semibold d-flex align-items-center justify-content-center gap-2" (click)="launchStandalone()">
+                <i class="bi bi-shield-lock-fill"></i>
+                <span>Authorize & Launch SMART Application</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-footer bg-light p-3 small text-muted">
+            <div class="d-flex align-items-center justify-content-between">
+              <span>Client ID: <strong class="font-monospace">example-application</strong></span>
+              <span>Auth Method: <strong class="text-success">PKCE (S256)</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Connected Mode - Clinical Data & Token Inspector -->
+  @if (!loading() && mode() === 'connected') {
+    <!-- Patient Demographic Banner -->
+    <div class="card shadow-sm border-0 mb-4 patient-banner">
+      <div class="card-body p-3">
+        <div class="row align-items-center g-3">
+          <div class="col-auto">
+            <div class="patient-avatar bg-primary text-white rounded-circle d-flex align-items-center justify-content-center">
+              <i class="bi bi-person-fill fs-2"></i>
+            </div>
+          </div>
+          <div class="col">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <h4 class="fw-bold mb-0 text-dark">{{ patientDisplayName() }}</h4>
+              <span class="badge bg-secondary text-capitalize">{{ patient()?.gender || 'Unknown gender' }}</span>
+              @if (patientAge() !== null) {
+                <span class="badge bg-light text-dark border">{{ patientAge() }} yrs</span>
+              }
+            </div>
+            <div class="d-flex align-items-center gap-3 text-muted small mt-1 flex-wrap">
+              <span>DOB: <strong>{{ patient()?.birthDate || 'Unknown' }}</strong></span>
+              <span>MRN: <strong class="font-monospace text-dark">{{ patientMrn() }}</strong></span>
+              <span>FHIR ID: <strong class="font-monospace text-primary">{{ patient()?.id || 'N/A' }}</strong></span>
+              @if (tokenResponse()?.encounter) {
+                <span>Encounter ID: <strong class="font-monospace text-success">{{ tokenResponse()?.encounter }}</strong></span>
+              }
+            </div>
+          </div>
+          <div class="col-auto text-end">
+            <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fw-semibold">
+              <i class="bi bi-shield-check me-1"></i> SMART Authorized
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <ul class="nav nav-tabs nav-fill mb-4 bg-white rounded shadow-sm p-1">
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'patient'" (click)="activeTab.set('patient')">
+          <i class="bi bi-person-vcard"></i>
+          <span>Demographics</span>
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'conditions'" (click)="activeTab.set('conditions')">
+          <i class="bi bi-clipboard2-pulse"></i>
+          <span>Conditions ({{ conditions().length }})</span>
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'observations'" (click)="activeTab.set('observations')">
+          <i class="bi bi-activity"></i>
+          <span>Labs & Vitals ({{ observations().length }})</span>
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'medications'" (click)="activeTab.set('medications')">
+          <i class="bi bi-capsule"></i>
+          <span>Medications ({{ medications().length }})</span>
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'encounters'" (click)="activeTab.set('encounters')">
+          <i class="bi bi-calendar2-check"></i>
+          <span>Encounters ({{ encounters().length }})</span>
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link d-flex align-items-center justify-content-center gap-2" [class.active]="activeTab() === 'token'" (click)="activeTab.set('token')">
+          <i class="bi bi-key"></i>
+          <span>OAuth Token & Claims</span>
+        </button>
+      </li>
+    </ul>
+
+    <!-- Tab Contents -->
+
+    <!-- 1. Demographics Tab -->
+    @if (activeTab() === 'patient') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom">
+          <h5 class="fw-bold mb-0">Patient Resource Details</h5>
+        </div>
+        <div class="card-body p-4">
+          @if (patient(); as p) {
+            <div class="row g-4">
+              <div class="col-md-6">
+                <h6 class="fw-bold text-muted text-uppercase small">Identification & Contact</h6>
+                <table class="table table-sm table-borderless">
+                  <tbody>
+                    <tr>
+                      <td class="text-muted" style="width: 140px;">Full Name:</td>
+                      <td class="fw-semibold">{{ patientDisplayName() }}</td>
+                    </tr>
+                    <tr>
+                      <td class="text-muted">Gender:</td>
+                      <td class="text-capitalize">{{ p.gender || 'Unknown' }}</td>
+                    </tr>
+                    <tr>
+                      <td class="text-muted">Birth Date:</td>
+                      <td>{{ p.birthDate || 'Unknown' }}</td>
+                    </tr>
+                    <tr>
+                      <td class="text-muted">MRN:</td>
+                      <td class="font-monospace">{{ patientMrn() }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="col-md-6">
+                <h6 class="fw-bold text-muted text-uppercase small">Telecom & Addresses</h6>
+                @if (p.telecom && p.telecom.length > 0) {
+                  <div class="mb-2">
+                    @for (tel of p.telecom; track tel.value) {
+                      <div class="small"><i class="bi bi-telephone text-primary me-1"></i> {{ tel.system }}: {{ tel.value }} ({{ tel.use || 'home' }})</div>
+                    }
+                  </div>
+                }
+                @if (p.address && p.address.length > 0) {
+                  @for (addr of p.address; track addr.line) {
+                    <div class="small text-muted">
+                      <i class="bi bi-geo-alt text-danger me-1"></i>
+                      {{ addr.line?.join(', ') }}, {{ addr.city }}, {{ addr.state }} {{ addr.postalCode }}
+                    </div>
+                  }
+                }
+              </div>
+            </div>
+
+            <hr class="my-4">
+
+            <h6 class="fw-bold text-muted text-uppercase small mb-2">Raw Patient JSON (FHIR)</h6>
+            <pre class="bg-light p-3 rounded font-monospace small" style="max-height: 250px; overflow-y: auto;">{{ p | json }}</pre>
+          } @else {
+            <div class="text-center py-4 text-muted">No patient record loaded.</div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 2. Conditions Tab -->
+    @if (activeTab() === 'conditions') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0">Active Conditions & Health Problems</h5>
+          <span class="badge bg-primary">{{ conditions().length }} Records</span>
+        </div>
+        <div class="card-body p-0">
+          @if (conditions().length === 0) {
+            <div class="p-4 text-center text-muted">No Condition resources found for this patient.</div>
+          } @else {
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Condition / Problem</th>
+                    <th>Clinical Status</th>
+                    <th>Recorded Date</th>
+                    <th>Code (SNOMED/ICD-10)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of conditions(); track c.id) {
+                    <tr>
+                      <td class="fw-semibold text-dark">
+                        {{ c.code?.text || c.code?.coding?.[0]?.display || 'Unnamed Condition' }}
+                      </td>
+                      <td>
+                        <span class="badge bg-success-subtle text-success">
+                          {{ c.clinicalStatus?.coding?.[0]?.code || 'active' }}
+                        </span>
+                      </td>
+                      <td class="text-muted small">
+                        {{ c.recordedDate || c.onsetDateTime || 'N/A' }}
+                      </td>
+                      <td class="font-monospace small text-muted">
+                        {{ c.code?.coding?.[0]?.code || 'N/A' }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 3. Observations Tab -->
+    @if (activeTab() === 'observations') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0">Labs, Vital Signs & Observations</h5>
+          <span class="badge bg-primary">{{ observations().length }} Records</span>
+        </div>
+        <div class="card-body p-0">
+          @if (observations().length === 0) {
+            <div class="p-4 text-center text-muted">No Observation resources found for this patient.</div>
+          } @else {
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Observation Name</th>
+                    <th>Value / Result</th>
+                    <th>Date / Time</th>
+                    <th>LOINC / Code</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (obs of observations(); track obs.id) {
+                    <tr>
+                      <td class="fw-semibold text-dark">
+                        {{ obs.code?.text || obs.code?.coding?.[0]?.display || 'Observation' }}
+                      </td>
+                      <td class="fw-bold text-primary">
+                        @if (obs.valueQuantity) {
+                          {{ obs.valueQuantity.value }} {{ obs.valueQuantity.unit || obs.valueQuantity.code }}
+                        } @else if (obs.valueCodeableConcept) {
+                          {{ obs.valueCodeableConcept.text || obs.valueCodeableConcept.coding?.[0]?.display }}
+                        } @else if (obs.valueString) {
+                          {{ obs.valueString }}
+                        } @else {
+                          <span class="text-muted">Recorded</span>
+                        }
+                      </td>
+                      <td class="text-muted small">
+                        {{ obs.effectiveDateTime || 'N/A' }}
+                      </td>
+                      <td class="font-monospace small text-muted">
+                        {{ obs.code?.coding?.[0]?.code || 'N/A' }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 4. Medications Tab -->
+    @if (activeTab() === 'medications') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0">Medication Requests & Prescriptions</h5>
+          <span class="badge bg-primary">{{ medications().length }} Records</span>
+        </div>
+        <div class="card-body p-0">
+          @if (medications().length === 0) {
+            <div class="p-4 text-center text-muted">No MedicationRequest resources found for this patient.</div>
+          } @else {
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Medication</th>
+                    <th>Status</th>
+                    <th>Instructions / Dosage</th>
+                    <th>Authored On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (med of medications(); track med.id) {
+                    <tr>
+                      <td class="fw-semibold text-dark">
+                        {{ med.medicationCodeableConcept?.text || med.medicationCodeableConcept?.coding?.[0]?.display || 'Medication' }}
+                      </td>
+                      <td>
+                        <span class="badge bg-info-subtle text-info">
+                          {{ med.status || 'active' }}
+                        </span>
+                      </td>
+                      <td class="small text-muted">
+                        {{ med.dosageInstruction?.[0]?.text || 'As directed by physician' }}
+                      </td>
+                      <td class="text-muted small">
+                        {{ med.authoredOn || 'N/A' }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 5. Encounters Tab -->
+    @if (activeTab() === 'encounters') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+          <h5 class="fw-bold mb-0">Encounters & Clinical Visits</h5>
+          <span class="badge bg-primary">{{ encounters().length }} Records</span>
+        </div>
+        <div class="card-body p-0">
+          @if (encounters().length === 0) {
+            <div class="p-4 text-center text-muted">No Encounter resources found for this patient.</div>
+          } @else {
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Type / Reason</th>
+                    <th>Status</th>
+                    <th>Date / Period</th>
+                    <th>Encounter ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (enc of encounters(); track enc.id) {
+                    <tr>
+                      <td class="fw-semibold text-dark">
+                        {{ enc.type?.[0]?.text || enc.type?.[0]?.coding?.[0]?.display || 'Clinical Encounter' }}
+                      </td>
+                      <td>
+                        <span class="badge bg-secondary">
+                          {{ enc.status || 'finished' }}
+                        </span>
+                      </td>
+                      <td class="text-muted small">
+                        {{ enc.period?.start || 'N/A' }}
+                      </td>
+                      <td class="font-monospace small text-primary">
+                        {{ enc.id }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 6. OAuth Token & Claims Tab -->
+    @if (activeTab() === 'token') {
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 border-bottom">
+          <h5 class="fw-bold mb-0">SMART Token Response & Decoded Claims</h5>
+        </div>
+        <div class="card-body p-4">
+          <div class="row g-4">
+            <div class="col-lg-6">
+              <h6 class="fw-bold text-muted text-uppercase small mb-2">OAuth Token Parameters</h6>
+              <table class="table table-sm table-bordered">
+                <tbody>
+                  <tr>
+                    <td class="bg-light fw-semibold" style="width: 140px;">Token Type:</td>
+                    <td>{{ tokenResponse()?.token_type || 'Bearer' }}</td>
+                  </tr>
+                  <tr>
+                    <td class="bg-light fw-semibold">Expires In:</td>
+                    <td>{{ tokenResponse()?.expires_in }} seconds</td>
+                  </tr>
+                  <tr>
+                    <td class="bg-light fw-semibold">Patient Context:</td>
+                    <td class="font-monospace text-primary">{{ tokenResponse()?.patient || 'N/A' }}</td>
+                  </tr>
+                  <tr>
+                    <td class="bg-light fw-semibold">Granted Scope:</td>
+                    <td class="font-monospace small">{{ tokenResponse()?.scope }}</td>
+                  </tr>
+                  <tr>
+                    <td class="bg-light fw-semibold">FHIR Base URL:</td>
+                    <td class="font-monospace small">{{ fhirBaseUrl() }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="col-lg-6">
+              <h6 class="fw-bold text-muted text-uppercase small mb-2">Decoded ID Token (OpenID Connect)</h6>
+              @if (idTokenClaims()) {
+                <pre class="bg-light p-3 rounded font-monospace small" style="max-height: 200px; overflow-y: auto;">{{ idTokenClaims() | json }}</pre>
+              } @else {
+                <div class="alert alert-secondary small">No ID Token present in response.</div>
+              }
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <h6 class="fw-bold text-muted text-uppercase small mb-2">Full Raw Token Response</h6>
+          <pre class="bg-light p-3 rounded font-monospace small" style="max-height: 200px; overflow-y: auto;">{{ tokenResponse() | json }}</pre>
+        </div>
+      </div>
+    }
+  }
+</div>

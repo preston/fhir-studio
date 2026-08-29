@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build & Compilation Outputs
+dist/
+build/
+out-tsc/
+ui/tmp/
+*.tsbuildinfo
+.tscache/
+
+# Angular & Tooling Caches
+.angular/
+.cache/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Testing & Code Coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# Logs
+*.log
+logs/
+
+# IDE, Editor & Tooling
+.idea/
+.cursor/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini

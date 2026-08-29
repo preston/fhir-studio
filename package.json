@@ -1,0 +1,40 @@
+{
+  "name": "fhir-studio",
+  "private": true,
+  "engines": {
+    "node": ">=26"
+  },
+  "packageManager": "npm",
+  "workspaces": [
+    "core",
+    "server",
+    "ui"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@fhir-studio/core && npm run build --workspace=@fhir-studio/server && npm run build --workspace=@fhir-studio/ui",
+    "build:core": "npm run build --workspace=@fhir-studio/core",
+    "build:server": "npm run build --workspace=@fhir-studio/server",
+    "build:ui": "npm run build --workspace=@fhir-studio/ui",
+    "start:ui": "npm run start --workspace=@fhir-studio/ui",
+    "start:server": "npm run dev --workspace=@fhir-studio/server",
+    "prisma:migrate": "npm run prisma:migrate --workspace=@fhir-studio/server",
+    "prisma:seed": "npm run prisma:seed --workspace=@fhir-studio/server",
+    "docker:up": "docker compose -f docker/docker-compose.development.yml up -d",
+    "docker:down": "docker compose -f docker/docker-compose.development.yml down",
+    "docker:prod:up": "docker compose -f docker/docker-compose.production.yml up -d",
+    "docker:prod:down": "docker compose -f docker/docker-compose.production.yml down",
+    "diagram": "command -v plantuml >/dev/null 2>&1 && plantuml -tpng doc/*.puml || echo 'plantuml not found on PATH; install PlantUML to render doc/*.puml'",
+    "check:ports": "./scripts/check-ports.sh",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "overrides": {
+    "ngx-toastr": {
+      "@angular/common": "22.1.4",
+      "@angular/core": "22.1.4",
+      "@angular/platform-browser": "22.1.4"
+    },
+    "@angular/core": "22.1.4",
+    "@angular/common": "22.1.4",
+    "@types/express-serve-static-core": "5.1.0"
+  }
+}

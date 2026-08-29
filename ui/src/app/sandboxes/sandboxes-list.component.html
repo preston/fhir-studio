@@ -1,0 +1,355 @@
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="fw-bold mb-1">FHIR Sandboxes</h2>
+  </div>
+  <div>
+    @if (auth.hasPermission('sandboxes_create')) {
+      <button class="btn btn-primary d-flex align-items-center gap-2" (click)="openCreateModal()">
+        <i class="bi bi-plus-circle-fill"></i>
+        <span>New Sandbox</span>
+      </button>
+    }
+  </div>
+</div>
+
+@if (successMessage()) {
+  <div class="alert alert-success alert-dismissible fade show" role="alert">
+    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+  </div>
+}
+
+@if (errorMessage()) {
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+  </div>
+}
+
+<!-- Analytics Summary Row -->
+@if (sandboxes().length > 0) {
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small fw-bold text-uppercase">Total Sandboxes</span>
+          <i class="bi bi-boxes fs-4 text-primary"></i>
+        </div>
+        <div class="display-6 fw-bold text-primary">{{ sandboxes().length }}</div>
+        <div class="small text-muted mt-2">
+          Partitioned dynamically in stock HAPI JPA Server
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small fw-bold text-uppercase">Security Breakdown</span>
+          <i class="bi bi-shield-check fs-4 text-info"></i>
+        </div>
+        <div class="d-flex gap-4 mt-2">
+          <div>
+            <div class="fs-4 fw-bold text-success">
+              {{ securedCount() }} Secured
+            </div>
+            <div class="small text-muted">{{ openCount() }} Open Access</div>
+          </div>
+          <div>
+            <div class="fs-4 fw-bold text-secondary">
+              {{ sandboxes().length }} Partitions
+            </div>
+            <div class="small text-muted">Zero-restart dynamic</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small fw-bold text-uppercase">FHIR Release Mix</span>
+          <i class="bi bi-layers-fill fs-4 text-primary"></i>
+        </div>
+        <div class="d-flex gap-4 mt-2">
+          <div>
+            <div class="fs-4 fw-bold text-primary">{{ r4Count() }}</div>
+            <div class="small text-muted">FHIR R4</div>
+          </div>
+          <div>
+            <div class="fs-4 fw-bold" style="color: #6f42c1;">{{ r4bCount() }}</div>
+            <div class="small text-muted">FHIR R4B</div>
+          </div>
+          <div>
+            <div class="fs-4 fw-bold text-success">{{ r5Count() }}</div>
+            <div class="small text-muted">FHIR R5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Sandboxes Grid -->
+@if (loading()) {
+  <div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+  </div>
+} @else if (sandboxes().length === 0) {
+  <div class="card p-5 text-center my-4">
+    <i class="bi bi-box-seam display-3 text-muted mb-3"></i>
+    <h4>No Sandboxes Found</h4>
+    <p class="text-muted mb-4">Create your first FHIR sandbox partition to start testing SMART applications and FHIR resources.</p>
+    @if (auth.hasPermission('sandboxes_create')) {
+      <div>
+        <button class="btn btn-primary" (click)="openCreateModal()">
+          <i class="bi bi-plus-circle me-1"></i> Create Sandbox
+        </button>
+      </div>
+    }
+  </div>
+} @else {
+  <div class="row g-4">
+    @for (sandbox of sandboxes(); track sandbox.id) {
+      <div class="col-md-6 col-xl-4">
+        <div class="card h-100 card-hover border-top border-4" [ngClass]="sandbox.fhirVersion === 'R4' ? 'border-primary' : 'border-success'">
+          <div class="card-body d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <h5 class="card-title fw-bold mb-0 text-truncate" [title]="sandbox.name">
+                {{ sandbox.name }}
+              </h5>
+              <div class="d-flex gap-1">
+                <span class="badge" [ngClass]="sandbox.fhirVersion === 'R4' ? 'bg-primary' : 'bg-success'">
+                  FHIR {{ sandbox.fhirVersion }}
+                </span>
+                @if (sandbox.allowOpenAccess) {
+                  <span class="badge badge-open">Open</span>
+                } @else {
+                  <span class="badge badge-secured">Secured</span>
+                }
+              </div>
+            </div>
+
+            <div class="text-muted small mb-3">
+              <code>ID: {{ sandbox.sandboxId }}</code> &bull;
+              <span>Partition #{{ sandbox.partitionId }}</span>
+            </div>
+
+            <p class="card-text text-secondary small flex-grow-1">
+              {{ sandbox.description || 'No description provided.' }}
+            </p>
+
+            <div class="bg-light p-2 rounded mb-3 small">
+              <div class="d-flex justify-content-between text-muted">
+                <span>Applications: <strong>{{ sandbox._count?.applications || 0 }}</strong></span>
+                <span>Scenarios: <strong>{{ sandbox._count?.launchScenarios || 0 }}</strong></span>
+                <span>Personas: <strong>{{ sandbox._count?.personas || 0 }}</strong></span>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+              <div class="btn-group btn-group-sm">
+                @if (auth.hasPermission('ehr_simulator')) {
+                  <a class="btn btn-outline-primary" routerLink="/ehr-simulator" [queryParams]="{ sandbox: sandbox.sandboxId }" title="Open in EHR Simulator">
+                    <i class="bi bi-display"></i> EHR
+                  </a>
+                }
+                @if (auth.hasPermission('data_manager')) {
+                  <a class="btn btn-outline-secondary" routerLink="/data-manager" [queryParams]="{ sandbox: sandbox.sandboxId }" title="Browse Data Manager">
+                    <i class="bi bi-database"></i> Data
+                  </a>
+                }
+                <a class="btn btn-outline-info" routerLink="/scenarios" [queryParams]="{ sandbox: sandbox.sandboxId }" title="Launch Scenarios">
+                  <i class="bi bi-play-circle"></i> Scenarios
+                </a>
+              </div>
+
+              <div class="dropdown">
+                <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
+                  <i class="bi bi-three-dots-vertical fs-5"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                  <li>
+                    <button class="dropdown-item" (click)="openCollaboratorsModal(sandbox)">
+                      <i class="bi bi-people me-2"></i> Collaborators
+                    </button>
+                  </li>
+                  <li>
+                    <button class="dropdown-item text-warning" (click)="resetPartition(sandbox)">
+                      <i class="bi bi-arrow-counterclockwise me-2"></i> Reset FHIR Data
+                    </button>
+                  </li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <button class="dropdown-item text-danger" (click)="deleteSandbox(sandbox)">
+                      <i class="bi bi-trash me-2"></i> Delete Sandbox
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
+}
+
+<!-- Create Sandbox Modal -->
+@if (showCreateModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Create FHIR Sandbox</h5>
+          <button type="button" class="btn-close" (click)="showCreateModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sandbox Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="newSandbox.name" (ngModelChange)="onNameChange()" placeholder="e.g. Cardiology Clinic Sandbox">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sandbox ID (Slug) <span class="text-danger">*</span></label>
+            <input type="text" class="form-control font-monospace" [(ngModel)]="newSandbox.sandboxId" placeholder="cardiology-clinic">
+            <div class="form-text">Used for endpoint URLs: <code>/api/sandboxes/{{ newSandbox.sandboxId || 'slug' }}/fhir/r4</code></div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea class="form-control" rows="2" [(ngModel)]="newSandbox.description" placeholder="Brief notes on this sandbox's purpose"></textarea>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">FHIR Release</label>
+              <select class="form-select" [(ngModel)]="newSandbox.fhirVersion">
+                <option value="R4">FHIR R4 (v4.0.1 - Standard)</option>
+                <option value="R4B">FHIR R4B (v4.3.0)</option>
+                <option value="R5">FHIR R5 (v5.0.0 - Final)</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Visibility</label>
+              <select class="form-select" [(ngModel)]="newSandbox.visibility">
+                <option value="PRIVATE">Private</option>
+                <option value="PUBLIC">Public</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Notable FHIR Implementation Guides Wizard Selection -->
+          <div class="card bg-light border-0 p-3 mb-3">
+            <label class="form-label fw-bold mb-1">
+              <i class="bi bi-journal-bookmark-fill text-primary me-1"></i> Pre-load Implementation Guides (US Core & Notable IGs)
+            </label>
+            <div class="text-muted small mb-3">
+              Select standard FHIR Implementation Guides to automatically index profiles, ValueSets, and CodeSystems into this sandbox upon creation.
+            </div>
+
+            <div class="row g-2">
+              @for (ig of igOptions; track ig.id) {
+                <div class="col-md-6">
+                  <div class="form-check card p-2 bg-white border h-100 shadow-sm">
+                    <input class="form-check-input ms-0 me-2" type="checkbox" [id]="ig.id" [(ngModel)]="ig.selected">
+                    <label class="form-check-label w-100 cursor-pointer" [for]="ig.id">
+                      <div class="d-flex justify-content-between align-items-center">
+                        <span class="fw-bold text-dark small">{{ ig.title }}</span>
+                        <span class="badge bg-secondary-subtle text-secondary small">{{ ig.category }}</span>
+                      </div>
+                      <div class="text-muted small">{{ ig.description }}</div>
+                    </label>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Seed Synthetic Clinical Data Selection -->
+          <div class="card bg-light border-0 p-3 mb-3">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="seedDataSwitch" [(ngModel)]="newSandbox.seedData">
+              <label class="form-check-label fw-bold text-dark cursor-pointer" for="seedDataSwitch">
+                <i class="bi bi-database-fill-add text-success me-1"></i> Seed Synthetic Clinical Data & 4 Launch Scenarios
+              </label>
+              <div class="text-muted small mt-1">
+                Asynchronously imports 4 curated Synthea patient records (Pediatric, Young Adult, Chronic Adult, Geriatric) with dependencies and automatically configures 4 launch scenarios.
+              </div>
+            </div>
+          </div>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="openAccessSwitch" [(ngModel)]="newSandbox.allowOpenAccess">
+            <label class="form-check-label fw-semibold" for="openAccessSwitch">
+              Allow Open Access (No OAuth required)
+            </label>
+            <div class="form-text">If disabled, SMART OAuth authorization Bearer tokens are strictly required.</div>
+          </div>
+
+          @if (auth.hasPermission('sandboxes_shared')) {
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="sharedSwitch" [(ngModel)]="newSandbox.isShared">
+              <label class="form-check-label fw-semibold" for="sharedSwitch">
+                Shared Team Sandbox
+              </label>
+            </div>
+          }
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="createSandbox()">Create Sandbox</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Collaborators Modal -->
+@if (showCollaboratorModal() && selectedSandboxForCollab()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Manage Collaborators ({{ selectedSandboxForCollab()?.name }})</h5>
+          <button type="button" class="btn-close" (click)="showCollaboratorModal.set(false)"></button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex gap-2 mb-4">
+            <input type="email" class="form-control" [(ngModel)]="newCollaboratorEmail" placeholder="user@example.com">
+            <select class="form-select w-auto" [(ngModel)]="newCollaboratorRole">
+              <option value="READ_WRITE">Read/Write</option>
+              <option value="READ_ONLY">Read Only</option>
+              <option value="MANAGE">Administrator</option>
+            </select>
+            <button class="btn btn-primary" (click)="addCollaborator()">Add</button>
+          </div>
+
+          <h6 class="fw-bold mb-2">Current Collaborators</h6>
+          @if (!selectedSandboxForCollab()?.collaborators || selectedSandboxForCollab()!.collaborators!.length === 0) {
+            <p class="text-muted small">No other collaborators on this sandbox yet.</p>
+          } @else {
+            <ul class="list-group list-group-flush">
+              @for (collab of selectedSandboxForCollab()!.collaborators!; track collab.id) {
+                <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                  <div>
+                    <span class="fw-semibold">{{ collab.user.displayName || collab.user.email }}</span>
+                    <span class="badge bg-light text-dark ms-2">{{ collab.role }}</span>
+                  </div>
+                  <button class="btn btn-sm btn-outline-danger" (click)="removeCollaborator(selectedSandboxForCollab()!, collab.userId)">
+                    <i class="bi bi-x-lg"></i>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="showCollaboratorModal.set(false)">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@fhir-studio/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FHIR Studio Core Domain Models and Shared Types",
+  "type": "module",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js",
+      "default": "./build/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build"
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "clean": "rm -rf ./build",
+    "compile": "tsc",
+    "build": "npm run clean && npm run compile",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "uuid": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/fhir": "^0.0.44",
+    "@types/node": "^26.3.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
