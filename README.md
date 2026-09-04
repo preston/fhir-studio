@@ -204,3 +204,5 @@ Server configuration uses the `FHIR_STUDIO_SERVER_*` prefix. Default development
 ## Attribution & License
 
 Provided under the Apache 2.0 license. Copyright © 2026 Preston Lee. All rights reserved.
+
+FHIR® is the registered trademark of HL7 and is used with the permission of HL7. Use of the FHIR trademark does not constitute endorsement of the application by HL7
