@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { loadSsoConfig } from './auth/sso_config.js';
+import { loadHapiConfig } from './hapi/partition_client.js';
 import { createSessionAuth } from './authentication/requireAuthentication.js';
 import { createAuthRouter } from './authentication/routes.js';
 import { createSmartIdpRouter } from './smart-idp/routes.js';
@@ -20,10 +21,10 @@ import { SubscriptionHub } from './subscriptions/hub.js';
 import { createAdministrationRouter } from './administration/routes.js';
 import { createImplementationGuidesRouter } from './implementation-guides/routes.js';
 import { createJobsRouter } from './jobs/routes.js';
-import { JobWorker } from './jobs/worker.js';
 import { disconnectPrisma } from './db/prisma.js';
 
 const oidcConfig = loadSsoConfig();
+const hapiConfig = loadHapiConfig();
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -60,6 +61,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Public FHIR release availability (no auth)
+app.get('/api/fhir-releases', (_req, res) => {
+  res.json({
+    releases: hapiConfig.releases.map(({ release, enabled }) => ({ release, enabled })),
+  });
+});
+
 // Mount Routes
 app.use(createAuthRouter(oidcConfig));
 app.use(createSmartIdpRouter());
@@ -90,7 +98,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 export const server = app.listen(port, () => {
   console.log(`FHIR Studio Server listening on http://localhost:${port}`);
   SubscriptionHub.getInstance().init(server);
-  void JobWorker.getInstance().start();
 });
 
 let isShuttingDown = false;
@@ -100,7 +107,6 @@ export async function shutdown(signal?: string): Promise<void> {
   if (signal) {
     console.log(`\nReceived ${signal}, shutting down gracefully...`);
   }
-  JobWorker.getInstance().stop();
   SubscriptionHub.getInstance().close();
   await new Promise<void>((resolve) => {
     server.close(() => resolve());

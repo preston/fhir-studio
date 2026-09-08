@@ -78,9 +78,11 @@
           (ngModelChange)="onPurgeFhirVersionChange($event)"
         >
           <option value="all">All Releases</option>
-          <option value="R4">FHIR R4</option>
-          <option value="R4B">FHIR R4B</option>
-          <option value="R5">FHIR R5</option>
+          @for (entry of fhirReleases.releases(); track entry.release) {
+            <option [value]="entry.release">
+              FHIR {{ entry.release }}{{ entry.enabled ? '' : ' (disabled)' }}
+            </option>
+          }
         </select>
       </div>
 

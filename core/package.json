@@ -1,6 +1,6 @@
 {
   "name": "@fhir-studio/core",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "private": true,
   "description": "FHIR Studio Core Domain Models and Shared Types",
   "type": "module",
@@ -32,8 +32,8 @@
   },
   "devDependencies": {
     "@types/fhir": "^0.0.44",
-    "@types/node": "^26.3.0",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.5.0",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }

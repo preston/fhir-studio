@@ -10,6 +10,7 @@ import { debounceTime, distinctUntilChanged, switchMap, catchError } from 'rxjs/
 import { SandboxService, type Sandbox, type SandboxCollaborator } from '../core/services/sandbox.service.js';
 import { AuthService } from '../core/services/auth.service.js';
 import { ImplementationGuideService } from '../core/services/implementation-guide.service.js';
+import { FhirReleasesService, type FhirReleaseId } from '../core/services/fhir-releases.service.js';
 
 export interface SelectableIgOption {
   id: string;
@@ -32,6 +33,7 @@ export class SandboxesListComponent implements OnInit {
   public readonly sandboxService = inject(SandboxService);
   public readonly auth = inject(AuthService);
   public readonly igService = inject(ImplementationGuideService);
+  public readonly fhirReleases = inject(FhirReleasesService);
   private readonly destroyRef = inject(DestroyRef);
 
   public readonly sandboxes = this.sandboxService.sandboxes;
@@ -52,7 +54,7 @@ export class SandboxesListComponent implements OnInit {
     name: '',
     sandboxId: '',
     description: '',
-    fhirVersion: 'R4' as 'R4' | 'R4B' | 'R5',
+    fhirVersion: 'R4' as FhirReleaseId,
     allowOpenAccess: false,
     visibility: 'PRIVATE' as 'PUBLIC' | 'PRIVATE',
     isShared: false,
@@ -81,12 +83,24 @@ export class SandboxesListComponent implements OnInit {
     isShared: false,
   };
 
-  // Count computed signals for summary analytics
+  // Count computed signals for summary analytics (enabled releases only appear in the mix)
+  public readonly enabledReleases = this.fhirReleases.enabledReleases;
   public readonly r4Count = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R4').length);
   public readonly r4bCount = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R4B').length);
   public readonly r5Count = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R5').length);
   public readonly securedCount = computed(() => this.sandboxes().filter((s) => !s.allowOpenAccess).length);
   public readonly openCount = computed(() => this.sandboxes().filter((s) => s.allowOpenAccess).length);
+
+  public countForRelease(release: FhirReleaseId): number {
+    switch (release) {
+      case 'R4':
+        return this.r4Count();
+      case 'R4B':
+        return this.r4bCount();
+      case 'R5':
+        return this.r5Count();
+    }
+  }
 
   constructor() {
     this.slugSubject
@@ -134,6 +148,14 @@ export class SandboxesListComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.fhirReleases.ensureLoaded().subscribe({
+      next: () => {
+        const enabled = this.fhirReleases.enabledReleases();
+        if (enabled.length > 0 && !enabled.includes(this.newSandbox.fhirVersion)) {
+          this.newSandbox.fhirVersion = enabled[0];
+        }
+      },
+    });
     this.loadSandboxes();
   }
 
@@ -220,11 +242,12 @@ export class SandboxesListComponent implements OnInit {
   }
 
   public openCreateModal(): void {
+    const defaultRelease = this.fhirReleases.enabledReleases()[0] || 'R4';
     this.newSandbox = {
       name: '',
       sandboxId: '',
       description: '',
-      fhirVersion: 'R4',
+      fhirVersion: defaultRelease,
       allowOpenAccess: false,
       visibility: 'PRIVATE',
       isShared: false,
@@ -235,7 +258,7 @@ export class SandboxesListComponent implements OnInit {
     this.slugAvailable.set(null);
     this.slugValidationMessage.set(null);
     this.showCreateModal.set(true);
-    this.loadCreationIgs('R4');
+    this.loadCreationIgs(defaultRelease);
   }
 
   public createSandbox(): void {

@@ -6,9 +6,9 @@
 
 - **Monorepo Structure**:
   - `core/` – Shared domain models, RBAC, SMART, FHIR, and CDS Hook types (`@fhir-studio/core`)
-  - `server/` – Express 5 + Node 26 ESM backend, Prisma ORM, FHIR Gateway proxy, SMART IdP (`@fhir-studio/server`)
+  - `server/` – Express + Node ESM backend, Prisma ORM, FHIR Gateway proxy, SMART IdP, and Postgres-backed job worker (`@fhir-studio/server`)
   - `ui/` – Angular 22 standalone UI with Bootstrap 5 and ECharts (`@fhir-studio/ui`)
-  - `docker/` – Local stack with PostgreSQL, Redis, Authentik (SSO/OIDC), and HAPI FHIR (R4/R5)
+  - `docker/` – Local stack with PostgreSQL, Redis, Authentik (SSO/OIDC), and HAPI FHIR (R4/R4B/R5)
 
 ---
 
@@ -29,7 +29,8 @@
   - Full ESM (`type: "module"`).
   - Express routing conventions (e.g., named wildcard syntax `/:version{/*path}` via `path-to-regexp` v8).
   - Clean separation between route handlers, business services, and database layers.
-  - Make sure that server/.env.example will always work out-of-the-box when used by a new developer, per the README.md instructions
+  - Make sure that `server/.env.example` will always work out-of-the-box when used by a new developer, per the README.md instructions (values must match `docker/docker-compose.development.yml`).
+  - Required env validation is centralized in `server/src/env.ts` (`requireEnvAll`, `SERVER_REQUIRED_ENV`, `WORKER_REQUIRED_ENV`). The API uses `loadSsoConfig()`; the worker uses `loadWorkerConfig()`. Do not add silent localhost fallbacks for required vars — missing config must exit with the shared helpful error that points at copying `.env.example`.
 - **Angular**:
   - Use the latest stable version of Angular and Bootstrap
   - Prefer modern Angular 22 idioms: standalone components, functional guards (`CanActivateFn`), functional interceptors (`HttpInterceptorFn`), and `inject()` over constructor parameter injection.
@@ -50,6 +51,7 @@
 ## Key Commands & Workflow
 - **Build All**: `npm run build`
 - **Server Dev**: `npm run start:server` (or `npm run dev --workspace=@fhir-studio/server`)
+- **Worker Dev**: `npm run start:worker` (or `npm run worker:watch --workspace=@fhir-studio/server`)
 - **UI Dev**: `npm run start:ui`
 - **Typecheck**: `npm run typecheck --workspace=@fhir-studio/<workspace>`
 - **Docker Stack**: `npm run docker:up` / `npm run docker:down`

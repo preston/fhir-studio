@@ -358,6 +358,8 @@ model Job {
   startedAt       DateTime? @map("started_at")
   completedAt     DateTime? @map("completed_at")
   cancelledAt     DateTime? @map("cancelled_at")
+  lockedBy        String?   @map("locked_by")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
   sandboxId       String?   @map("sandbox_id") @db.Uuid
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -367,6 +369,7 @@ model Job {
   createdByUser User?    @relation("JobCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([status])
+  @@index([status, leaseExpiresAt])
   @@index([jobType])
   @@index([sandboxId])
   @@index([createdByUserId])

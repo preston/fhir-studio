@@ -5,6 +5,23 @@ import { requirePermission } from '../authorization/requirePermission.js';
 import { JobService } from './service.js';
 import type { JobFilter, JobStatus } from '@fhir-studio/core';
 
+const VALID_JOB_STATUSES = new Set<JobStatus>(['queued', 'in_progress', 'completed', 'failed', 'cancelled']);
+
+function parseStatusQuery(status: unknown): JobStatus[] {
+  if (status == null || status === '') return [];
+  const rawValues = Array.isArray(status) ? status : [status];
+  const parsed: JobStatus[] = [];
+  for (const value of rawValues) {
+    for (const part of String(value).split(',')) {
+      const normalized = part.trim() as JobStatus;
+      if (VALID_JOB_STATUSES.has(normalized) && !parsed.includes(normalized)) {
+        parsed.push(normalized);
+      }
+    }
+  }
+  return parsed;
+}
+
 export function createJobsRouter(): Router {
   const router = express.Router();
   const jobService = new JobService();
@@ -15,14 +32,24 @@ export function createJobsRouter(): Router {
 
   // List background jobs with filters & pagination
   router.get('/api/administration/jobs', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { status, jobType, sandboxId, createdByUserId, search, page, limit } = req.query;
+    const { status, jobType, sandboxId, createdByUserId, search, sortBy, sortOrder, page, limit } = req.query;
+
+    const statusValues = parseStatusQuery(status);
+    const allowedSortBy = new Set(['name', 'jobType', 'status', 'progress', 'createdAt', 'startedAt', 'completedAt']);
+    const parsedSortBy = typeof sortBy === 'string' && allowedSortBy.has(sortBy)
+      ? (sortBy as NonNullable<JobFilter['sortBy']>)
+      : undefined;
+    const parsedSortOrder = sortOrder === 'asc' || sortOrder === 'desc' ? sortOrder : undefined;
 
     const filters: JobFilter = {
-      ...(status ? { status: status as JobStatus } : {}),
+      ...(statusValues.length === 1 ? { status: statusValues[0] } : {}),
+      ...(statusValues.length > 1 ? { statuses: statusValues } : {}),
       ...(jobType ? { jobType: String(jobType) } : {}),
       ...(sandboxId ? { sandboxId: String(sandboxId) } : {}),
       ...(createdByUserId ? { createdByUserId: String(createdByUserId) } : {}),
       ...(search ? { search: String(search) } : {}),
+      ...(parsedSortBy ? { sortBy: parsedSortBy } : {}),
+      ...(parsedSortOrder ? { sortOrder: parsedSortOrder } : {}),
       page: page ? parseInt(String(page), 10) : 1,
       limit: limit ? parseInt(String(limit), 10) : 50,
     };

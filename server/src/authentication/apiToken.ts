@@ -1,10 +1,10 @@
 // Author: Preston Lee
 
 import crypto from 'node:crypto';
+import { requireEnv } from '../env.js';
 
 export function loadApiTokenPepper(): string {
-  const pepper = process.env.FHIR_STUDIO_SERVER_API_TOKEN_PEPPER || process.env.API_TOKEN_PEPPER || 'fhir-studio-default-pepper-32b-secret';
-  return pepper;
+  return requireEnv('FHIR_STUDIO_SERVER_API_TOKEN_PEPPER', 'API_TOKEN_PEPPER');
 }
 
 export function extractBearerToken(header: string | undefined): string | null {

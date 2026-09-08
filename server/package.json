@@ -15,6 +15,8 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/server.ts",
     "watch": "tsx watch src/server.ts",
+    "worker": "node --env-file-if-exists=.env build/worker.js",
+    "worker:watch": "tsx watch --env-file-if-exists=.env src/worker.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -33,7 +35,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "openid-client": "^6.8.7",
+    "openid-client": "^6.8.8",
     "pg": "^8.23.0",
     "prisma": "^7.10.0",
     "uuid": "^14.0.2",
@@ -44,11 +46,11 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/fhir": "^0.0.44",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.5.0",
     "@types/pg": "^8.23.1",
     "@types/uuid": "^11.0.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }

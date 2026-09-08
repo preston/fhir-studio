@@ -3,7 +3,7 @@
 import type { PrismaClient, Job } from '@prisma/client';
 import type { CreateJobPayload, JobFilter, JobSummary } from '@fhir-studio/core';
 import { getPrisma } from '../db/prisma.js';
-import { JobWorker } from './worker.js';
+import { cancelJob as cancelQueuedJob } from './queue.js';
 
 export class JobService {
   private prisma: PrismaClient;
@@ -55,38 +55,68 @@ export class JobService {
     limit: number;
     summary: JobSummary;
   }> {
-    const { status, jobType, sandboxId, createdByUserId, search, page = 1, limit = 50 } = filters;
+    const {
+      status,
+      statuses,
+      jobType,
+      sandboxId,
+      createdByUserId,
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      page = 1,
+      limit = 50,
+    } = filters;
     const skip = Math.max(0, (page - 1) * limit);
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
-    if (status) {
-      where.status = status;
+    const statusList = [
+      ...(statuses ?? []),
+      ...(status ? [status] : []),
+    ].filter((value, index, all) => all.indexOf(value) === index);
+
+    if (statusList.length === 1) {
+      where['status'] = statusList[0];
+    } else if (statusList.length > 1) {
+      where['status'] = { in: statusList };
     }
 
     if (jobType) {
-      where.jobType = jobType.toUpperCase();
+      where['jobType'] = jobType.toUpperCase();
     }
 
     if (sandboxId) {
-      where.OR = [
+      where['OR'] = [
         { sandboxId },
         { sandbox: { sandboxId } },
       ];
     }
 
     if (createdByUserId) {
-      where.createdByUserId = createdByUserId;
+      where['createdByUserId'] = createdByUserId;
     }
 
     if (search) {
-      where.OR = [
+      where['OR'] = [
         { name: { contains: search, mode: 'insensitive' } },
         { jobType: { contains: search, mode: 'insensitive' } },
         { stage: { contains: search, mode: 'insensitive' } },
         { error: { contains: search, mode: 'insensitive' } },
       ];
     }
+
+    const allowedSortFields = new Set([
+      'name',
+      'jobType',
+      'status',
+      'progress',
+      'createdAt',
+      'startedAt',
+      'completedAt',
+    ]);
+    const orderField = allowedSortFields.has(sortBy) ? sortBy : 'createdAt';
+    const orderDirection = sortOrder === 'asc' ? 'asc' : 'desc';
 
     const [jobs, total, summary] = await Promise.all([
       this.prisma.job.findMany({
@@ -95,7 +125,7 @@ export class JobService {
           sandbox: { select: { id: true, sandboxId: true, name: true, fhirVersion: true } },
           createdByUser: { select: { id: true, email: true, displayName: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [orderField]: orderDirection },
         skip,
         take: limit,
       }),
@@ -123,8 +153,7 @@ export class JobService {
   }
 
   public async cancelJob(id: string): Promise<boolean> {
-    const worker = JobWorker.getInstance();
-    return worker.cancelJob(id);
+    return cancelQueuedJob(id);
   }
 
   public async retryJob(id: string, requestedByUserId?: string): Promise<Job> {

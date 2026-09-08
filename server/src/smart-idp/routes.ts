@@ -3,6 +3,7 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
+import { isFhirReleaseEnabled } from '../hapi/partition_client.js';
 import { generateSmartConfiguration } from './smart_config.js';
 import {
   generateIdToken,
@@ -129,7 +130,7 @@ export function createSmartIdpRouter(): Router {
       where: { sandboxId },
     });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: `Sandbox '${sandboxId}' not found.` });
       return;
     }

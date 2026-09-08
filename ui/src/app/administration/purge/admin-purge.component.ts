@@ -10,6 +10,7 @@ import type {
 } from '@fhir-studio/core';
 import { AdministrationService } from '../../core/services/administration.service.js';
 import type { Sandbox } from '../../core/services/sandbox.service.js';
+import { FhirReleasesService } from '../../core/services/fhir-releases.service.js';
 
 @Component({
   selector: 'app-admin-purge',
@@ -19,6 +20,7 @@ import type { Sandbox } from '../../core/services/sandbox.service.js';
 })
 export class AdminPurgeComponent implements OnInit {
   public readonly administrationService = inject(AdministrationService);
+  public readonly fhirReleases = inject(FhirReleasesService);
 
   public readonly purgeSandboxes = signal<SandboxSummary[]>([]);
   public readonly purgeTotal = signal<number>(0);
@@ -40,6 +42,7 @@ export class AdminPurgeComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.fhirReleases.ensureLoaded().subscribe();
     this.loadPurgeSandboxes();
   }
 

@@ -58,15 +58,38 @@
 <div class="card bg-white p-3 mb-3">
   <div class="row g-2 align-items-center justify-content-between">
     <div class="col-md-7 d-flex flex-wrap gap-2 align-items-center">
-      <!-- Status filter -->
-      <select class="form-select form-select-sm py-1 ps-2 w-auto" [ngModel]="jobFilters().status" (ngModelChange)="filterByStatus($event)">
-        <option [ngValue]="undefined">All Statuses</option>
-        <option value="in_progress">In Progress</option>
-        <option value="queued">Queued</option>
-        <option value="completed">Completed</option>
-        <option value="failed">Failed</option>
-        <option value="cancelled">Cancelled</option>
-      </select>
+      <!-- Status multi-select filter -->
+      <div class="dropdown job-status-filter">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary dropdown-toggle"
+          (click)="toggleStatusDropdown($event)"
+          [attr.aria-expanded]="statusDropdownOpen()"
+        >
+          <i class="bi bi-funnel me-1"></i>{{ statusFilterLabel() }}
+        </button>
+        @if (statusDropdownOpen()) {
+          <div class="dropdown-menu show p-2 shadow-sm" style="min-width: 12rem;" (click)="$event.stopPropagation()">
+            <div class="d-flex justify-content-between align-items-center px-2 pb-2 mb-1 border-bottom">
+              <span class="small fw-semibold text-muted text-uppercase">Statuses</span>
+              <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" (click)="clearStatusFilter($event)">
+                Clear
+              </button>
+            </div>
+            @for (option of statusOptions; track option.value) {
+              <label class="dropdown-item d-flex align-items-center gap-2 rounded py-1 px-2 mb-0" style="cursor: pointer;">
+                <input
+                  class="form-check-input m-0"
+                  type="checkbox"
+                  [checked]="isStatusSelected(option.value)"
+                  (change)="toggleStatus(option.value, $event)"
+                />
+                <span class="small">{{ option.label }}</span>
+              </label>
+            }
+          </div>
+        }
+      </div>
 
       <!-- Search -->
       <div class="input-group input-group-sm" style="max-width: 260px;">
@@ -123,11 +146,39 @@
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
-          <th>Job Name & Type</th>
+          <th class="user-select-none" style="cursor: pointer;" (click)="setSort('name')">
+            Job Name & Type
+            @if (jobFilters().sortBy === 'name') {
+              <i class="bi ms-1" [class.bi-arrow-up]="jobFilters().sortOrder === 'asc'" [class.bi-arrow-down]="jobFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
           <th>Sandbox & User</th>
-          <th>Progress & Stage</th>
-          <th>Status</th>
-          <th>Timestamps & Duration</th>
+          <th class="user-select-none" style="cursor: pointer;" (click)="setSort('progress')">
+            Progress & Stage
+            @if (jobFilters().sortBy === 'progress') {
+              <i class="bi ms-1" [class.bi-arrow-up]="jobFilters().sortOrder === 'asc'" [class.bi-arrow-down]="jobFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none" style="cursor: pointer;" (click)="setSort('status')">
+            Status
+            @if (jobFilters().sortBy === 'status') {
+              <i class="bi ms-1" [class.bi-arrow-up]="jobFilters().sortOrder === 'asc'" [class.bi-arrow-down]="jobFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
+          <th class="user-select-none" style="cursor: pointer;" (click)="setSort('createdAt')">
+            Timestamps & Duration
+            @if (jobFilters().sortBy === 'createdAt') {
+              <i class="bi ms-1" [class.bi-arrow-up]="jobFilters().sortOrder === 'asc'" [class.bi-arrow-down]="jobFilters().sortOrder === 'desc'"></i>
+            } @else {
+              <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
+            }
+          </th>
           <th class="text-end">Actions</th>
         </tr>
       </thead>

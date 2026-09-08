@@ -21,9 +21,15 @@ node "FHIR Studio Server (Express / Node.js ESM)" as ServerTier {
   [SMART on FHIR v2 IdP\n(OAuth2 / OIDC / PKCE / JWKS)] as SmartIdp
   [FHIR Gateway & Proxy\n(Scope & Partition Enforcement)] as FhirGateway
   [CDS Hooks 2.0 Engine\n(Service Dispatch & Testing)] as CdsEngine
-  [Bulk Export Engine\n(Async $export / NDJSON)] as BulkExport
+  [Job Enqueue API\n(Admin / Sandbox Jobs)] as JobEnqueue
+  [Bulk Export Orchestration\n(Enqueue $export Jobs)] as BulkExport
   [Subscription Hub\n(WebSocket & Webhooks)] as SubHub
   [Sandbox & App Manager\n(Personas, Scenarios, IAM)] as CoreServices
+}
+
+node "FHIR Studio Worker\n(same image; node build/worker.js)" as WorkerTier {
+  [Job Consumer\n(FOR UPDATE SKIP LOCKED)] as JobConsumer
+  [Job Handlers\n(Purge / Import / Seed / …)] as JobHandlers
 }
 
 node "Identity & SSO" as SsoTier {
@@ -39,7 +45,7 @@ node "FHIR Storage Layer" as FhirTier {
 }
 
 database "PostgreSQL 18" as DatabaseTier {
-  database "FHIR Studio DB\n(Prisma Schema)" as AppDb
+  database "FHIR Studio DB\n(Prisma + Job Queue)" as AppDb
   database "Authentik DB" as AuthentikDb
   database "HAPI R4 DB" as HapiR4Db
   database "HAPI R4B DB" as HapiR4BDb
@@ -60,7 +66,16 @@ FhirGateway --> HapiR5 : Reverse Proxy + Tenant Header\n(Port 8085)
 CdsEngine --> CdsService : HTTP POST (Hook Context)
 SubHub --> SmartApp : WebSocket / Webhook Notifications
 
+JobEnqueue --> AppDb : Insert queued jobs
+BulkExport --> AppDb : Insert queued jobs
 ServerTier --> AppDb : Prisma ORM (Port 5433)
+
+JobConsumer --> AppDb : Claim / lease / complete jobs\n(no Server↔Worker HTTP)
+JobHandlers --> HapiR4 : Partition / data ops
+JobHandlers --> HapiR4B : Partition / data ops
+JobHandlers --> HapiR5 : Partition / data ops
+JobConsumer --> JobHandlers : Execute claimed job
+
 AuthentikServer --> AuthentikDb : Relational Store
 AuthentikServer --> AuthentikRedis : Session / Tasks Cache
 AuthentikWorker --> AuthentikRedis : Claim Tasks
@@ -81,6 +96,13 @@ note bottom of SmartIdp
   - Confidential & Public Clients (PKCE S256)
   - Asymmetric Private Key JWT (RFC 7523)
   - Granular Scopes & Custom Context Params
+end note
+
+note right of WorkerTier
+  Scale workers independently of the API.
+  Required env: FHIR_STUDIO_SERVER_DATABASE_URL
+  (plus HAPI base URLs in production Compose).
+  Missing required env → process exits at startup.
 end note
 
 @enduml

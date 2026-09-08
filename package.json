@@ -17,6 +17,7 @@
     "build:ui": "npm run build --workspace=@fhir-studio/ui",
     "start:ui": "npm run start --workspace=@fhir-studio/ui",
     "start:server": "npm run dev --workspace=@fhir-studio/server",
+    "start:worker": "npm run worker:watch --workspace=@fhir-studio/server",
     "prisma:migrate": "npm run prisma:migrate --workspace=@fhir-studio/server",
     "prisma:seed": "npm run prisma:seed --workspace=@fhir-studio/server",
     "docker:up": "docker compose -f docker/docker-compose.development.yml up -d",

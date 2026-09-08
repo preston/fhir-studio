@@ -4,7 +4,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
-import { HapiPartitionClient } from '../hapi/partition_client.js';
+import { HapiPartitionClient, isFhirReleaseEnabled } from '../hapi/partition_client.js';
 
 // In-memory file cache for completed NDJSON exports
 const ndjsonFilesCache = new Map<string, { resourceType: string; ndjson: string; count: number }>();
@@ -25,6 +25,9 @@ export function createBulkExportRouter(): Router {
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
     if (!sandbox) {
       throw new Error(`Sandbox '${sandboxId}' not found.`);
+    }
+    if (!isFhirReleaseEnabled(sandbox.fhirVersion)) {
+      throw new Error(`Sandbox '${sandboxId}' FHIR version is not enabled on this deployment.`);
     }
 
     const jobId = uuidv4();

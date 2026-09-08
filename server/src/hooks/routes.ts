@@ -4,7 +4,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
-import { HapiPartitionClient } from '../hapi/partition_client.js';
+import { HapiPartitionClient, isFhirReleaseEnabled } from '../hapi/partition_client.js';
 
 export function createHooksRouter(): Router {
   const router = express.Router();
@@ -16,7 +16,7 @@ export function createHooksRouter(): Router {
     const sandboxId = req.params.sandboxId;
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -40,7 +40,7 @@ export function createHooksRouter(): Router {
     }
 
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -87,7 +87,7 @@ export function createHooksRouter(): Router {
     }
 
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }

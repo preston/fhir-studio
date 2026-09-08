@@ -249,11 +249,43 @@ services:
       FHIR_STUDIO_SERVER_CORS_ORIGINS: http://localhost:4200
       FHIR_STUDIO_SERVER_SESSION_SECRET: fhir-studio-development-session-secret-32b
       FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: fhir-studio-development-api-token-pepper-32b
+      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
       FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
+      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
       FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
+      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
       FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
     ports:
       - "3000:3000"
+    restart: unless-stopped
+
+  # Same image as the API; overrides CMD so this process only consumes the Postgres job queue.
+  # Scale horizontally with `docker compose up --scale fhir-studio-worker=N` without changing API replicas.
+  # No fixed container_name so --scale works. stop_grace_period covers worker SHUTDOWN_GRACE_MS (25s).
+  fhir-studio-worker:
+    image: preston/fhir-studio-server:latest
+    depends_on:
+      fhir-studio-postgres:
+        condition: service_healthy
+      fhir-studio-server:
+        condition: service_started
+      fhir-studio-hapi-r4:
+        condition: service_started
+      fhir-studio-hapi-r4b:
+        condition: service_started
+      fhir-studio-hapi-r5:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
+      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
+      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+    command: ["node", "build/worker.js"]
+    stop_grace_period: 30s
     restart: unless-stopped
 
   fhir-studio-ui:

@@ -6,7 +6,7 @@ import { getPrisma } from '../db/prisma.js';
 import { loadEffectivePermissions } from '../authorization/effectivePermissions.js';
 import type { EffectivePermissions } from '@fhir-studio/core';
 import { resolveSessionFromRequest, setSessionCookie } from './session.js';
-import { extractBearerToken, hashApiToken, loadApiTokenPepper } from './apiToken.js';
+import { extractBearerToken, hashApiToken } from './apiToken.js';
 
 export interface SessionAuthContext {
   sub: string;
@@ -28,7 +28,7 @@ declare global {
 }
 
 export function createSessionAuth(oidc: OidcBffConfig) {
-  const apiTokenPepper = loadApiTokenPepper();
+  const apiTokenPepper = oidc.apiTokenPepper;
 
   async function attachFromSession(req: Request, res: Response): Promise<boolean> {
     const resolved = await resolveSessionFromRequest(req, oidc);

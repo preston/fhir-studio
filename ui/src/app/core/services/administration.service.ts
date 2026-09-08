@@ -216,10 +216,18 @@ export class AdministrationService {
     summary: JobSummary;
   }> {
     let params = new HttpParams();
-    if (filters.status) params = params.set('status', filters.status);
+    const statusValues = [
+      ...(filters.statuses ?? []),
+      ...(filters.status ? [filters.status] : []),
+    ];
+    if (statusValues.length > 0) {
+      params = params.set('status', statusValues.join(','));
+    }
     if (filters.jobType) params = params.set('jobType', filters.jobType);
     if (filters.sandboxId) params = params.set('sandboxId', filters.sandboxId);
     if (filters.search) params = params.set('search', filters.search);
+    if (filters.sortBy) params = params.set('sortBy', filters.sortBy);
+    if (filters.sortOrder) params = params.set('sortOrder', filters.sortOrder);
     if (filters.page) params = params.set('page', filters.page.toString());
     if (filters.limit) params = params.set('limit', filters.limit.toString());
 

@@ -3,7 +3,11 @@
 import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
 import { getPrisma } from '../db/prisma.js';
-import { HapiPartitionClient, loadHapiConfig } from '../hapi/partition_client.js';
+import {
+  HapiPartitionClient,
+  isFhirReleaseEnabled,
+  assertFhirReleaseEnabled,
+} from '../hapi/partition_client.js';
 import { verifySandboxAccess } from './security.js';
 import { rewriteFhirPayload, rewriteHeaderUrl } from './url_rewriter.js';
 
@@ -11,21 +15,22 @@ export function createFhirGatewayRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
   const hapiClient = new HapiPartitionClient();
-  const hapiConfig = loadHapiConfig();
 
   // Handler for /api/sandboxes/:sandboxId/fhir/:version and all subpaths
   const proxyHandler = async (req: Request, res: Response): Promise<void> => {
     const sandboxId = req.params.sandboxId;
     const versionParam = (req.params.version || 'r4').toUpperCase();
 
-    if (versionParam !== 'R4' && versionParam !== 'R4B' && versionParam !== 'R5') {
+    try {
+      assertFhirReleaseEnabled(versionParam);
+    } catch (err: any) {
       res.status(400).json({
         resourceType: 'OperationOutcome',
         issue: [
           {
             severity: 'error',
             code: 'invalid',
-            diagnostics: `Unsupported FHIR version '${versionParam}'. Supported versions are R4, R4B, and R5.`,
+            diagnostics: err?.message || `Unsupported or disabled FHIR version '${versionParam}'.`,
           },
         ],
       });
@@ -36,7 +41,7 @@ export function createFhirGatewayRouter(): Router {
       where: { sandboxId },
     });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({
         resourceType: 'OperationOutcome',
         issue: [

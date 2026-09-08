@@ -52,11 +52,15 @@ export interface JobSummary {
 }
 
 export interface JobFilter {
+  /** @deprecated Prefer `statuses` for multi-select filtering. */
   status?: JobStatus;
+  statuses?: JobStatus[];
   jobType?: string;
   sandboxId?: string;
   createdByUserId?: string;
   search?: string;
+  sortBy?: 'name' | 'jobType' | 'status' | 'progress' | 'createdAt' | 'startedAt' | 'completedAt';
+  sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }

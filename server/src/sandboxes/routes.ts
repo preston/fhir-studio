@@ -2,7 +2,13 @@
 
 import express, { type Request, type Response, type Router } from 'express';
 import { getPrisma } from '../db/prisma.js';
-import { HapiPartitionClient } from '../hapi/partition_client.js';
+import {
+  assertFhirReleaseEnabled,
+  enabledFhirVersionWhere,
+  isFhirReleaseEnabled,
+  loadHapiConfig,
+  HapiPartitionClient,
+} from '../hapi/partition_client.js';
 import { requirePermission } from '../authorization/requirePermission.js';
 import { hasPermission } from '../authorization/permissions.js';
 import { JobService } from '../jobs/service.js';
@@ -40,9 +46,11 @@ export function createSandboxesRouter(): Router {
   router.get('/api/sandboxes', async (req: Request, res: Response): Promise<void> => {
     const userId = req.sessionAuth?.userId;
     const isGlobalAdmin = hasPermission(req.effectivePermissions, 'global_manage');
+    const enabledVersionFilter = enabledFhirVersionWhere();
 
     if (isGlobalAdmin) {
       const allSandboxes = await prisma.sandbox.findMany({
+        where: enabledVersionFilter,
         include: {
           createdByUser: {
             select: { id: true, email: true, displayName: true },
@@ -61,9 +69,9 @@ export function createSandboxesRouter(): Router {
     }
 
     if (!userId) {
-      // Unauthenticated / public list: only public sandboxes
+      // Unauthenticated / public list: only public sandboxes on enabled FHIR releases
       const publicSandboxes = await prisma.sandbox.findMany({
-        where: { visibility: 'PUBLIC' },
+        where: { visibility: 'PUBLIC', ...enabledVersionFilter },
         include: {
           createdByUser: { select: { id: true, email: true, displayName: true } },
           _count: { select: { applications: true, launchScenarios: true, personas: true } },
@@ -76,10 +84,15 @@ export function createSandboxesRouter(): Router {
 
     const sandboxes = await prisma.sandbox.findMany({
       where: {
-        OR: [
-          { createdByUserId: userId },
-          { collaborators: { some: { userId } } },
-          { visibility: 'PUBLIC' },
+        AND: [
+          enabledVersionFilter,
+          {
+            OR: [
+              { createdByUserId: userId },
+              { collaborators: { some: { userId } } },
+              { visibility: 'PUBLIC' },
+            ],
+          },
         ],
       },
       include: {
@@ -174,7 +187,7 @@ export function createSandboxesRouter(): Router {
       },
     });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: `Sandbox '${sandboxId}' not found.` });
       return;
     }
@@ -193,15 +206,19 @@ export function createSandboxesRouter(): Router {
   // 2b. POST /api/sandboxes/:sandboxId/access (Explicit UI access tracking)
   router.post('/api/sandboxes/:sandboxId/access', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = req.params.sandboxId;
-    try {
-      await prisma.sandbox.update({
-        where: { sandboxId },
-        data: { lastAccessedAt: new Date() },
-      });
-      res.json({ message: 'Access recorded.' });
-    } catch {
+    const sandbox = await prisma.sandbox.findUnique({
+      where: { sandboxId },
+      select: { id: true, fhirVersion: true },
+    });
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: `Sandbox '${sandboxId}' not found.` });
+      return;
     }
+    await prisma.sandbox.update({
+      where: { id: sandbox.id },
+      data: { lastAccessedAt: new Date() },
+    });
+    res.json({ message: 'Access recorded.' });
   });
 
   // 3. POST /api/sandboxes (Create new Sandbox)
@@ -213,7 +230,7 @@ export function createSandboxesRouter(): Router {
         sandboxId,
         name,
         description,
-        fhirVersion = 'R4',
+        fhirVersion,
         allowOpenAccess = false,
         visibility = 'PRIVATE',
         isShared = false,
@@ -251,9 +268,16 @@ export function createSandboxesRouter(): Router {
         return;
       }
 
-      const normalizedVersion = (fhirVersion || 'R4').toUpperCase();
-      const partitionId = await HapiPartitionClient.allocateNextPartitionId(prisma);
+      const defaultRelease = loadHapiConfig().enabledReleases[0];
+      let normalizedVersion;
+      try {
+        normalizedVersion = assertFhirReleaseEnabled(fhirVersion || defaultRelease);
+      } catch (err: any) {
+        res.status(400).json({ error: err?.message || 'Invalid FHIR version.' });
+        return;
+      }
 
+      const partitionId = await HapiPartitionClient.allocateNextPartitionId(prisma);
       // Create partition dynamically in HAPI JPA v8.10
       await hapiClient.createPartition(
         normalizedVersion,
@@ -369,7 +393,7 @@ export function createSandboxesRouter(): Router {
       include: { collaborators: true },
     });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -405,7 +429,7 @@ export function createSandboxesRouter(): Router {
     const sandboxId = req.params.sandboxId;
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -431,7 +455,7 @@ export function createSandboxesRouter(): Router {
     const sandboxId = req.params.sandboxId;
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -465,7 +489,7 @@ export function createSandboxesRouter(): Router {
     }
 
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }
@@ -506,7 +530,7 @@ export function createSandboxesRouter(): Router {
   router.delete('/api/sandboxes/:sandboxId/collaborators/:userId', async (req: Request, res: Response): Promise<void> => {
     const { sandboxId, userId } = req.params;
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
-    if (!sandbox) {
+    if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });
       return;
     }

@@ -3,12 +3,13 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
+import { requireDatabaseUrl } from '../env.js';
 
 let prisma: PrismaClient | null = null;
 let pool: pg.Pool | null = null;
 
 export function getPrisma(databaseUrl?: string): PrismaClient {
-  const url = databaseUrl || process.env['FHIR_STUDIO_SERVER_DATABASE_URL'] || process.env['DATABASE_URL'] || 'postgresql://postgres:password@localhost:5433/fhir_studio_development';
+  const url = databaseUrl || requireDatabaseUrl();
   if (!prisma) {
     pool = new pg.Pool({
       connectionString: url,

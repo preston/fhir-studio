@@ -3,20 +3,20 @@
 import axios from 'axios';
 import type { PrismaClient } from '@prisma/client';
 import type { FhirRelease } from '@fhir-studio/core';
+import {
+  assertFhirReleaseEnabled,
+  loadHapiConfig,
+  type HapiPartitionConfig,
+} from './config.js';
 
-export interface HapiPartitionConfig {
-  hapiR4BaseUrl: string;
-  hapiR4bBaseUrl: string;
-  hapiR5BaseUrl: string;
-}
-
-export function loadHapiConfig(): HapiPartitionConfig {
-  return {
-    hapiR4BaseUrl: (process.env.FHIR_STUDIO_HAPI_R4_BASE_URL || 'http://localhost:8083/fhir').replace(/\/+$/, ''),
-    hapiR4bBaseUrl: (process.env.FHIR_STUDIO_HAPI_R4B_BASE_URL || 'http://localhost:8084/fhir').replace(/\/+$/, ''),
-    hapiR5BaseUrl: (process.env.FHIR_STUDIO_HAPI_R5_BASE_URL || 'http://localhost:8085/fhir').replace(/\/+$/, ''),
-  };
-}
+export type { HapiPartitionConfig } from './config.js';
+export {
+  assertFhirReleaseEnabled,
+  enabledFhirVersionWhere,
+  isFhirReleaseEnabled,
+  loadHapiConfig,
+  parseEnvBoolean,
+} from './config.js';
 
 export class HapiPartitionClient {
   private config: HapiPartitionConfig;
@@ -26,16 +26,13 @@ export class HapiPartitionClient {
   }
 
   public getHapiBaseUrl(fhirVersion: FhirRelease | string): string {
-    const version = fhirVersion.toUpperCase();
-    if (version === 'R5') {
-      return this.config.hapiR5BaseUrl;
+    const release = assertFhirReleaseEnabled(fhirVersion);
+    const baseUrl = this.config.baseUrls[release];
+    if (!baseUrl) {
+      throw new Error(`FHIR version '${release}' has no configured HAPI base URL.`);
     }
-    if (version === 'R4B') {
-      return this.config.hapiR4bBaseUrl;
-    }
-    return this.config.hapiR4BaseUrl;
+    return baseUrl;
   }
-
 
   /** Allocates the next sequential integer partition ID (1, 2, 3...) */
   public static async allocateNextPartitionId(prisma: PrismaClient): Promise<number> {
@@ -101,7 +98,17 @@ export class HapiPartitionClient {
     partitionId: number,
     partitionName?: string,
   ): Promise<void> {
-    const baseUrl = this.getHapiBaseUrl(fhirVersion);
+    // Admin purge may target sandboxes on disabled releases — skip HAPI when unavailable.
+    let baseUrl: string;
+    try {
+      baseUrl = this.getHapiBaseUrl(fhirVersion);
+    } catch (err: any) {
+      console.warn(
+        `Skipping HAPI partition delete for ${fhirVersion} partition ${partitionId}: ${err?.message || err}`,
+      );
+      return;
+    }
+
     const url = `${baseUrl}/DEFAULT/$partition-management-delete-partition`;
 
     const parametersResource = {

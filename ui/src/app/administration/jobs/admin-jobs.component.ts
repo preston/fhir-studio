@@ -1,6 +1,6 @@
 // Author: Preston Lee
 
-import { Component, OnInit, OnDestroy, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, OnDestroy, HostListener, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import type {
@@ -11,6 +11,8 @@ import type {
 } from '@fhir-studio/core';
 import { AdministrationService } from '../../core/services/administration.service.js';
 import { SandboxService, type Sandbox } from '../../core/services/sandbox.service.js';
+
+export type JobSortField = NonNullable<JobFilter['sortBy']>;
 
 @Component({
   selector: 'app-admin-jobs',
@@ -30,12 +32,34 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
   public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
+  public readonly statusOptions: { value: JobStatus; label: string }[] = [
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'queued', label: 'Queued' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ];
+
+  public readonly selectedStatuses = signal<JobStatus[]>([]);
+  public readonly statusDropdownOpen = signal<boolean>(false);
+
   public readonly jobFilters = signal<JobFilter>({
-    status: undefined,
+    statuses: undefined,
     jobType: '',
     search: '',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
     page: 1,
     limit: 10,
+  });
+
+  public readonly statusFilterLabel = computed(() => {
+    const selected = this.selectedStatuses();
+    if (selected.length === 0) return 'All Statuses';
+    if (selected.length === 1) {
+      return this.statusOptions.find((o) => o.value === selected[0])?.label ?? selected[0];
+    }
+    return `${selected.length} statuses`;
   });
 
   public readonly totalPages = computed(() => {
@@ -71,6 +95,14 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopJobsPolling();
+  }
+
+  @HostListener('document:click', ['$event'])
+  public onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('.job-status-filter')) {
+      this.statusDropdownOpen.set(false);
+    }
   }
 
   public loadJobs(): void {
@@ -114,8 +146,50 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
     }
   }
 
-  public filterByStatus(status?: JobStatus): void {
-    this.jobFilters.update((f) => ({ ...f, status, page: 1 }));
+  public toggleStatusDropdown(event: MouseEvent): void {
+    event.stopPropagation();
+    this.statusDropdownOpen.update((open) => !open);
+  }
+
+  public isStatusSelected(status: JobStatus): boolean {
+    return this.selectedStatuses().includes(status);
+  }
+
+  public toggleStatus(status: JobStatus, event?: Event): void {
+    event?.stopPropagation();
+    this.selectedStatuses.update((current) => {
+      if (current.includes(status)) {
+        return current.filter((s) => s !== status);
+      }
+      return [...current, status];
+    });
+    this.applyStatusFilter();
+  }
+
+  public clearStatusFilter(event?: Event): void {
+    event?.stopPropagation();
+    this.selectedStatuses.set([]);
+    this.applyStatusFilter();
+  }
+
+  private applyStatusFilter(): void {
+    const statuses = this.selectedStatuses();
+    this.jobFilters.update((f) => ({
+      ...f,
+      status: undefined,
+      statuses: statuses.length > 0 ? statuses : undefined,
+      page: 1,
+    }));
+    this.loadJobs();
+  }
+
+  public setSort(field: JobSortField): void {
+    this.jobFilters.update((f) => {
+      if (f.sortBy === field) {
+        return { ...f, sortOrder: f.sortOrder === 'asc' ? 'desc' : 'asc', page: 1 };
+      }
+      return { ...f, sortBy: field, sortOrder: field === 'name' || field === 'jobType' ? 'asc' : 'desc', page: 1 };
+    });
     this.loadJobs();
   }
 
@@ -136,10 +210,14 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
   }
 
   public resetFilters(): void {
+    this.selectedStatuses.set([]);
+    this.statusDropdownOpen.set(false);
     this.jobFilters.set({
-      status: undefined,
+      statuses: undefined,
       jobType: '',
       search: '',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
       page: 1,
       limit: 10,
     });

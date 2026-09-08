@@ -57,4 +57,5 @@ COPY --from=builder /app/server/prisma.config.ts ./server/
 WORKDIR /app/server
 EXPOSE 3000
 
+# Default CMD runs migrations + API. Override with `node build/worker.js` for job workers.
 CMD ["sh", "-c", "npx prisma migrate deploy && exec node build/server.js"]

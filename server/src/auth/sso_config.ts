@@ -1,5 +1,7 @@
 // Author: Preston Lee
 
+import { exitMissingEnv, requireEnvAll, SERVER_REQUIRED_ENV } from '../env.js';
+
 export interface OidcBffConfig {
   issuerUrl: string;
   clientId: string;
@@ -17,16 +19,8 @@ export interface OidcBffConfig {
   databaseUrl: string;
   rolesClaim: string;
   bootstrapAdminEmails: string[];
+  apiTokenPepper: string;
   nodeEnv: string;
-}
-
-function required(name: string, fallback?: string): string {
-  const value = (process.env[name] || fallback)?.trim();
-  if (!value) {
-    console.error(`${name} must be set. Exiting, sorry!`);
-    process.exit(1);
-  }
-  return value;
 }
 
 function csv(name: string, fallback = ''): string[] {
@@ -67,16 +61,22 @@ function positiveHours(name: string, fallback: number): number {
 }
 
 export function loadSsoConfig(): OidcBffConfig {
-  const issuerUrl = required('FHIR_STUDIO_SERVER_SSO_ISSUER_URL', process.env['SSO_ISSUER_URL'] || 'http://localhost:9000/application/o/fhir-studio/');
-  const clientId = required('FHIR_STUDIO_SERVER_SSO_CLIENT_ID', process.env['SSO_CLIENT_ID'] || 'fhir-studio-development');
-  const clientSecret = required('FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET', process.env['SSO_CLIENT_SECRET'] || 'fhir-studio-development-secret');
-  const redirectUrl = required('FHIR_STUDIO_SERVER_SSO_REDIRECT_URL', process.env['SSO_REDIRECT_URL'] || 'http://localhost:3000/sso/callback');
-  const postLogoutRedirectUrl = required('FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL', process.env['SSO_POST_LOGOUT_REDIRECT_URL'] || 'http://localhost:4200');
-  const uiBaseUrl = required('FHIR_STUDIO_SERVER_UI_BASE_URL', process.env['UI_BASE_URL'] || 'http://localhost:4200');
-  const sessionSecret = required('FHIR_STUDIO_SERVER_SESSION_SECRET', process.env['SESSION_SECRET'] || 'fhir-studio-development-session-secret-32b');
-  const databaseUrl = required('FHIR_STUDIO_SERVER_DATABASE_URL', process.env['DATABASE_URL'] || 'postgresql://postgres:password@localhost:5433/fhir_studio_development');
+  const values = requireEnvAll(SERVER_REQUIRED_ENV);
 
-  const corsOrigins = csv('FHIR_STUDIO_SERVER_CORS_ORIGINS', 'http://localhost:4200');
+  const issuerUrl = values.get('FHIR_STUDIO_SERVER_SSO_ISSUER_URL')!;
+  const clientId = values.get('FHIR_STUDIO_SERVER_SSO_CLIENT_ID')!;
+  const clientSecret = values.get('FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET')!;
+  const redirectUrl = values.get('FHIR_STUDIO_SERVER_SSO_REDIRECT_URL')!;
+  const postLogoutRedirectUrl = values.get('FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL')!;
+  const uiBaseUrl = values.get('FHIR_STUDIO_SERVER_UI_BASE_URL')!;
+  const sessionSecret = values.get('FHIR_STUDIO_SERVER_SESSION_SECRET')!;
+  const databaseUrl = values.get('FHIR_STUDIO_SERVER_DATABASE_URL')!;
+  const apiTokenPepper = values.get('FHIR_STUDIO_SERVER_API_TOKEN_PEPPER')!;
+  const corsOrigins = csv('FHIR_STUDIO_SERVER_CORS_ORIGINS');
+  if (corsOrigins.length === 0) {
+    exitMissingEnv(['FHIR_STUDIO_SERVER_CORS_ORIGINS']);
+  }
+
   const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
 
   const sessionSecrets = [sessionSecret, ...parsePreviousSecrets(sessionSecret, process.env.FHIR_STUDIO_SERVER_SESSION_SECRET_PREVIOUS)];
@@ -102,6 +102,7 @@ export function loadSsoConfig(): OidcBffConfig {
     databaseUrl,
     rolesClaim: process.env.FHIR_STUDIO_SERVER_SSO_ROLES_CLAIM?.trim() || 'roles',
     bootstrapAdminEmails: csv('FHIR_STUDIO_SERVER_BOOTSTRAP_ADMIN_EMAILS', 'administrator@localhost'),
+    apiTokenPepper,
     nodeEnv,
   };
 }
