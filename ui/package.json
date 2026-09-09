@@ -12,13 +12,11 @@
   },
   "dependencies": {
     "@angular/animations": "^22.1.5",
-    "@angular/cdk": "^22.1.5",
     "@angular/common": "^22.1.5",
     "@angular/compiler": "^22.1.5",
     "@angular/core": "^22.1.5",
     "@angular/forms": "^22.1.5",
     "@angular/platform-browser": "^22.1.5",
-    "@angular/platform-browser-dynamic": "^22.1.5",
     "@angular/router": "^22.1.5",
     "@codemirror/lang-json": "^6.0.2",
     "@fhir-studio/core": "file:../core",
@@ -32,15 +30,12 @@
     "ngx-echarts": "^22.0.0",
     "ngx-toastr": "^20.0.5",
     "rxjs": "~7.8.2",
-    "tslib": "^2.8.1",
-    "uuid": "^14.0.2"
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@angular/build": "^22.1.7",
     "@angular/cli": "^22.1.7",
     "@angular/compiler-cli": "^22.1.5",
-    "@types/bootstrap": "^5.2.11",
-    "@types/fhir": "^0.0.44",
     "@types/node": "^26.5.0",
     "typescript": "<7"
   }

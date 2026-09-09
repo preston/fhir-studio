@@ -1,31 +1,19 @@
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h2 class="fw-bold mb-1">FHIR Package Importer</h2>
-    <p class="text-muted mb-0">
-      Import FHIR NPM package resources into a sandbox primarily for easy data exchange.
-    </p>
-  </div>
-  <div class="input-group input-group-sm" style="width: 260px;">
-    <span class="input-group-text bg-light">Target Sandbox</span>
-    <select class="form-select py-1 ps-2" [ngModel]="sandboxService.activeSandbox()"
-      (ngModelChange)="sandboxService.selectSandbox($event)">
-      @for (sb of sandboxService.sandboxes(); track sb.id) {
-      <option [ngValue]="sb">{{ sb.name }} ({{ sb.fhirVersion }})</option>
-      }
-    </select>
-  </div>
+<div class="mb-3">
+  <h2 class="fw-bold mb-1">FHIR Package Importer</h2>
+  <p class="text-muted mb-0">
+    Import FHIR NPM package resources into a sandbox primarily for easy data exchange.
+  </p>
 </div>
 
 <div class="alert alert-secondary border mb-4" role="note">
   <div class="fw-semibold mb-1">
     <i class="bi bi-shield-lock me-1"></i>
-    Implementation Guide install is an administrative function
+    This will not install StructureDefinition, terminology, or conformance resources.
   </div>
   <p class="small mb-0">
-    Installing Implementation Guides (profiles, ValueSets, CodeSystems, etc.) is done by administrators, and is shared
-    across all sandboxes
-    of that FHIR version. This page is intended for sandbox <strong>content import</strong> unrelated to conformance and
-    terminology resources.
+    This page is intended for sandbox <strong>content import</strong> unrelated to conformance and
+    terminology resources. Installing Implementation Guides (profiles, ValueSets, CodeSystems, etc.) is done by
+    administrators, as they are shared across all sandboxes of that FHIR version.
     @if (auth.isGlobalAdmin()) {
     Administrators may use
     <a routerLink="/administration/implementation-guides">Administration → Implementation Guides</a>

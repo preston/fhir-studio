@@ -27,13 +27,8 @@
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "uuid": "^14.0.2"
-  },
   "devDependencies": {
-    "@types/fhir": "^0.0.44",
     "@types/node": "^26.5.0",
-    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }
