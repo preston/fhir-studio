@@ -7,20 +7,14 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap, catchError } from 'rxjs/operators';
+import { ToastrService } from 'ngx-toastr';
 import { SandboxService, type Sandbox, type SandboxCollaborator } from '../core/services/sandbox.service.js';
 import { AuthService } from '../core/services/auth.service.js';
-import { ImplementationGuideService } from '../core/services/implementation-guide.service.js';
 import { FhirReleasesService, type FhirReleaseId } from '../core/services/fhir-releases.service.js';
 
-export interface SelectableIgOption {
-  id: string;
-  name: string;
-  title: string;
-  version: string;
-  description: string;
-  category: string;
-  selected: boolean;
-}
+export type SandboxSortField = 'name' | 'sandboxId' | 'fhirVersion' | 'createdAt' | 'lastAccessedAt';
+export type SandboxAccessFilter = 'all' | 'secured' | 'open';
+export type SandboxVisibilityFilter = 'all' | 'PUBLIC' | 'PRIVATE';
 
 @Component({
   selector: 'app-sandboxes-list',
@@ -32,14 +26,22 @@ export interface SelectableIgOption {
 export class SandboxesListComponent implements OnInit {
   public readonly sandboxService = inject(SandboxService);
   public readonly auth = inject(AuthService);
-  public readonly igService = inject(ImplementationGuideService);
   public readonly fhirReleases = inject(FhirReleasesService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toastr = inject(ToastrService);
 
   public readonly sandboxes = this.sandboxService.sandboxes;
   public readonly loading = signal<boolean>(false);
   public readonly errorMessage = signal<string | null>(null);
   public readonly successMessage = signal<string | null>(null);
+
+  // Search, filter & sort
+  public readonly search = signal<string>('');
+  public readonly fhirVersionFilter = signal<'all' | FhirReleaseId>('all');
+  public readonly accessFilter = signal<SandboxAccessFilter>('all');
+  public readonly visibilityFilter = signal<SandboxVisibilityFilter>('all');
+  public readonly sortBy = signal<SandboxSortField>('name');
+  public readonly sortOrder = signal<'asc' | 'desc'>('asc');
 
   // Slug validation and auto-generation state
   public readonly slugManuallyEdited = signal<boolean>(false);
@@ -61,10 +63,6 @@ export class SandboxesListComponent implements OnInit {
     seedData: true,
   };
 
-  // Dynamic IGs for creation wizard
-  public readonly igOptions = signal<SelectableIgOption[]>([]);
-  public readonly loadingIgs = signal<boolean>(false);
-
   // Collaborator Modal
   public readonly showCollaboratorModal = signal<boolean>(false);
   public readonly selectedSandboxForCollab = signal<Sandbox | null>(null);
@@ -83,24 +81,81 @@ export class SandboxesListComponent implements OnInit {
     isShared: false,
   };
 
-  // Count computed signals for summary analytics (enabled releases only appear in the mix)
   public readonly enabledReleases = this.fhirReleases.enabledReleases;
-  public readonly r4Count = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R4').length);
-  public readonly r4bCount = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R4B').length);
-  public readonly r5Count = computed(() => this.sandboxes().filter((s) => s.fhirVersion === 'R5').length);
-  public readonly securedCount = computed(() => this.sandboxes().filter((s) => !s.allowOpenAccess).length);
-  public readonly openCount = computed(() => this.sandboxes().filter((s) => s.allowOpenAccess).length);
 
-  public countForRelease(release: FhirReleaseId): number {
-    switch (release) {
-      case 'R4':
-        return this.r4Count();
-      case 'R4B':
-        return this.r4bCount();
-      case 'R5':
-        return this.r5Count();
+  public readonly filteredSandboxes = computed(() => {
+    let list = this.sandboxes();
+    const query = this.search().trim().toLowerCase();
+    const fhirFilter = this.fhirVersionFilter();
+    const access = this.accessFilter();
+    const visibility = this.visibilityFilter();
+
+    if (query) {
+      list = list.filter((s) => {
+        const name = s.name.toLowerCase();
+        const slug = s.sandboxId.toLowerCase();
+        const desc = (s.description || '').toLowerCase();
+        return name.includes(query) || slug.includes(query) || desc.includes(query);
+      });
     }
-  }
+
+    if (fhirFilter !== 'all') {
+      list = list.filter((s) => s.fhirVersion === fhirFilter);
+    }
+
+    if (access === 'secured') {
+      list = list.filter((s) => !s.allowOpenAccess);
+    } else if (access === 'open') {
+      list = list.filter((s) => s.allowOpenAccess);
+    }
+
+    if (visibility !== 'all') {
+      list = list.filter((s) => s.visibility === visibility);
+    }
+
+    const field = this.sortBy();
+    const order = this.sortOrder() === 'asc' ? 1 : -1;
+
+    return [...list].sort((a, b) => {
+      let valA: string | number = '';
+      let valB: string | number = '';
+
+      switch (field) {
+        case 'name':
+          valA = a.name.toLowerCase();
+          valB = b.name.toLowerCase();
+          break;
+        case 'sandboxId':
+          valA = a.sandboxId.toLowerCase();
+          valB = b.sandboxId.toLowerCase();
+          break;
+        case 'fhirVersion':
+          valA = a.fhirVersion;
+          valB = b.fhirVersion;
+          break;
+        case 'createdAt':
+          valA = a.createdAt || '';
+          valB = b.createdAt || '';
+          break;
+        case 'lastAccessedAt':
+          valA = a.lastAccessedAt || '';
+          valB = b.lastAccessedAt || '';
+          break;
+      }
+
+      if (valA < valB) return -1 * order;
+      if (valA > valB) return 1 * order;
+      return 0;
+    });
+  });
+
+  public readonly hasActiveFilters = computed(
+    () =>
+      this.search().trim().length > 0 ||
+      this.fhirVersionFilter() !== 'all' ||
+      this.accessFilter() !== 'all' ||
+      this.visibilityFilter() !== 'all',
+  );
 
   constructor() {
     this.slugSubject
@@ -172,6 +227,19 @@ export class SandboxesListComponent implements OnInit {
     });
   }
 
+  public resetFilters(): void {
+    this.search.set('');
+    this.fhirVersionFilter.set('all');
+    this.accessFilter.set('all');
+    this.visibilityFilter.set('all');
+    this.sortBy.set('name');
+    this.sortOrder.set('asc');
+  }
+
+  public toggleSortOrder(): void {
+    this.sortOrder.update((o) => (o === 'asc' ? 'desc' : 'asc'));
+  }
+
   public slugify(value: string): string {
     return (value || '')
       .toLowerCase()
@@ -215,32 +283,6 @@ export class SandboxesListComponent implements OnInit {
     this.slugSubject.next(suggested);
   }
 
-  public onFhirVersionChange(): void {
-    this.loadCreationIgs(this.newSandbox.fhirVersion);
-  }
-
-  public loadCreationIgs(fhirVersion = 'R4'): void {
-    this.loadingIgs.set(true);
-    this.igService.getImplementationGuides({ fhirVersion }).subscribe({
-      next: (res) => {
-        const options: SelectableIgOption[] = (res.implementationGuides || []).map((ig) => ({
-          id: ig.id,
-          name: ig.packageId,
-          title: ig.title,
-          version: ig.version,
-          description: ig.description || '',
-          category: ig.category,
-          selected: ig.recommendedForCreation,
-        }));
-        this.igOptions.set(options);
-        this.loadingIgs.set(false);
-      },
-      error: () => {
-        this.loadingIgs.set(false);
-      },
-    });
-  }
-
   public openCreateModal(): void {
     const defaultRelease = this.fhirReleases.enabledReleases()[0] || 'R4';
     this.newSandbox = {
@@ -258,7 +300,6 @@ export class SandboxesListComponent implements OnInit {
     this.slugAvailable.set(null);
     this.slugValidationMessage.set(null);
     this.showCreateModal.set(true);
-    this.loadCreationIgs(defaultRelease);
   }
 
   public createSandbox(): void {
@@ -275,21 +316,21 @@ export class SandboxesListComponent implements OnInit {
       return;
     }
 
-    const selectedIgs = this.igOptions()
-      .filter((ig) => ig.selected)
-      .map((ig) => `${ig.name}@${ig.version}`);
-
     this.loading.set(true);
     this.sandboxService
       .createSandbox({
         ...this.newSandbox,
         sandboxId: cleanSlug,
-        initialIgs: selectedIgs,
       })
       .subscribe({
         next: () => {
           this.showCreateModal.set(false);
-          this.successMessage.set(`Sandbox '${this.newSandbox.name}' created with ${selectedIgs.length} selected IG packages.`);
+          const seeded = this.newSandbox.seedData;
+          this.successMessage.set(
+            seeded
+              ? `Sandbox '${this.newSandbox.name}' created. Synthetic seed data is loading asynchronously and may take a few minutes to appear.`
+              : `Sandbox '${this.newSandbox.name}' created.`,
+          );
           this.loadSandboxes();
         },
         error: (err) => {
@@ -360,12 +401,16 @@ export class SandboxesListComponent implements OnInit {
   public deleteSandbox(sandbox: Sandbox): void {
     if (confirm(`Are you sure you want to permanently delete sandbox '${sandbox.name}'?`)) {
       this.sandboxService.deleteSandbox(sandbox.sandboxId).subscribe({
-        next: () => {
-          this.successMessage.set(`Sandbox '${sandbox.name}' deleted.`);
+        next: (res) => {
+          this.toastr.info(
+            res.message ||
+              `Sandbox '${sandbox.name}' will be deleted asynchronously and may not disappear immediately.`,
+            'Sandbox deletion queued',
+            { timeOut: 8000 },
+          );
           if (this.showSettingsModal()) {
             this.showSettingsModal.set(false);
           }
-          this.loadSandboxes();
         },
         error: (err) => {
           this.errorMessage.set(err?.error?.error || 'Failed to delete sandbox.');

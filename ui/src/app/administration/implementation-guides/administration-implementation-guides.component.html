@@ -12,12 +12,30 @@
   </div>
 }
 
+<div class="alert alert-info border-0 mb-3" role="note">
+  <div class="fw-semibold mb-1">
+    <i class="bi bi-info-circle me-1"></i>
+    IG install targets the shared HAPI DEFAULT partition
+  </div>
+  <p class="small mb-1">
+    Installing an Implementation Guide writes conformance and terminology resources into the
+    <code>DEFAULT</code> partition of each selected HAPI FHIR server instance (R4 / R4B / R5).
+    Those artifacts are shared across all sandboxes of that FHIR version.
+  </p>
+  <p class="small mb-0">
+    Progress appears under
+    <a routerLink="/administration/jobs">Administration → Jobs</a>.
+    For sandbox data-exchange packages, use the
+    <a routerLink="/registry-importer">Package Importer</a>.
+  </p>
+</div>
+
 <div class="card bg-white p-3">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
     <div>
       <h6 class="fw-bold mb-1">FHIR Implementation Guides & Package Registry</h6>
       <p class="text-muted small mb-0">
-        Manage available Implementation Guides, configure wizard creation recommendations, and catalog suggested packages.
+        Manage the Implementation Guide catalog and install packages into each enabled HAPI DEFAULT partition.
       </p>
     </div>
     <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" (click)="openNewIgModal()">
@@ -128,29 +146,13 @@
                 <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
               }
             </th>
-            <th class="text-center user-select-none cursor-pointer" (click)="setSort('recommended')" style="cursor: pointer;" title="Pre-selected / displayed in Sandbox Creation Wizard">
-              Creation Wizard
-              @if (sortBy() === 'recommended') {
-                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
-              } @else {
-                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
-              }
-            </th>
-            <th class="text-center user-select-none cursor-pointer" (click)="setSort('suggested')" style="cursor: pointer;" title="Suggested in Registry Importer">
-              Suggested
-              @if (sortBy() === 'suggested') {
-                <i class="bi ms-1" [class.bi-arrow-up]="sortOrder() === 'asc'" [class.bi-arrow-down]="sortOrder() === 'desc'"></i>
-              } @else {
-                <i class="bi bi-arrow-down-up ms-1 text-muted opacity-50"></i>
-              }
-            </th>
             <th class="text-end">Actions</th>
           </tr>
         </thead>
         <tbody>
           @if (paginatedImplementationGuides().length === 0) {
             <tr>
-              <td colspan="7" class="text-center py-5 text-muted">
+              <td colspan="5" class="text-center py-5 text-muted">
                 <i class="bi bi-box-seam fs-2 d-block mb-2"></i>
                 <div class="fw-semibold">No implementation guides found matching criteria.</div>
               </td>
@@ -186,32 +188,11 @@
                   {{ ig.category }}
                 </span>
               </td>
-              <td class="text-center">
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  [ngClass]="ig.recommendedForCreation ? 'btn-success' : 'btn-outline-secondary'"
-                  (click)="toggleRecommended(ig)"
-                  [title]="ig.recommendedForCreation ? 'Recommended in Creation Wizard (Click to remove)' : 'Not recommended in wizard (Click to recommend)'"
-                >
-                  <i class="bi" [ngClass]="ig.recommendedForCreation ? 'bi-check-circle-fill me-1' : 'bi-circle me-1'"></i>
-                  <span>{{ ig.recommendedForCreation ? 'Recommended' : 'Optional' }}</span>
-                </button>
-              </td>
-              <td class="text-center">
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  [ngClass]="ig.isSuggested ? 'btn-info text-dark' : 'btn-outline-secondary'"
-                  (click)="toggleSuggested(ig)"
-                  [title]="ig.isSuggested ? 'Featured in Package Importer (Click to unfeature)' : 'Hidden from suggestions (Click to feature)'"
-                >
-                  <i class="bi" [ngClass]="ig.isSuggested ? 'bi-star-fill me-1' : 'bi-star me-1'"></i>
-                  <span>{{ ig.isSuggested ? 'Suggested' : 'Standard' }}</span>
-                </button>
-              </td>
               <td class="text-end">
                 <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-primary" (click)="openInstallModal(ig)" title="Install to HAPI DEFAULT">
+                    <i class="bi bi-cloud-upload"></i>
+                  </button>
                   <button class="btn btn-outline-secondary" (click)="openEditIgModal(ig)" title="Edit Implementation Guide">
                     <i class="bi bi-pencil"></i>
                   </button>
@@ -294,6 +275,82 @@
   }
 </div>
 
+<!-- Install to HAPI DEFAULT Modal -->
+@if (showInstallModal() && installTarget(); as ig) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-cloud-upload me-2 text-primary"></i>
+            Install to HAPI DEFAULT
+          </h5>
+          <button type="button" class="btn-close" (click)="closeInstallModal()" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">
+            Queue background import of
+            <span class="font-monospace fw-semibold">{{ ig.packageId }}#{{ ig.version }}</span>
+            into the shared <code>DEFAULT</code> partition for each selected FHIR server.
+          </p>
+          <p class="small text-muted mb-3">
+            Installed profiles and terminology become available to every sandbox on that HAPI instance.
+          </p>
+
+          <div class="fw-semibold mb-2">Target FHIR servers</div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            @for (release of fhirReleases.enabledReleases(); track release) {
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  [id]="'installRelease' + release"
+                  [checked]="isInstallReleaseSelected(release)"
+                  (change)="toggleInstallRelease(release)"
+                />
+                <label class="form-check-label" [for]="'installRelease' + release">{{ release }}</label>
+              </div>
+            } @empty {
+              <div class="text-danger small">No FHIR releases are enabled on this deployment.</div>
+            }
+          </div>
+
+          <div class="form-check form-switch">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              id="installExcludeExamples"
+              role="switch"
+              [ngModel]="installExcludeExamples()"
+              (ngModelChange)="installExcludeExamples.set($event)"
+            />
+            <label class="form-check-label" for="installExcludeExamples">
+              <strong>Exclude examples</strong>
+              <div class="text-muted small">Skip resources under <code>example/</code> paths or with Example ids.</div>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeInstallModal()" [disabled]="installing()">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            (click)="confirmInstall()"
+            [disabled]="installing() || installReleases().length === 0"
+          >
+            @if (installing()) {
+              <span class="spinner-border spinner-border-sm me-1"></span>
+            } @else {
+              <i class="bi bi-cloud-upload me-1"></i>
+            }
+            Queue Install
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 <!-- Add / Edit Implementation Guide Modal -->
 @if (showIgModal()) {
   <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
@@ -304,37 +361,43 @@
             <i class="bi bi-journal-medical me-2 text-primary"></i>
             {{ isEditing() ? 'Edit Implementation Guide' : 'Register Implementation Guide' }}
           </h5>
-          <button type="button" class="btn-close" (click)="showIgModal.set(false)"></button>
+          <button type="button" class="btn-close" (click)="showIgModal.set(false)" aria-label="Close"></button>
         </div>
         <div class="modal-body">
           <div class="row g-3 mb-3">
             <div class="col-md-7">
-              <label class="form-label fw-semibold">Package ID / NPM Name <span class="text-danger">*</span></label>
-              <input
-                type="text"
-                class="form-control font-monospace"
-                [(ngModel)]="igForm.packageId"
-                placeholder="e.g. hl7.fhir.us.core"
-              />
-            </div>
-            <div class="col-md-5">
-              <label class="form-label fw-semibold">Version <span class="text-danger">*</span></label>
-              <div class="input-group">
+              <div class="form-floating">
                 <input
                   type="text"
                   class="form-control font-monospace"
-                  [(ngModel)]="igForm.version"
-                  placeholder="e.g. 7.0.0"
+                  id="igPackageId"
+                  [formField]="igForm.packageId"
+                  placeholder="e.g. hl7.fhir.us.core"
                 />
+                <label for="igPackageId">Package ID / NPM Name <span class="text-danger">*</span></label>
+              </div>
+            </div>
+            <div class="col-md-5">
+              <div class="input-group">
+                <div class="form-floating">
+                  <input
+                    type="text"
+                    class="form-control font-monospace"
+                    id="igVersion"
+                    [formField]="igForm.version"
+                    placeholder="e.g. 7.0.0"
+                  />
+                  <label for="igVersion">Version <span class="text-danger">*</span></label>
+                </div>
                 <button
                   type="button"
                   class="btn btn-outline-primary d-flex align-items-center gap-1"
                   (click)="fetchRegistryMetadata()"
-                  [disabled]="fetchingRegistry() || !igForm.packageId"
+                  [disabled]="fetchingRegistry() || !igModel().packageId"
                   title="Lookup and autofill from packages.fhir.org"
                 >
                   @if (fetchingRegistry()) {
-                    <span class="spinner-border spinner-border-sm"></span>
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                   } @else {
                     <i class="bi bi-cloud-arrow-down"></i>
                   }
@@ -344,91 +407,75 @@
             </div>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+          <div class="form-floating mb-3">
             <input
               type="text"
               class="form-control"
-              [(ngModel)]="igForm.title"
+              id="igTitle"
+              [formField]="igForm.title"
               placeholder="e.g. US Core Implementation Guide v7.0.0"
             />
+            <label for="igTitle">Title <span class="text-danger">*</span></label>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Description</label>
+          <div class="form-floating mb-3">
             <textarea
               class="form-control"
-              rows="2"
-              [(ngModel)]="igForm.description"
+              id="igDescription"
+              style="height: 5rem;"
+              [formField]="igForm.description"
               placeholder="Brief summary of profiles, conformance rules, and clinical realm..."
             ></textarea>
+            <label for="igDescription">Description</label>
           </div>
 
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">FHIR Release Version <span class="text-danger">*</span></label>
-              <select class="form-select py-1 ps-2" [(ngModel)]="igForm.fhirVersion">
-                <option value="4.0.1">FHIR R4 (4.0.1)</option>
-                <option value="4.3.0">FHIR R4B (4.3.0)</option>
-                <option value="5.0.0">FHIR R5 (5.0.0)</option>
-              </select>
+              <div class="form-floating">
+                <select class="form-select" id="igFhirVersion" [formField]="igForm.fhirVersion">
+                  <option value="4.0.1">FHIR R4 (4.0.1)</option>
+                  <option value="4.3.0">FHIR R4B (4.3.0)</option>
+                  <option value="5.0.0">FHIR R5 (5.0.0)</option>
+                </select>
+                <label for="igFhirVersion">FHIR Release Version <span class="text-danger">*</span></label>
+              </div>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
-              <select class="form-select py-1 ps-2" [(ngModel)]="igForm.category">
-                @for (cat of categories; track cat.id) {
-                  <option [value]="cat.id">{{ cat.label }}</option>
-                }
-              </select>
+              <div class="form-floating">
+                <select class="form-select" id="igCategory" [formField]="igForm.category">
+                  @for (cat of categories; track cat.id) {
+                    <option [value]="cat.id">{{ cat.label }}</option>
+                  }
+                </select>
+                <label for="igCategory">Category <span class="text-danger">*</span></label>
+              </div>
             </div>
           </div>
 
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Author / Publisher</label>
-              <input
-                type="text"
-                class="form-control"
-                [(ngModel)]="igForm.author"
-                placeholder="e.g. HL7 International / US Realm"
-              />
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control"
+                  id="igAuthor"
+                  [formField]="igForm.author"
+                  placeholder="e.g. HL7 International / US Realm"
+                />
+                <label for="igAuthor">Author / Publisher</label>
+              </div>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Canonical URL</label>
-              <input
-                type="text"
-                class="form-control font-monospace small"
-                [(ngModel)]="igForm.canonicalUrl"
-                placeholder="e.g. http://hl7.org/fhir/us/core"
-              />
-            </div>
-          </div>
-
-          <div class="p-3 bg-light rounded border mb-2">
-            <div class="fw-semibold mb-2">Presentation & Visibility Options</div>
-            <div class="form-check form-switch mb-2">
-              <input
-                type="checkbox"
-                class="form-check-input"
-                id="modalRecommended"
-                [(ngModel)]="igForm.recommendedForCreation"
-              />
-              <label class="form-check-label" for="modalRecommended">
-                <strong>Recommended for Sandbox Creation</strong>
-                <div class="text-muted small">Show as a selectable recommended option in the New Sandbox creation wizard.</div>
-              </label>
-            </div>
-            <div class="form-check form-switch">
-              <input
-                type="checkbox"
-                class="form-check-input"
-                id="modalSuggested"
-                [(ngModel)]="igForm.isSuggested"
-              />
-              <label class="form-check-label" for="modalSuggested">
-                <strong>Featured / Suggested in Package Importer</strong>
-                <div class="text-muted small">Display in the popular/suggested Implementation Guides section on /registry-importer.</div>
-              </label>
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  id="igCanonicalUrl"
+                  [formField]="igForm.canonicalUrl"
+                  placeholder="e.g. http://hl7.org/fhir/us/core"
+                />
+                <label for="igCanonicalUrl">Canonical URL</label>
+              </div>
             </div>
           </div>
         </div>

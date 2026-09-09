@@ -95,7 +95,6 @@ export class SandboxService {
     visibility?: 'PUBLIC' | 'PRIVATE';
     isShared?: boolean;
     seedData?: boolean;
-    initialIgs?: string[];
   }): Observable<{ sandbox: Sandbox }> {
     return this.http.post<{ sandbox: Sandbox }>('/api/sandboxes', data);
   }
@@ -117,8 +116,8 @@ export class SandboxService {
     return this.http.post<{ message: string }>(`/api/sandboxes/${sandboxId}/reset`, {});
   }
 
-  public deleteSandbox(sandboxId: string): Observable<{ message: string }> {
-    return this.http.delete<{ message: string }>(`/api/sandboxes/${sandboxId}`);
+  public deleteSandbox(sandboxId: string): Observable<{ message: string; job?: { id: string } }> {
+    return this.http.delete<{ message: string; job?: { id: string } }>(`/api/sandboxes/${sandboxId}`);
   }
 
   public addCollaborator(

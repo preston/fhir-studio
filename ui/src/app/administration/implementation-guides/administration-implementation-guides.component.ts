@@ -3,23 +3,65 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import type {
-  ImplementationGuideSummary,
-  CreateImplementationGuidePayload,
-  UpdateImplementationGuidePayload,
-} from '@fhir-studio/core';
+import { RouterLink } from '@angular/router';
+import { form, FormField, required, submit } from '@angular/forms/signals';
+import type { ImplementationGuideSummary, CreateImplementationGuidePayload } from '@fhir-studio/core';
 import { AdministrationService } from '../../core/services/administration.service.js';
+import { FhirReleasesService, type FhirReleaseId } from '../../core/services/fhir-releases.service.js';
 
-export type IgSortField = 'packageId' | 'title' | 'fhirVersion' | 'category' | 'recommended' | 'suggested';
+export type IgSortField = 'packageId' | 'title' | 'fhirVersion' | 'category';
+
+/** Signal Forms require non-optional field types for [formField] bindings. */
+interface IgFormModel {
+  packageId: string;
+  version: string;
+  title: string;
+  description: string;
+  fhirVersion: string;
+  category: string;
+  canonicalUrl: string;
+  url: string;
+  author: string;
+  tarballUrl: string;
+}
+
+const EMPTY_IG_FORM: IgFormModel = {
+  packageId: '',
+  version: '',
+  title: '',
+  description: '',
+  fhirVersion: '4.0.1',
+  category: 'General',
+  canonicalUrl: '',
+  url: '',
+  author: '',
+  tarballUrl: '',
+};
+
+function toIgPayload(model: IgFormModel): CreateImplementationGuidePayload {
+  return {
+    packageId: model.packageId,
+    version: model.version,
+    title: model.title,
+    description: model.description || null,
+    fhirVersion: model.fhirVersion,
+    category: model.category,
+    canonicalUrl: model.canonicalUrl || null,
+    url: model.url || null,
+    author: model.author || null,
+    tarballUrl: model.tarballUrl || null,
+  };
+}
 
 @Component({
   selector: 'app-administration-implementation-guides',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, FormField, RouterLink],
   templateUrl: './administration-implementation-guides.component.html',
 })
 export class AdministrationImplementationGuidesComponent implements OnInit {
   public readonly administrationService = inject(AdministrationService);
+  public readonly fhirReleases = inject(FhirReleasesService);
 
   public readonly implementationGuides = signal<ImplementationGuideSummary[]>([]);
   public readonly loading = signal<boolean>(false);
@@ -41,20 +83,19 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   public readonly fetchingRegistry = signal<boolean>(false);
   public currentIgId: string | null = null;
 
-  public igForm: CreateImplementationGuidePayload = {
-    packageId: '',
-    version: '',
-    title: '',
-    description: '',
-    fhirVersion: '4.0.1',
-    category: 'General',
-    canonicalUrl: '',
-    url: '',
-    recommendedForCreation: false,
-    isSuggested: true,
-    author: '',
-    tarballUrl: '',
-  };
+  // Install-to-HAPI modal
+  public readonly showInstallModal = signal<boolean>(false);
+  public readonly installTarget = signal<ImplementationGuideSummary | null>(null);
+  public readonly installReleases = signal<FhirReleaseId[]>([]);
+  public readonly installExcludeExamples = signal<boolean>(true);
+  public readonly installing = signal<boolean>(false);
+
+  public readonly igModel = signal<IgFormModel>({ ...EMPTY_IG_FORM });
+  public readonly igForm = form(this.igModel, (s) => {
+    required(s.packageId, { message: 'Package ID is required' });
+    required(s.version, { message: 'Version is required' });
+    required(s.title, { message: 'Title is required' });
+  });
 
   public readonly categories: Array<{ id: string; label: string }> = [
     { id: 'General', label: 'General' },
@@ -73,8 +114,8 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
     const order = this.sortOrder() === 'asc' ? 1 : -1;
 
     return [...list].sort((a, b) => {
-      let valA: any = '';
-      let valB: any = '';
+      let valA: string | number = '';
+      let valB: string | number = '';
 
       switch (field) {
         case 'packageId':
@@ -92,14 +133,6 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
         case 'category':
           valA = a.category.toLowerCase();
           valB = b.category.toLowerCase();
-          break;
-        case 'recommended':
-          valA = a.recommendedForCreation ? 1 : 0;
-          valB = b.recommendedForCreation ? 1 : 0;
-          break;
-        case 'suggested':
-          valA = a.isSuggested ? 1 : 0;
-          valB = b.isSuggested ? 1 : 0;
           break;
       }
 
@@ -126,6 +159,7 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.fhirReleases.ensureLoaded().subscribe();
     this.loadImplementationGuides();
   }
 
@@ -196,27 +230,14 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   public openNewIgModal(): void {
     this.isEditing.set(false);
     this.currentIgId = null;
-    this.igForm = {
-      packageId: '',
-      version: '',
-      title: '',
-      description: '',
-      fhirVersion: '4.0.1',
-      category: 'General',
-      canonicalUrl: '',
-      url: '',
-      recommendedForCreation: false,
-      isSuggested: true,
-      author: '',
-      tarballUrl: '',
-    };
+    this.igModel.set({ ...EMPTY_IG_FORM });
     this.showIgModal.set(true);
   }
 
   public openEditIgModal(ig: ImplementationGuideSummary): void {
     this.isEditing.set(true);
     this.currentIgId = ig.id;
-    this.igForm = {
+    this.igModel.set({
       packageId: ig.packageId,
       version: ig.version,
       title: ig.title,
@@ -225,16 +246,82 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
       category: ig.category,
       canonicalUrl: ig.canonicalUrl || '',
       url: ig.url || '',
-      recommendedForCreation: ig.recommendedForCreation,
-      isSuggested: ig.isSuggested,
       author: ig.author || '',
       tarballUrl: ig.tarballUrl || '',
-    };
+    });
     this.showIgModal.set(true);
   }
 
+  public openInstallModal(ig: ImplementationGuideSummary): void {
+    this.installTarget.set(ig);
+    this.installExcludeExamples.set(true);
+    this.showInstallModal.set(true);
+
+    this.fhirReleases.ensureLoaded().subscribe({
+      next: () => {
+        const enabled = this.fhirReleases.enabledReleases();
+        this.installReleases.set(enabled.length > 0 ? [...enabled] : []);
+      },
+      error: () => {
+        this.installReleases.set([]);
+      },
+    });
+  }
+
+  public closeInstallModal(): void {
+    this.showInstallModal.set(false);
+    this.installTarget.set(null);
+    this.installing.set(false);
+  }
+
+  public toggleInstallRelease(release: FhirReleaseId): void {
+    this.installReleases.update((current) => {
+      if (current.includes(release)) {
+        return current.filter((r) => r !== release);
+      }
+      return [...current, release];
+    });
+  }
+
+  public isInstallReleaseSelected(release: FhirReleaseId): boolean {
+    return this.installReleases().includes(release);
+  }
+
+  public confirmInstall(): void {
+    const ig = this.installTarget();
+    const fhirVersions = this.installReleases();
+    if (!ig || fhirVersions.length === 0) {
+      this.errorMessage.set('Select at least one enabled FHIR release to install into.');
+      return;
+    }
+
+    this.installing.set(true);
+    this.errorMessage.set(null);
+
+    this.administrationService
+      .installImplementationGuide(ig.id, {
+        fhirVersions,
+        excludeExamples: this.installExcludeExamples(),
+      })
+      .subscribe({
+        next: (res) => {
+          this.installing.set(false);
+          this.showInstallModal.set(false);
+          this.installTarget.set(null);
+          this.successMessage.set(
+            `${res.message} Track progress under Administration → Jobs.`,
+          );
+        },
+        error: (err) => {
+          this.installing.set(false);
+          this.errorMessage.set(err?.error?.error || 'Failed to queue Implementation Guide install.');
+        },
+      });
+  }
+
   public fetchRegistryMetadata(): void {
-    if (!this.igForm.packageId.trim()) {
+    const current = this.igModel();
+    if (!current.packageId.trim()) {
       this.errorMessage.set('Enter a Package ID first to fetch metadata from registry.');
       return;
     }
@@ -243,19 +330,22 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
     this.errorMessage.set(null);
 
     this.administrationService
-      .fetchRegistryPackageMetadata(this.igForm.packageId.trim(), this.igForm.version.trim() || undefined)
+      .fetchRegistryPackageMetadata(current.packageId.trim(), current.version.trim() || undefined)
       .subscribe({
         next: (res) => {
           const meta = res.metadata;
           if (meta) {
-            if (meta.title) this.igForm.title = meta.title;
-            if (meta.version) this.igForm.version = meta.version;
-            if (meta.description) this.igForm.description = meta.description;
-            if (meta.fhirVersion) this.igForm.fhirVersion = meta.fhirVersion;
-            if (meta.canonicalUrl) this.igForm.canonicalUrl = meta.canonicalUrl;
-            if (meta.url) this.igForm.url = meta.url;
-            if (meta.author) this.igForm.author = meta.author;
-            this.successMessage.set(`Fetched metadata for '${this.igForm.packageId}' from packages.fhir.org.`);
+            this.igModel.update((m) => ({
+              ...m,
+              ...(meta.title ? { title: meta.title } : {}),
+              ...(meta.version ? { version: meta.version } : {}),
+              ...(meta.description ? { description: meta.description } : {}),
+              ...(meta.fhirVersion ? { fhirVersion: meta.fhirVersion } : {}),
+              ...(meta.canonicalUrl ? { canonicalUrl: meta.canonicalUrl } : {}),
+              ...(meta.url ? { url: meta.url } : {}),
+              ...(meta.author ? { author: meta.author } : {}),
+            }));
+            this.successMessage.set(`Fetched metadata for '${current.packageId}' from packages.fhir.org.`);
           }
           this.fetchingRegistry.set(false);
         },
@@ -266,61 +356,53 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
       });
   }
 
-  public saveImplementationGuide(): void {
-    if (!this.igForm.packageId.trim() || !this.igForm.version.trim() || !this.igForm.title.trim()) {
-      this.errorMessage.set('Package ID, version, and title are required.');
-      return;
-    }
-
-    if (this.isEditing() && this.currentIgId) {
-      this.administrationService.updateImplementationGuide(this.currentIgId, this.igForm).subscribe({
-        next: () => {
-          this.showIgModal.set(false);
-          this.successMessage.set(`Implementation Guide '${this.igForm.packageId}@${this.igForm.version}' updated.`);
-          this.loadImplementationGuides();
-        },
-        error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to update implementation guide.');
-        },
+  public async saveImplementationGuide(): Promise<void> {
+    try {
+      const ok = await submit(this.igForm, async () => {
+        const payload = toIgPayload(this.igModel());
+        if (this.isEditing() && this.currentIgId) {
+          await new Promise<void>((resolve, reject) => {
+            this.administrationService.updateImplementationGuide(this.currentIgId!, payload).subscribe({
+              next: () => {
+                this.showIgModal.set(false);
+                this.successMessage.set(
+                  `Implementation Guide '${payload.packageId}@${payload.version}' updated.`,
+                );
+                this.loadImplementationGuides();
+                resolve();
+              },
+              error: (err) => {
+                this.errorMessage.set(err?.error?.error || 'Failed to update implementation guide.');
+                reject(err);
+              },
+            });
+          });
+        } else {
+          await new Promise<void>((resolve, reject) => {
+            this.administrationService.createImplementationGuide(payload).subscribe({
+              next: () => {
+                this.showIgModal.set(false);
+                this.successMessage.set(
+                  `Implementation Guide '${payload.packageId}@${payload.version}' registered.`,
+                );
+                this.loadImplementationGuides();
+                resolve();
+              },
+              error: (err) => {
+                this.errorMessage.set(err?.error?.error || 'Failed to register implementation guide.');
+                reject(err);
+              },
+            });
+          });
+        }
       });
-    } else {
-      this.administrationService.createImplementationGuide(this.igForm).subscribe({
-        next: () => {
-          this.showIgModal.set(false);
-          this.successMessage.set(`Implementation Guide '${this.igForm.packageId}@${this.igForm.version}' registered.`);
-          this.loadImplementationGuides();
-        },
-        error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to register implementation guide.');
-        },
-      });
+
+      if (!ok) {
+        this.errorMessage.set('Package ID, version, and title are required.');
+      }
+    } catch {
+      // Error message already set in subscribe handler.
     }
-  }
-
-  public toggleRecommended(ig: ImplementationGuideSummary): void {
-    const newVal = !ig.recommendedForCreation;
-    this.administrationService.updateImplementationGuide(ig.id, { recommendedForCreation: newVal }).subscribe({
-      next: () => {
-        this.successMessage.set(`Updated creation recommendation for '${ig.packageId}'.`);
-        this.loadImplementationGuides();
-      },
-      error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to update recommendation.');
-      },
-    });
-  }
-
-  public toggleSuggested(ig: ImplementationGuideSummary): void {
-    const newVal = !ig.isSuggested;
-    this.administrationService.updateImplementationGuide(ig.id, { isSuggested: newVal }).subscribe({
-      next: () => {
-        this.successMessage.set(`Updated suggested visibility for '${ig.packageId}'.`);
-        this.loadImplementationGuides();
-      },
-      error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to update suggestion flag.');
-      },
-    });
   }
 
   public deleteImplementationGuide(ig: ImplementationGuideSummary): void {

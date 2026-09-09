@@ -4,8 +4,10 @@ import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
 import { AppointmentEntityType, type Prisma } from '@prisma/client';
 import { getPrisma } from '../db/prisma.js';
-import { HapiPartitionClient } from '../hapi/partition_client.js';
+import { HapiPartitionClient, assertFhirReleaseEnabled } from '../hapi/partition_client.js';
 import { requirePermission } from '../authorization/requirePermission.js';
+import { JobService } from '../jobs/service.js';
+import type { FhirRelease } from '@fhir-studio/core';
 
 export function createAdministrationRouter(): Router {
   const router = express.Router();
@@ -124,13 +126,43 @@ export function createAdministrationRouter(): Router {
 
     const enriched = users.map((u) => {
       const userAppointments = appointments.filter((a) => a.entityId === u.id);
+      const appointmentSummaries = userAppointments.map((a) => ({ id: a.id, role: a.role }));
       return {
         ...u,
-        roles: userAppointments.map((a) => a.role),
+        appointments: appointmentSummaries,
+        roles: appointmentSummaries.map((a) => a.role),
       };
     });
 
     res.json({ users: enriched });
+  });
+
+  router.put('/api/administration/users/:userId', async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params;
+    const { displayName, email, isSuspended } = req.body;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(displayName !== undefined ? { displayName: displayName || null } : {}),
+        ...(email !== undefined ? { email: email || null } : {}),
+        ...(isSuspended !== undefined ? { isSuspended: Boolean(isSuspended) } : {}),
+      },
+    });
+
+    if (isSuspended === true) {
+      await prisma.session.deleteMany({
+        where: { userId },
+      });
+    }
+
+    res.json({ user: updated });
   });
 
   router.put('/api/administration/users/:userId/suspend', async (req: Request, res: Response): Promise<void> => {
@@ -590,13 +622,42 @@ export function createAdministrationRouter(): Router {
       return;
     }
 
-    // Purge partition completely in HAPI JPA
-    await hapiClient.deletePartition(sandbox.fhirVersion, sandbox.partitionId, sandbox.sandboxId);
+    const jobService = new JobService(prisma);
+    const existing = await prisma.job.findFirst({
+      where: {
+        jobType: 'SANDBOX_PURGE',
+        status: { in: ['queued', 'in_progress'] },
+        sandboxId: sandbox.id,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Cascade delete from PostgreSQL
-    await prisma.sandbox.delete({ where: { id: sandbox.id } });
+    if (existing) {
+      res.status(202).json({
+        message: `Sandbox '${sandbox.sandboxId}' purge is already in progress and may take a while to complete.`,
+        job: existing,
+      });
+      return;
+    }
 
-    res.json({ message: `Sandbox '${sandboxId}' and its HAPI FHIR partition were permanently purged.` });
+    const job = await jobService.enqueueJob(
+      {
+        name: `Admin purge sandbox '${sandbox.name}'`,
+        jobType: 'SANDBOX_PURGE',
+        sandboxId: sandbox.id,
+        input: {
+          sandboxId: sandbox.sandboxId,
+          partitionId: sandbox.partitionId,
+          fhirVersion: sandbox.fhirVersion,
+        },
+      },
+      req.sessionAuth?.userId,
+    );
+
+    res.status(202).json({
+      message: `Sandbox '${sandbox.sandboxId}' and its HAPI FHIR partition will be purged asynchronously. It may not disappear immediately.`,
+      job,
+    });
   });
 
   // ==========================================
@@ -627,7 +688,7 @@ export function createAdministrationRouter(): Router {
 
     const implementationGuides = await prisma.implementationGuide.findMany({
       where,
-      orderBy: [{ recommendedForCreation: 'desc' }, { title: 'asc' }],
+      orderBy: [{ title: 'asc' }],
     });
 
     res.json({ implementationGuides });
@@ -643,7 +704,6 @@ export function createAdministrationRouter(): Router {
       category = 'General',
       canonicalUrl,
       url,
-      recommendedForCreation = false,
       isSuggested = true,
       author,
       dependencies = {},
@@ -682,7 +742,6 @@ export function createAdministrationRouter(): Router {
         category: category.trim().toUpperCase(),
         canonicalUrl: canonicalUrl?.trim() || null,
         url: url?.trim() || null,
-        recommendedForCreation: Boolean(recommendedForCreation),
         isSuggested: Boolean(isSuggested),
         author: author?.trim() || null,
         dependencies: dependencies || {},
@@ -704,7 +763,6 @@ export function createAdministrationRouter(): Router {
       category,
       canonicalUrl,
       url,
-      recommendedForCreation,
       isSuggested,
       author,
       dependencies,
@@ -728,7 +786,6 @@ export function createAdministrationRouter(): Router {
         ...(category !== undefined ? { category: category.trim().toUpperCase() } : {}),
         ...(canonicalUrl !== undefined ? { canonicalUrl: canonicalUrl?.trim() || null } : {}),
         ...(url !== undefined ? { url: url?.trim() || null } : {}),
-        ...(recommendedForCreation !== undefined ? { recommendedForCreation: Boolean(recommendedForCreation) } : {}),
         ...(isSuggested !== undefined ? { isSuggested: Boolean(isSuggested) } : {}),
         ...(author !== undefined ? { author: author?.trim() || null } : {}),
         ...(dependencies !== undefined ? { dependencies } : {}),
@@ -749,6 +806,127 @@ export function createAdministrationRouter(): Router {
 
     await prisma.implementationGuide.delete({ where: { id } });
     res.json({ message: `Implementation Guide '${ig.packageId}@${ig.version}' deleted successfully.` });
+  });
+
+  /**
+   * Enqueue PACKAGE_IMPORT jobs targeting the shared DEFAULT partition for each
+   * selected enabled HAPI FHIR release.
+   */
+  async function enqueueDefaultIgInstallJobs(options: {
+    packageName: string;
+    packageVersion: string;
+    tarballUrl?: string | null;
+    fhirVersions: unknown;
+    excludeExamples?: boolean;
+    userId?: string;
+  }): Promise<{ jobs: Awaited<ReturnType<JobService['enqueueJob']>>[]; fhirVersions: FhirRelease[] }> {
+    const { packageName, packageVersion, tarballUrl, excludeExamples = true, userId } = options;
+
+    if (!Array.isArray(options.fhirVersions) || options.fhirVersions.length === 0) {
+      throw Object.assign(new Error('fhirVersions must be a non-empty array of enabled FHIR releases.'), {
+        status: 400,
+      });
+    }
+
+    const releases: FhirRelease[] = [];
+    for (const value of options.fhirVersions) {
+      try {
+        releases.push(assertFhirReleaseEnabled(value));
+      } catch (err: unknown) {
+        throw Object.assign(
+          new Error(err instanceof Error ? err.message : `Invalid FHIR version '${String(value)}'.`),
+          { status: 400 },
+        );
+      }
+    }
+
+    const uniqueReleases = [...new Set(releases)];
+    const jobService = new JobService(prisma);
+    const jobs = [];
+
+    for (const fhirVersion of uniqueReleases) {
+      const job = await jobService.enqueueJob(
+        {
+          name: `Install ${packageName}#${packageVersion} to ${fhirVersion} DEFAULT`,
+          jobType: 'PACKAGE_IMPORT',
+          input: {
+            packageName,
+            packageVersion,
+            tarballUrl: tarballUrl || undefined,
+            target: 'DEFAULT',
+            fhirVersion,
+            excludeExamples: Boolean(excludeExamples),
+          },
+        },
+        userId,
+      );
+      jobs.push(job);
+    }
+
+    return { jobs, fhirVersions: uniqueReleases };
+  }
+
+  router.post('/api/administration/implementation-guides/install', async (req: Request, res: Response): Promise<void> => {
+    const { packageName, packageVersion, tarballUrl, fhirVersions, excludeExamples = true } = req.body || {};
+
+    if (!packageName || !packageVersion) {
+      res.status(400).json({ error: 'packageName and packageVersion are required.' });
+      return;
+    }
+
+    try {
+      const { jobs, fhirVersions: releases } = await enqueueDefaultIgInstallJobs({
+        packageName: String(packageName).trim(),
+        packageVersion: String(packageVersion).trim(),
+        tarballUrl: tarballUrl ? String(tarballUrl).trim() : null,
+        fhirVersions,
+        excludeExamples,
+        userId: req.sessionAuth?.userId,
+      });
+      res.status(202).json({
+        message: `Queued ${jobs.length} install job(s) to DEFAULT for ${releases.join(', ')}.`,
+        jobs,
+        fhirVersions: releases,
+      });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status || 500;
+      res.status(status).json({
+        error: err instanceof Error ? err.message : 'Failed to enqueue install jobs.',
+      });
+    }
+  });
+
+  router.post('/api/administration/implementation-guides/:id/install', async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const { fhirVersions, excludeExamples = true } = req.body || {};
+
+    const ig = await prisma.implementationGuide.findUnique({ where: { id } });
+    if (!ig) {
+      res.status(404).json({ error: `Implementation Guide with ID '${id}' not found.` });
+      return;
+    }
+
+    try {
+      const { jobs, fhirVersions: releases } = await enqueueDefaultIgInstallJobs({
+        packageName: ig.packageId,
+        packageVersion: ig.version,
+        tarballUrl: ig.tarballUrl,
+        fhirVersions,
+        excludeExamples,
+        userId: req.sessionAuth?.userId,
+      });
+      res.status(202).json({
+        message: `Queued ${jobs.length} install job(s) for ${ig.packageId}#${ig.version} to DEFAULT (${releases.join(', ')}).`,
+        implementationGuide: ig,
+        jobs,
+        fhirVersions: releases,
+      });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status || 500;
+      res.status(status).json({
+        error: err instanceof Error ? err.message : 'Failed to enqueue install jobs.',
+      });
+    }
   });
 
   router.post('/api/administration/implementation-guides/fetch-metadata', async (req: Request, res: Response): Promise<void> => {

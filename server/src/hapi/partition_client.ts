@@ -92,20 +92,30 @@ export class HapiPartitionClient {
     }
   }
 
-  /** Dynamic Zero-Restart Partition Deletion in Stock HAPI FHIR JPA v8.10 */
+  /**
+   * Dynamic Zero-Restart Partition Deletion in Stock HAPI FHIR JPA v8.10.
+   *
+   * Note: this only removes the partition registry row. FHIR resources tagged with the
+   * partition ID are not deleted — call `destroyHapiTenant` (tenant_purge.ts) first.
+   */
   public async deletePartition(
     fhirVersion: FhirRelease | string,
     partitionId: number,
     partitionName?: string,
+    options: { throwOnError?: boolean } = {},
   ): Promise<void> {
+    const throwOnError = options.throwOnError === true;
+
     // Admin purge may target sandboxes on disabled releases — skip HAPI when unavailable.
     let baseUrl: string;
     try {
       baseUrl = this.getHapiBaseUrl(fhirVersion);
     } catch (err: any) {
-      console.warn(
-        `Skipping HAPI partition delete for ${fhirVersion} partition ${partitionId}: ${err?.message || err}`,
-      );
+      const message = `Skipping HAPI partition delete for ${fhirVersion} partition ${partitionId}: ${err?.message || err}`;
+      if (throwOnError) {
+        throw new Error(message);
+      }
+      console.warn(message);
       return;
     }
 
@@ -130,19 +140,52 @@ export class HapiPartitionClient {
     };
 
     try {
-      await axios.post(url, parametersResource, {
+      const response = await axios.post(url, parametersResource, {
         headers: {
           'Content-Type': 'application/fhir+json',
           Accept: 'application/fhir+json',
         },
         timeout: 10_000,
+        validateStatus: () => true,
       });
-      console.log(`Deleted HAPI partition ${partitionId} on ${fhirVersion}`);
+
+      if (response.status >= 200 && response.status < 300) {
+        console.log(`Deleted HAPI partition ${partitionId} on ${fhirVersion}`);
+        return;
+      }
+
+      const detail = response.data || `HTTP ${response.status}`;
+      const detailText = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      // Idempotent: HAPI returns 500 IllegalArgumentException "No partition exists with ID …"
+      // when the registry row is already gone.
+      if (
+        response.status === 404 ||
+        /no partition exists/i.test(detailText) ||
+        /unknown partition/i.test(detailText)
+      ) {
+        console.warn(
+          `HAPI partition ${partitionId} already absent on ${fhirVersion}; treating delete as success.`,
+        );
+        return;
+      }
+
+      const message = `Failed to invoke $partition-management-delete-partition on ${url}: ${detailText}`;
+      if (throwOnError) {
+        throw new Error(message);
+      }
+      console.warn(message);
     } catch (err: any) {
-      console.warn(
-        `Failed to invoke $partition-management-delete-partition on ${url}:`,
-        err?.response?.data || err?.message || err,
-      );
+      if (err?.message?.startsWith('Failed to invoke $partition-management-delete-partition')) {
+        throw err;
+      }
+      const detail = err?.response?.data || err?.message || err;
+      const message = `Failed to invoke $partition-management-delete-partition on ${url}: ${
+        typeof detail === 'string' ? detail : JSON.stringify(detail)
+      }`;
+      if (throwOnError) {
+        throw new Error(message);
+      }
+      console.warn(message);
     }
   }
 }

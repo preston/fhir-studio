@@ -120,10 +120,10 @@
                   aria-expanded="false"
                 >
                   <span>{{ sandboxService.activeSandbox()?.name || 'Select Sandbox' }}</span>
-                  <span class="badge bg-secondary ms-1">{{ sandboxService.activeSandbox()?.fhirVersion }}</span>
+                  <span class="badge bg-secondary">{{ sandboxService.activeSandbox()?.fhirVersion }}</span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end shadow">
-                  <li class="dropdown-header">Active Sandbox Partition</li>
+                  <li class="dropdown-header">Active Sandbox</li>
                   @for (sb of sandboxService.sandboxes(); track sb.id) {
                     <li>
                       <button

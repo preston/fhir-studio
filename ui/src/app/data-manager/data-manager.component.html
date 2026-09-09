@@ -1,21 +1,10 @@
+<div class="data-manager-page">
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
     <h2 class="fw-bold mb-1">Visual Data Manager</h2>
     <p class="text-muted mb-0">Browse, search, edit, and inspect FHIR resources dynamically driven by server capability metadata.</p>
   </div>
   <div class="d-flex align-items-center gap-2">
-    <div class="input-group input-group-sm" style="width: 260px;">
-      <span class="input-group-text bg-light"><i class="bi bi-box me-1"></i>Sandbox</span>
-      <select
-        class="form-select py-1 ps-2"
-        [ngModel]="sandboxService.activeSandbox()"
-        (ngModelChange)="sandboxService.selectSandbox($event)"
-      >
-        @for (sb of sandboxService.sandboxes(); track sb.id) {
-          <option [ngValue]="sb">{{ sb.name }} ({{ sb.fhirVersion }})</option>
-        }
-      </select>
-    </div>
     @if (sandboxService.activeSandbox(); as currentSb) {
       <button
         class="btn btn-sm btn-outline-secondary"
@@ -76,8 +65,19 @@
         (ngModelChange)="onResourceTypeChange($event)"
         [disabled]="loadingMetadata() || availableResourceTypes().length === 0"
       >
-        @for (type of availableResourceTypes(); track type) {
-          <option [value]="type">{{ type }}</option>
+        @if (sandboxResourceTypes().length > 0) {
+          <optgroup [label]="'Sandbox partition (' + (sandboxService.activeSandbox()?.sandboxId || 'tenant') + ')'">
+            @for (type of sandboxResourceTypes(); track type) {
+              <option [value]="type">{{ type }}</option>
+            }
+          </optgroup>
+        }
+        @if (sharedResourceTypes().length > 0) {
+          <optgroup label="Shared DEFAULT partition (HAPI-1318)">
+            @for (type of sharedResourceTypes(); track type) {
+              <option [value]="type">{{ type }}</option>
+            }
+          </optgroup>
         }
       </select>
     </div>
@@ -93,7 +93,7 @@
           class="form-select py-1 ps-2 bg-light text-truncate"
           style="max-width: 170px;"
           [ngModel]="freetextParam()"
-          (ngModelChange)="freetextParam.set($event); (freetextValue() ? executeQuery() : null)"
+          (ngModelChange)="freetextParam.set($event); (freetextValue() ? runQueryFromStart() : null)"
           title="Select search parameter target"
         >
           @for (opt of supportedFreetextOptions(); track opt.key) {
@@ -105,11 +105,11 @@
           class="form-control"
           [ngModel]="freetextValue()"
           (ngModelChange)="freetextValue.set($event)"
-          (keyup.enter)="executeQuery()"
+          (keyup.enter)="runQueryFromStart()"
           [placeholder]="'Search ' + selectedResourceType() + ' (' + freetextParam() + ')...'"
         />
         @if (freetextValue()) {
-          <button class="btn btn-outline-secondary" type="button" (click)="freetextValue.set(''); executeQuery()">
+          <button class="btn btn-outline-secondary" type="button" (click)="freetextValue.set(''); runQueryFromStart()">
             <i class="bi bi-x-lg"></i>
           </button>
         }
@@ -122,7 +122,7 @@
       <select
         class="form-select form-select-sm py-1 ps-2"
         [ngModel]="searchCount()"
-        (ngModelChange)="searchCount.set($event); executeQuery()"
+        (ngModelChange)="onSearchCountChange($event)"
       >
         <option [ngValue]="10">10 entries</option>
         <option [ngValue]="20">20 entries</option>
@@ -135,7 +135,7 @@
     <div class="col-lg-2 col-md-6 col-6">
       <button
         class="btn btn-sm btn-primary w-100 d-flex align-items-center justify-content-center gap-1"
-        (click)="executeQuery()"
+        (click)="runQueryFromStart()"
         [disabled]="loading()"
       >
         @if (loading()) {
@@ -158,7 +158,7 @@
           class="btn btn-xs py-0 px-2 rounded-pill font-monospace"
           [ngClass]="freetextParam() === quick.name ? 'btn-primary' : 'btn-outline-secondary'"
           style="font-size: 0.75rem;"
-          (click)="freetextParam.set(quick.name); (freetextValue() ? executeQuery() : null)"
+          (click)="freetextParam.set(quick.name); (freetextValue() ? runQueryFromStart() : null)"
           [title]="quick.documentation || ''"
         >
           {{ quick.name }}
@@ -245,7 +245,7 @@
                 class="form-control form-control-sm font-monospace"
                 [ngModel]="dynamicParams()[param.name] || ''"
                 (ngModelChange)="setDynamicParam(param.name, $event)"
-                (keyup.enter)="executeQuery()"
+                (keyup.enter)="runQueryFromStart()"
                 [placeholder]="param.type === 'date' ? 'e.g. ge2024-01-01' : param.type === 'token' ? 'code or sys|code' : param.type === 'reference' ? 'Type/id' : 'value...'"
                 [title]="param.documentation || param.name"
               />
@@ -296,7 +296,7 @@
           />
         </div>
         <div class="col-md-2 d-flex align-items-end pt-3">
-          <button class="btn btn-sm btn-outline-primary w-100" (click)="executeQuery()">
+          <button class="btn btn-sm btn-outline-primary w-100" (click)="runQueryFromStart()">
             Apply Parameters
           </button>
         </div>
@@ -306,8 +306,21 @@
 
   <!-- Live FHIR Query Preview Bar -->
   <div class="mt-2 pt-2 border-top d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div class="d-flex align-items-center text-truncate small">
-      <span class="badge bg-dark me-2 font-monospace">GET</span>
+    <div class="d-flex align-items-center text-truncate small gap-2 flex-wrap">
+      <span class="badge bg-dark font-monospace">GET</span>
+      @if (activePartitionName()) {
+        <span
+          class="badge font-monospace"
+          [class.bg-primary]="!isSharedPartitionQuery()"
+          [class.bg-warning]="isSharedPartitionQuery()"
+          [class.text-dark]="isSharedPartitionQuery()"
+          [title]="isSharedPartitionQuery()
+            ? 'HAPI stores this resource type only in the shared DEFAULT partition'
+            : 'Query targets the active sandbox HAPI tenant partition'"
+        >
+          partition:{{ activePartitionName() }}
+        </span>
+      }
       <code class="text-break text-muted">{{ previewUrl() }}</code>
     </div>
     <button
@@ -324,20 +337,51 @@
   </div>
 </div>
 
+@if (isSharedPartitionQuery() && sandboxService.activeSandbox()) {
+  <div class="alert alert-warning py-2 small mb-3" role="alert">
+    <i class="bi bi-info-circle me-1"></i>
+    <strong>{{ selectedResourceType() }}</strong> cannot be stored in a sandbox tenant (HAPI-1318).
+    Results come from the shared <code>DEFAULT</code> partition for FHIR
+    {{ sandboxService.activeSandbox()!.fhirVersion }} and are visible across all sandboxes on this engine.
+  </div>
+}
+
 <!-- Main Split: Results List & JSON Inspector/Editor -->
-<div class="row g-3">
+<div class="row g-3 data-manager-split">
   <!-- Left Column: Search Results List -->
   <div class="col-lg-5">
-    <div class="card bg-white p-3 h-100 shadow-sm border">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="fw-bold mb-0">Query Results ({{ totalResults() }})</h6>
-        <span class="badge bg-primary-subtle text-primary border">{{ selectedResourceType() }}</span>
+    <div class="card bg-white p-3 shadow-sm border data-manager-pane">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div>
+          <h6 class="fw-bold mb-0">Query Results</h6>
+          <div class="small text-muted">{{ resultRangeLabel() }}</div>
+        </div>
+        <div class="d-flex align-items-center gap-1">
+          @if (activePartitionName()) {
+            <span
+              class="badge border font-monospace"
+              [class.bg-primary-subtle]="!isSharedPartitionQuery()"
+              [class.text-primary]="!isSharedPartitionQuery()"
+              [class.bg-warning-subtle]="isSharedPartitionQuery()"
+              [class.text-dark]="isSharedPartitionQuery()"
+            >
+              {{ activePartitionName() }}
+            </span>
+          }
+          <span class="badge bg-primary-subtle text-primary border">{{ selectedResourceType() }}</span>
+        </div>
       </div>
 
       @if (loading()) {
         <div class="text-center py-5">
           <div class="spinner-border text-primary spinner-border-sm"></div>
-          <div class="small text-muted mt-2">Querying sandbox partitioned FHIR store...</div>
+          <div class="small text-muted mt-2">
+            @if (isSharedPartitionQuery()) {
+              Querying shared DEFAULT partition...
+            } @else {
+              Querying sandbox partition {{ activePartitionName() }}...
+            }
+          </div>
         </div>
       } @else if (queryResults().length === 0) {
         <div class="text-center py-5 text-muted">
@@ -345,7 +389,7 @@
           <p class="small mb-0">No {{ selectedResourceType() }} resources found matching this query.</p>
         </div>
       } @else {
-        <div class="list-group list-group-flush overflow-auto" style="max-height: 540px;">
+        <div class="list-group list-group-flush">
           @for (res of queryResults(); track res['id']) {
             <button
               class="list-group-item list-group-item-action d-flex justify-content-between align-items-center px-2 py-2"
@@ -375,12 +419,55 @@
           }
         </div>
       }
+
+      @if (totalResults() > 0) {
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-2 border-top">
+          <span class="small text-muted">Page {{ searchPage() }} of {{ totalPages() }}</span>
+          <div class="btn-group btn-group-sm">
+            <button
+              class="btn btn-outline-secondary"
+              [disabled]="searchPage() <= 1 || loading()"
+              (click)="setPage(1)"
+              title="First page"
+            >
+              <i class="bi bi-chevron-double-left"></i>
+            </button>
+            <button
+              class="btn btn-outline-secondary"
+              [disabled]="searchPage() <= 1 || loading()"
+              (click)="setPage(searchPage() - 1)"
+              title="Previous page"
+            >
+              <i class="bi bi-chevron-left"></i>
+            </button>
+            <button class="btn btn-outline-secondary disabled fw-semibold text-dark">
+              {{ searchPage() }} / {{ totalPages() }}
+            </button>
+            <button
+              class="btn btn-outline-secondary"
+              [disabled]="searchPage() >= totalPages() || loading()"
+              (click)="setPage(searchPage() + 1)"
+              title="Next page"
+            >
+              <i class="bi bi-chevron-right"></i>
+            </button>
+            <button
+              class="btn btn-outline-secondary"
+              [disabled]="searchPage() >= totalPages() || loading()"
+              (click)="setPage(totalPages())"
+              title="Last page"
+            >
+              <i class="bi bi-chevron-double-right"></i>
+            </button>
+          </div>
+        </div>
+      }
     </div>
   </div>
 
   <!-- Right Column: Resource Detail & JSON Editor -->
   <div class="col-lg-7">
-    <div class="card bg-white p-3 h-100 shadow-sm border">
+    <div class="card bg-white p-3 shadow-sm border data-manager-pane">
       @if (selectedResource()) {
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
           <h6 class="fw-bold mb-0 font-monospace text-truncate">
@@ -418,14 +505,12 @@
           </div>
         </div>
 
-        <div class="mb-2">
-          <textarea
-            class="form-control font-monospace small bg-light"
-            rows="16"
-            [ngModel]="editedJson()"
-            (ngModelChange)="editedJson.set($event)"
-            style="white-space: pre; font-size: 0.85rem;"
-          ></textarea>
+        <div class="data-manager-editor-body">
+          <app-code-editor
+            [value]="editedJson()"
+            (valueChange)="editedJson.set($event)"
+            language="json"
+          />
         </div>
 
         @if (validationOutcome()) {
@@ -470,4 +555,5 @@
       }
     </div>
   </div>
+</div>
 </div>

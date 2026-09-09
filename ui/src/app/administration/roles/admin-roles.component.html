@@ -140,9 +140,14 @@
                 }
               </td>
               <td class="text-end">
-                <button class="btn btn-sm btn-outline-danger" (click)="deleteRole(role.id)" title="Delete role">
-                  <i class="bi bi-trash"></i>
-                </button>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" (click)="openEditRoleModal(role)" title="Edit role">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-outline-danger" (click)="deleteRole(role.id)" title="Delete role">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </td>
             </tr>
           }
@@ -224,62 +229,90 @@
     <div class="modal-dialog modal-dialog-centered modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">{{ roleForm.id ? 'Edit Role' : 'Configure Role & Permissions' }}</h5>
-          <button type="button" class="btn-close" (click)="showRoleModal.set(false)"></button>
+          <h5 class="modal-title fw-bold">{{ isEditing() ? 'Edit Role' : 'Configure Role & Permissions' }}</h5>
+          <button type="button" class="btn-close" (click)="showRoleModal.set(false)" aria-label="Close"></button>
         </div>
         <div class="modal-body">
           <div class="row g-3 mb-3">
-            <div class="col-6">
-              <label class="form-label fw-semibold">Role Name <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" [(ngModel)]="roleForm.name" placeholder="e.g. Clinical Researcher">
+            <div class="col-md-6">
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control"
+                  id="roleName"
+                  [formField]="roleForm.name"
+                  placeholder="e.g. Clinical Researcher"
+                />
+                <label for="roleName">Role Name <span class="text-danger">*</span></label>
+              </div>
             </div>
-            <div class="col-6">
-              <label class="form-label fw-semibold">SSO Role Mapping Claim</label>
-              <input type="text" class="form-control font-monospace" [(ngModel)]="roleForm.ssoRoleMapping" placeholder="e.g. researcher">
+            <div class="col-md-6">
+              <div class="form-floating">
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  id="roleSsoMapping"
+                  [formField]="roleForm.ssoRoleMapping"
+                  placeholder="e.g. researcher"
+                />
+                <label for="roleSsoMapping">SSO Role Mapping Claim</label>
+              </div>
             </div>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Description</label>
-            <input type="text" class="form-control" [(ngModel)]="roleForm.description" placeholder="Brief notes on role permissions">
+          <div class="form-floating mb-3">
+            <input
+              type="text"
+              class="form-control"
+              id="roleDescription"
+              [formField]="roleForm.description"
+              placeholder="Brief notes on role permissions"
+            />
+            <label for="roleDescription">Description</label>
           </div>
 
           <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" id="roleDefault" [(ngModel)]="roleForm.default">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              role="switch"
+              id="roleDefault"
+              [formField]="roleForm.default"
+            />
             <label class="form-check-label fw-semibold" for="roleDefault">Default Role for New Users</label>
           </div>
 
           <h6 class="fw-bold mb-2">Boolean Permission Flags</h6>
           <div class="row g-2">
-            <div class="col-6">
+            <div class="col-md-6">
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permCreate" [(ngModel)]="roleForm.permission_sandboxes_create">
+                <input class="form-check-input" type="checkbox" id="permCreate" [formField]="roleForm.permission_sandboxes_create">
                 <label class="form-check-label" for="permCreate">permission_sandboxes_create</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permShared" [(ngModel)]="roleForm.permission_sandboxes_shared">
+                <input class="form-check-input" type="checkbox" id="permShared" [formField]="roleForm.permission_sandboxes_shared">
                 <label class="form-check-label" for="permShared">permission_sandboxes_shared</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permEhr" [(ngModel)]="roleForm.permission_ehr_simulator">
+                <input class="form-check-input" type="checkbox" id="permEhr" [formField]="roleForm.permission_ehr_simulator">
                 <label class="form-check-label" for="permEhr">permission_ehr_simulator</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permData" [(ngModel)]="roleForm.permission_data_manager">
+                <input class="form-check-input" type="checkbox" id="permData" [formField]="roleForm.permission_data_manager">
                 <label class="form-check-label" for="permData">permission_data_manager</label>
               </div>
             </div>
-            <div class="col-6">
+            <div class="col-md-6">
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permApps" [(ngModel)]="roleForm.permission_applications_register">
+                <input class="form-check-input" type="checkbox" id="permApps" [formField]="roleForm.permission_applications_register">
                 <label class="form-check-label" for="permApps">permission_applications_register</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permPkg" [(ngModel)]="roleForm.permission_package_import">
+                <input class="form-check-input" type="checkbox" id="permPkg" [formField]="roleForm.permission_package_import">
                 <label class="form-check-label" for="permPkg">permission_package_import</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="permGlobal" [(ngModel)]="roleForm.permission_global_manage">
+                <input class="form-check-input" type="checkbox" id="permGlobal" [formField]="roleForm.permission_global_manage">
                 <label class="form-check-label text-danger fw-bold" for="permGlobal">permission_global_manage (Administration)</label>
               </div>
             </div>
@@ -287,7 +320,9 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" (click)="showRoleModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="saveRole()">Save Role</button>
+          <button type="button" class="btn btn-primary" (click)="saveRole()">
+            {{ isEditing() ? 'Update Role' : 'Save Role' }}
+          </button>
         </div>
       </div>
     </div>

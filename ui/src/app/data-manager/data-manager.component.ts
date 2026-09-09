@@ -6,10 +6,13 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { FhirService, type FhirOperationOutcome } from '../core/services/fhir.service.js';
-import type {
-  FhirCapabilityStatement,
-  FhirCapabilityStatementResource,
-  FhirCapabilityStatementSearchParam,
+import { CodeEditorComponent } from '../shared/code-editor/code-editor.component.js';
+import {
+  HAPI_DEFAULT_PARTITION_NAME,
+  isHapiNonPartitionableResourceType,
+  type FhirCapabilityStatement,
+  type FhirCapabilityStatementResource,
+  type FhirCapabilityStatementSearchParam,
 } from '@fhir-studio/core';
 
 export interface FreetextOption {
@@ -32,8 +35,9 @@ const STANDARD_GLOBAL_SEARCH_PARAMS: FhirCapabilityStatementSearchParam[] = [
 @Component({
   selector: 'app-data-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, CodeEditorComponent],
   templateUrl: './data-manager.component.html',
+  styleUrl: './data-manager.component.scss',
 })
 export class DataManagerComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
@@ -52,6 +56,7 @@ export class DataManagerComponent implements OnInit {
   public readonly customParamKey = signal<string>('');
   public readonly customParamValue = signal<string>('');
   public readonly searchCount = signal<number>(20);
+  public readonly searchPage = signal<number>(1);
   public readonly searchSort = signal<string>('');
   public readonly isParamsExpanded = signal<boolean>(false);
   public readonly paramFilterQuery = signal<string>('');
@@ -81,6 +86,30 @@ export class DataManagerComponent implements OnInit {
       return Array.from(new Set(types)).sort();
     }
     return [];
+  });
+
+  /** Clinical / partitionable types stored in the active sandbox HAPI tenant. */
+  public readonly sandboxResourceTypes = computed<string[]>(() =>
+    this.availableResourceTypes().filter((t) => !isHapiNonPartitionableResourceType(t)),
+  );
+
+  /**
+   * Conformance/terminology types that HAPI forces into the shared DEFAULT partition
+   * (HAPI-1318). Gateway search/write for these targets DEFAULT, not the sandbox tenant.
+   */
+  public readonly sharedResourceTypes = computed<string[]>(() =>
+    this.availableResourceTypes().filter((t) => isHapiNonPartitionableResourceType(t)),
+  );
+
+  public readonly isSharedPartitionQuery = computed<boolean>(() =>
+    isHapiNonPartitionableResourceType(this.selectedResourceType()),
+  );
+
+  /** HAPI URL-tenant name the gateway will hit for the current resource type. */
+  public readonly activePartitionName = computed<string>(() => {
+    const sandbox = this.sandboxService.activeSandbox();
+    if (!sandbox) return '';
+    return this.isSharedPartitionQuery() ? HAPI_DEFAULT_PARTITION_NAME : sandbox.sandboxId;
   });
 
   public readonly currentResourceCapability = computed<FhirCapabilityStatementResource | null>(() => {
@@ -189,12 +218,33 @@ export class DataManagerComponent implements OnInit {
     return count;
   });
 
+  public readonly totalPages = computed<number>(() => {
+    const total = this.totalResults();
+    const perPage = this.searchCount();
+    if (total <= 0 || perPage <= 0) return 1;
+    return Math.max(1, Math.ceil(total / perPage));
+  });
+
+  public readonly resultRangeLabel = computed<string>(() => {
+    const total = this.totalResults();
+    if (total === 0) return '0 results';
+    const perPage = this.searchCount();
+    const page = Math.min(this.searchPage(), this.totalPages());
+    const start = (page - 1) * perPage + 1;
+    const end = Math.min(page * perPage, total);
+    return `${start}–${end} of ${total}`;
+  });
+
   public readonly previewUrl = computed<string>(() => {
     const current = this.sandboxService.activeSandbox();
     if (!current) return '';
 
     const params = new URLSearchParams();
     params.set('_count', String(this.searchCount()));
+    const offset = (Math.max(1, this.searchPage()) - 1) * this.searchCount();
+    if (offset > 0) {
+      params.set('_offset', String(offset));
+    }
 
     if (this.searchSort().trim()) {
       params.set('_sort', this.searchSort().trim());
@@ -272,9 +322,11 @@ export class DataManagerComponent implements OnInit {
       next: (cs) => {
         this.capabilityStatement.set(cs);
         this.loadingMetadata.set(false);
-        const types = this.availableResourceTypes();
-        if (types.length > 0 && !types.includes(this.selectedResourceType())) {
-          this.selectedResourceType.set(types.includes('Patient') ? 'Patient' : types[0]);
+        const sandboxTypes = this.sandboxResourceTypes();
+        const allTypes = this.availableResourceTypes();
+        const preferred = sandboxTypes.length > 0 ? sandboxTypes : allTypes;
+        if (preferred.length > 0 && !preferred.includes(this.selectedResourceType())) {
+          this.selectedResourceType.set(preferred.includes('Patient') ? 'Patient' : preferred[0]);
         }
         this.executeQuery();
       },
@@ -291,6 +343,7 @@ export class DataManagerComponent implements OnInit {
     this.customParamKey.set('');
     this.customParamValue.set('');
     this.freetextValue.set('');
+    this.searchPage.set(1);
 
     // Set intelligent default free-text parameter based on resource type
     if (type === 'Patient' || type === 'Practitioner' || type === 'Person') {
@@ -301,6 +354,19 @@ export class DataManagerComponent implements OnInit {
       this.freetextParam.set('_content');
     }
 
+    this.executeQuery();
+  }
+
+  public onSearchCountChange(count: number): void {
+    this.searchCount.set(count);
+    this.searchPage.set(1);
+    this.executeQuery();
+  }
+
+  public setPage(page: number): void {
+    const total = this.totalPages();
+    if (page < 1 || page > total || page === this.searchPage()) return;
+    this.searchPage.set(page);
     this.executeQuery();
   }
 
@@ -326,6 +392,13 @@ export class DataManagerComponent implements OnInit {
     this.customParamKey.set('');
     this.customParamValue.set('');
     this.searchSort.set('');
+    this.searchPage.set(1);
+    this.executeQuery();
+  }
+
+  /** Run a fresh query from page 1 (filter / search changes). */
+  public runQueryFromStart(): void {
+    this.searchPage.set(1);
     this.executeQuery();
   }
 
@@ -338,9 +411,16 @@ export class DataManagerComponent implements OnInit {
     this.validationOutcome.set(null);
     this.errorMessage.set(null);
 
+    const page = Math.max(1, this.searchPage());
+    const count = this.searchCount();
     const params: Record<string, string | number> = {
-      _count: this.searchCount(),
+      _count: count,
     };
+
+    const offset = (page - 1) * count;
+    if (offset > 0) {
+      params['_offset'] = offset;
+    }
 
     if (this.searchSort().trim()) {
       params['_sort'] = this.searchSort().trim();
@@ -374,8 +454,20 @@ export class DataManagerComponent implements OnInit {
       .subscribe({
         next: (bundle) => {
           this.rawBundleJson.set(JSON.stringify(bundle, null, 2));
-          this.totalResults.set(bundle.total ?? bundle.entry?.length ?? 0);
+          const total = bundle.total ?? bundle.entry?.length ?? 0;
+          this.totalResults.set(total);
           this.queryResults.set((bundle.entry || []).map((e) => e.resource as Record<string, any>));
+
+          // Clamp page if total shrank (e.g. after deletes / filter changes).
+          const maxPage = Math.max(1, Math.ceil(total / count) || 1);
+          if (page > maxPage) {
+            this.searchPage.set(maxPage);
+            if (maxPage !== page) {
+              this.executeQuery();
+              return;
+            }
+          }
+
           this.loading.set(false);
         },
         error: (err) => {

@@ -23,7 +23,10 @@
     </span>
   </div>
   <p class="text-muted small mb-4">
-    Purging permanently removes the sandbox metadata, all associated applications, launch scenarios, and collaborators from the PostgreSQL database, and executes <code>$partition-management-delete-partition</code> on the stock HAPI FHIR JPA server to completely wipe all stored clinical resources.
+    Purging queues a background job that delete-expunges all FHIR resources in the sandbox HAPI tenant,
+    removes the partition registry entry via <code>$partition-management-delete-partition</code>,
+    then deletes sandbox metadata (applications, launch scenarios, collaborators) from PostgreSQL.
+    Large tenants can take a while; the sandbox may not disappear from this list immediately.
   </p>
 
   <!-- Filters & Search Toolbar -->

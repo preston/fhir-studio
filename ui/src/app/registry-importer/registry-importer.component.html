@@ -1,159 +1,307 @@
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h2 class="fw-bold mb-1">FHIR NPM Package Importer</h2>
-    <p class="text-muted mb-0">Search and import FHIR Implementation Guides, profiles, and datasets from packages.fhir.org directly into your sandbox.</p>
+    <h2 class="fw-bold mb-1">FHIR Package Importer</h2>
+    <p class="text-muted mb-0">
+      Import FHIR NPM package resources into a sandbox primarily for easy data exchange.
+    </p>
   </div>
   <div class="input-group input-group-sm" style="width: 260px;">
     <span class="input-group-text bg-light">Target Sandbox</span>
-    <select
-      class="form-select py-1 ps-2"
-      [ngModel]="sandboxService.activeSandbox()"
-      (ngModelChange)="sandboxService.selectSandbox($event)"
-    >
+    <select class="form-select py-1 ps-2" [ngModel]="sandboxService.activeSandbox()"
+      (ngModelChange)="sandboxService.selectSandbox($event)">
       @for (sb of sandboxService.sandboxes(); track sb.id) {
-        <option [ngValue]="sb">{{ sb.name }} ({{ sb.fhirVersion }})</option>
+      <option [ngValue]="sb">{{ sb.name }} ({{ sb.fhirVersion }})</option>
       }
     </select>
   </div>
 </div>
 
-@if (successMessage()) {
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
-    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+<div class="alert alert-secondary border mb-4" role="note">
+  <div class="fw-semibold mb-1">
+    <i class="bi bi-shield-lock me-1"></i>
+    Implementation Guide install is an administrative function
   </div>
+  <p class="small mb-0">
+    Installing Implementation Guides (profiles, ValueSets, CodeSystems, etc.) is done by administrators, and is shared
+    across all sandboxes
+    of that FHIR version. This page is intended for sandbox <strong>content import</strong> unrelated to conformance and
+    terminology resources.
+    @if (auth.isGlobalAdmin()) {
+    Administrators may use
+    <a routerLink="/administration/implementation-guides">Administration → Implementation Guides</a>
+    for IG install.
+    }
+  </p>
+</div>
+
+@if (successMessage()) {
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
+  <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
+</div>
 }
 
 @if (errorMessage()) {
-  <div class="alert alert-danger alert-dismissible fade show" role="alert">
-    <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
-    <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
-  </div>
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
+  <button type="button" class="btn-close" (click)="errorMessage.set(null)"></button>
+</div>
 }
 
-<!-- Import Progress Status Box -->
-@if (isImporting() || importLogs().length > 0) {
-  <div class="card p-3 mb-4 bg-white border-primary border-2">
-    <h6 class="fw-bold mb-2 d-flex justify-content-between">
-      <span>{{ importStatusText() || 'Import Status' }}</span>
-      <span class="text-primary">{{ importProgress() }}%</span>
-    </h6>
+@if (isPreparing() || isImporting() || importLogs().length > 0) {
+<div class="card p-3 mb-4 bg-white border-primary border-2">
+  <h6 class="fw-bold mb-2 d-flex justify-content-between">
+    <span>{{ importStatusText() || 'Import Status' }}</span>
+    <span class="text-primary">{{ importProgress() }}%</span>
+  </h6>
 
-    <div class="progress mb-3" style="height: 10px;">
-      <div class="progress-bar progress-bar-striped progress-bar-animated" [style.width.%]="importProgress()"></div>
-    </div>
-
-    <div class="bg-light p-2 rounded small font-monospace overflow-auto" style="max-height: 140px;">
-      @for (log of importLogs(); track log) {
-        <div class="text-secondary">&gt; {{ log }}</div>
-      }
-    </div>
+  <div class="progress mb-3" style="height: 10px;">
+    <div class="progress-bar progress-bar-striped" [class.progress-bar-animated]="isPreparing() || isImporting()"
+      [style.width.%]="importProgress()"></div>
   </div>
+
+  <div class="bg-light p-2 rounded small font-monospace overflow-auto" style="max-height: 140px;">
+    @for (log of importLogs(); track $index) {
+    <div class="text-secondary">&gt; {{ log }}</div>
+    }
+  </div>
+</div>
 }
 
 <div class="row g-4 mb-4">
-  <!-- Search on packages.fhir.org -->
   <div class="col-md-7">
     <div class="card p-3 bg-white h-100">
       <h5 class="fw-bold mb-2">Search FHIR Package Registry</h5>
       <p class="text-muted small mb-3">Search official HL7 and community packages on <code>packages.fhir.org</code>.</p>
 
       <div class="d-flex gap-2 mb-3">
-        <input
-          type="text"
-          class="form-control"
-          [ngModel]="searchQuery()"
-          (ngModelChange)="searchQuery.set($event)"
-          (keyup.enter)="searchRegistry()"
-          placeholder="e.g. hl7.fhir.us.core, mcode, davinci..."
-        />
-        <button class="btn btn-primary d-flex align-items-center gap-1" (click)="searchRegistry()" [disabled]="isSearching()">
+        <input type="text" class="form-control" [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)"
+          (keyup.enter)="searchRegistry()" placeholder="e.g. hl7.fhir.us.core, mcode, davinci..." />
+        <button class="btn btn-primary d-flex align-items-center gap-1" (click)="searchRegistry()"
+          [disabled]="isSearching() || isPreparing() || isImporting()">
           @if (isSearching()) {
-            <span class="spinner-border spinner-border-sm"></span>
+          <span class="spinner-border spinner-border-sm"></span>
           } @else {
-            <i class="bi bi-search"></i>
+          <i class="bi bi-search"></i>
           }
           <span>Search</span>
         </button>
       </div>
 
       @if (searchResults().length > 0) {
-        <h6 class="fw-bold small text-muted text-uppercase mb-2">Search Results</h6>
-        <div class="list-group list-group-flush overflow-auto" style="max-height: 300px;">
-          @for (res of searchResults(); track res.name) {
-            <div class="list-group-item d-flex justify-content-between align-items-center px-0">
-              <div>
-                <div class="fw-bold">{{ res.name }}</div>
-                <div class="small text-muted text-truncate" style="max-width: 320px;">{{ res.description || res.title }}</div>
-              </div>
-              <button class="btn btn-sm btn-outline-primary text-nowrap" (click)="importPackage(res.name, res['dist-tags']?.latest || res.version || 'current')" [disabled]="isImporting()">
-                <i class="bi bi-download me-1"></i> Import
-              </button>
+      <h6 class="fw-bold small text-muted text-uppercase mb-2">Search Results</h6>
+      <div class="list-group list-group-flush overflow-auto" style="max-height: 300px;">
+        @for (res of searchResults(); track res.name) {
+        <div class="list-group-item d-flex justify-content-between align-items-center px-0 gap-2">
+          <div class="min-w-0 flex-grow-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <div class="fw-bold font-monospace text-break">{{ res.name }}</div>
+              @if (res.fhirVersion) {
+              <span class="badge bg-light text-dark border">{{ res.fhirVersion }}</span>
+              }
             </div>
-          }
+            @if (res.description || res.title) {
+            <div class="small text-muted text-truncate" style="max-width: 420px;"
+              [title]="res.description || res.title || ''">
+              {{ res.description || res.title }}
+            </div>
+            }
+          </div>
+          <button class="btn btn-sm btn-outline-primary text-nowrap flex-shrink-0"
+            (click)="preparePackage(res.name, res['dist-tags']?.latest || res.version || 'current')"
+            [disabled]="isPreparing() || isImporting() || !sandboxService.activeSandbox()">
+            <i class="bi bi-box-arrow-in-down me-1"></i> Prepare
+          </button>
         </div>
+        }
+      </div>
       }
     </div>
   </div>
 
-  <!-- Manual Upload .tgz Package -->
   <div class="col-md-5">
     <div class="card p-3 bg-white h-100">
       <h5 class="fw-bold mb-2">Upload Custom Package (.tgz)</h5>
-      <p class="text-muted small mb-3">Upload any pre-built FHIR NPM tarball (<code>.tgz</code> / <code>.tar.gz</code>) from your computer.</p>
+      <p class="text-muted small mb-3">Upload any pre-built FHIR NPM tarball (<code>.tgz</code> / <code>.tar.gz</code>)
+        from your computer.</p>
 
       <div class="border-2 border-dashed rounded p-4 text-center bg-light mb-3">
         <i class="bi bi-cloud-arrow-up display-4 text-primary mb-2"></i>
         <h6>Select a FHIR package file</h6>
         <p class="small text-muted mb-3">Archive containing FHIR JSON resources</p>
-        <input type="file" class="form-control form-control-sm" accept=".tgz,.tar.gz" (change)="onFileSelected($event)">
+        <input type="file" class="form-control form-control-sm" accept=".tgz,.tar.gz" (change)="onFileSelected($event)"
+          [disabled]="isPreparing() || isImporting()">
       </div>
     </div>
   </div>
 </div>
 
-<!-- Popular Reference Implementation Guides -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h5 class="fw-bold mb-0">Suggested Implementation Guides & Data Sets</h5>
-  @if (loadingSuggested()) {
-    <span class="spinner-border spinner-border-sm text-primary"></span>
+@if (previewItems().length > 0) {
+<div class="card bg-white p-3 mb-4 border-2 border-primary">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h5 class="fw-bold mb-1">Review Resources Before Import</h5>
+      <p class="text-muted small mb-0">
+        Package: <span class="font-monospace">{{ previewPackageLabel() }}</span>
+        · {{ selectedCount() }} of {{ previewItems().length }} selected
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-sm btn-outline-secondary" type="button" (click)="selectAll()"
+        [disabled]="isImporting()">Select all</button>
+      <button class="btn btn-sm btn-outline-secondary" type="button" (click)="deselectAll()"
+        [disabled]="isImporting()">Deselect all</button>
+      <button class="btn btn-sm btn-outline-danger" type="button" (click)="clearPreview()"
+        [disabled]="isImporting()">Clear</button>
+      <button class="btn btn-sm btn-primary" type="button" (click)="runImport()"
+        [disabled]="isImporting() || selectedCount() === 0 || !sandboxService.activeSandbox()">
+        <i class="bi bi-download me-1"></i>
+        Run Import ({{ selectedCount() }})
+      </button>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="includeExamples" role="switch" [ngModel]="includeExamples()"
+          (ngModelChange)="onIncludeExamplesChange($event)" [disabled]="isImporting()" />
+        <label class="form-check-label" for="includeExamples">
+          <strong>Include examples</strong>
+          <div class="text-muted small">Resources under <code>example/</code> paths or with Example ids (deselected by
+            default).</div>
+        </label>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="includeConformance" role="switch"
+          [ngModel]="includeConformance()" (ngModelChange)="onIncludeConformanceChange($event)"
+          [disabled]="isImporting()" />
+        <label class="form-check-label" for="includeConformance">
+          <strong>Include conformance / terminology</strong>
+          <div class="text-muted small">
+            StructureDefinition, ValueSet, CodeSystem, etc.
+            @if (auth.isGlobalAdmin()) {
+            Prefer
+            <a routerLink="/administration/implementation-guides">admin IG install</a>
+            for shared DEFAULT installation.
+            } @else {
+            Prefer administrator IG install for shared DEFAULT installation.
+            }
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width: 2.5rem;"></th>
+          <th>Resource Type</th>
+          <th class="text-center">Selected</th>
+          <th class="text-center">Total</th>
+          <th class="text-center">Examples</th>
+          <th class="text-center">Conformance</th>
+          <th class="text-end">Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (summary of typeSummaries(); track summary.resourceType) {
+        <tr>
+          <td>
+            <input class="form-check-input" type="checkbox"
+              [checked]="summary.selected === summary.total && summary.total > 0"
+              [indeterminate]="summary.selected > 0 && summary.selected < summary.total"
+              (change)="toggleType(summary.resourceType, $any($event.target).checked)" [disabled]="isImporting()" />
+          </td>
+          <td class="fw-semibold font-monospace">{{ summary.resourceType }}</td>
+          <td class="text-center">{{ summary.selected }}</td>
+          <td class="text-center">{{ summary.total }}</td>
+          <td class="text-center">{{ summary.examples }}</td>
+          <td class="text-center">{{ summary.conformance }}</td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-link" type="button" (click)="toggleTypeExpanded(summary.resourceType)">
+              {{ isTypeExpanded(summary.resourceType) ? 'Hide' : 'Show' }}
+            </button>
+          </td>
+        </tr>
+        @if (isTypeExpanded(summary.resourceType)) {
+        <tr>
+          <td colspan="7" class="bg-light">
+            <div class="small overflow-auto" style="max-height: 220px;">
+              @for (item of itemsForType(summary.resourceType); track item.key) {
+              <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" [id]="item.key" [checked]="item.selected"
+                  (change)="toggleItem(item.key)" [disabled]="isImporting()" />
+                <label class="form-check-label font-monospace" [for]="item.key">
+                  {{ item.id || '(no id)' }}
+                  <span class="text-muted">· {{ item.path }}</span>
+                  @if (item.isExample) {
+                  <span class="badge bg-warning-subtle text-warning-emphasis ms-1">example</span>
+                  }
+                  @if (item.isConformance) {
+                  <span class="badge bg-info-subtle text-info-emphasis ms-1">conformance</span>
+                  }
+                </label>
+              </div>
+              }
+            </div>
+          </td>
+        </tr>
+        }
+        }
+      </tbody>
+    </table>
+  </div>
+</div>
+}
+
+@if (lastTypeResults().length > 0) {
+<div class="card bg-white p-3 mb-4">
+  <h5 class="fw-bold mb-3">Import Results</h5>
+  <div class="table-responsive mb-3">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Resource Type</th>
+          <th class="text-center text-success">Succeeded</th>
+          <th class="text-center text-danger">Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of lastTypeResults(); track row.resourceType) {
+        <tr>
+          <td class="font-monospace">{{ row.resourceType }}</td>
+          <td class="text-center">{{ row.successful }}</td>
+          <td class="text-center">{{ row.failed }}</td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  @if (lastWroteConformanceToDefault()) {
+  <div class="alert alert-warning small mb-3">
+    One or more selected conformance/terminology resources were written to the shared HAPI
+    <code>DEFAULT</code> partition for this FHIR version.
+  </div>
+  }
+
+  @if (lastFailures().length > 0) {
+  <details open>
+    <summary class="fw-semibold mb-2">Failures ({{ lastFailures().length }})</summary>
+    <div class="small font-monospace overflow-auto bg-light rounded p-2" style="max-height: 240px;">
+      @for (failure of lastFailures(); track $index) {
+      <div class="mb-2">
+        <div class="text-danger">{{ failure.resourceType }}/{{ failure.id }} · {{ failure.status }}</div>
+        <div class="text-secondary">{{ failure.diagnostics }}</div>
+      </div>
+      }
+    </div>
+  </details>
   }
 </div>
-
-@if (suggestedPackages().length === 0 && !loadingSuggested()) {
-  <div class="card p-4 text-center text-muted bg-white">
-    <i class="bi bi-box-seam fs-3 mb-2"></i>
-    No suggested packages configured. Administrators can manage suggestions under <a routerLink="/administration/implementation-guides">Administration</a>.
-  </div>
-} @else {
-  <div class="row g-3">
-    @for (pkg of suggestedPackages(); track pkg.id) {
-      <div class="col-md-6 col-xl-3">
-        <div class="card h-100 card-hover bg-white p-3 border-top border-4" [ngClass]="{
-          'border-primary': pkg.category === 'US_CORE',
-          'border-success': pkg.category === 'SMART',
-          'border-info': pkg.category === 'CLINICAL',
-          'border-warning': pkg.category === 'FINANCIAL',
-          'border-dark': pkg.category === 'DAVINCI',
-          'border-secondary': pkg.category === 'INTERNATIONAL' || pkg.category === 'OTHER'
-        }">
-          <div class="d-flex justify-content-between align-items-start mb-1">
-            <h6 class="fw-bold mb-0 text-truncate" [title]="pkg.title">{{ pkg.title }}</h6>
-            <span class="badge bg-light text-dark border ms-1 small">{{ pkg.fhirVersion }}</span>
-          </div>
-          <div class="font-monospace small text-muted mb-2">{{ pkg.packageId }}#{{ pkg.version }}</div>
-          <p class="small text-secondary flex-grow-1 text-truncate-3" [title]="pkg.description || ''">
-            {{ pkg.description || 'No description provided.' }}
-          </p>
-          <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
-            <span class="badge bg-secondary-subtle text-secondary small">{{ pkg.category }}</span>
-            <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" (click)="importPackage(pkg.packageId, pkg.version, pkg.tarballUrl)" [disabled]="isImporting() || !sandboxService.activeSandbox()">
-              <i class="bi bi-download"></i>
-              <span>Import</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    }
-  </div>
 }

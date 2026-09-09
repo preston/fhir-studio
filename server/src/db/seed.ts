@@ -142,55 +142,7 @@ export async function seed(): Promise<void> {
       isSample: true,
       scope: 'openid profile email patient/*.read patient/*.rs launch launch/patient fhirUser',
     },
-    {
-      clientId: 'smart-vitals-starter',
-      clientName: 'Adult Vitals & Labs Dashboard',
-      launchUri: 'https://parthivbhagat.github.io/slate/launch.html',
-      redirectUris: ['https://parthivbhagat.github.io/slate/index.html', 'https://parthivbhagat.github.io/slate/'],
-      briefDescription: 'Adult clinical dashboard displaying demographics, blood pressure (systolic/diastolic), LDL/HDL cholesterol, and vital signs.',
-      author: 'SMART on FHIR Community',
-      isCustom: false,
-      isSample: true,
-      scope: 'launch launch/patient patient/*.read patient/*.rs openid profile',
-    },
-    {
-      clientId: 'smart-tutorial-app',
-      clientName: 'SMART on FHIR Clinical Demo',
-      launchUri: 'https://cerner.github.io/smart-on-fhir-tutorial/example-smart-app/launch.html',
-      redirectUris: ['https://cerner.github.io/smart-on-fhir-tutorial/example-smart-app/', 'https://cerner.github.io/smart-on-fhir-tutorial/example-smart-app/launch.html'],
-      briefDescription: 'General adult patient summary app displaying patient demographics, vital signs, and laboratory observations.',
-      author: 'Cerner / SMART Health IT',
-      isCustom: false,
-      isSample: true,
-      scope: 'launch launch/patient patient/*.read patient/*.rs openid profile',
-    },
-    {
-      clientId: 'smart-research-app',
-      clientName: 'Clinical Research Data Viewer',
-      launchUri: 'https://nih-odss.github.io/fhir-for-research/modules/smart-on-fhir-tech/launch.html',
-      redirectUris: ['https://nih-odss.github.io/fhir-for-research/modules/smart-on-fhir-tech/index.html', 'https://nih-odss.github.io/fhir-for-research/modules/smart-on-fhir-tech/'],
-      briefDescription: 'Adult medication and diagnostic explorer built for FHIR R4 clinical research and trials data analysis.',
-      author: 'NIH ODSS / MITRE',
-      isCustom: false,
-      isSample: true,
-      scope: 'launch launch/patient patient/*.read patient/*.rs openid profile',
-    },
   ];
-
-  // Remove deprecated/legacy sample app registrations if present
-  await prisma.application.deleteMany({
-    where: {
-      clientId: {
-        in: [
-          'growth-chart-application',
-          'bilirubin-risk-chart',
-          'cardiac-risk-application',
-          'growth-chart-r4',
-          'smart-bp-centiles',
-        ],
-      },
-    },
-  });
 
   for (const application of sampleApplications) {
     await prisma.application.upsert({
@@ -223,7 +175,6 @@ export async function seed(): Promise<void> {
       category: 'US_CORE',
       canonicalUrl: 'http://hl7.org/fhir/us/core',
       author: 'HL7 International / US Realm',
-      recommendedForCreation: true,
       isSuggested: true,
     },
     {
@@ -235,7 +186,6 @@ export async function seed(): Promise<void> {
       category: 'US_CORE',
       canonicalUrl: 'http://hl7.org/fhir/us/core',
       author: 'HL7 International / US Realm',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -247,7 +197,6 @@ export async function seed(): Promise<void> {
       category: 'US_CORE',
       canonicalUrl: 'http://hl7.org/fhir/us/core',
       author: 'HL7 International / US Realm',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -259,7 +208,6 @@ export async function seed(): Promise<void> {
       category: 'SMART',
       canonicalUrl: 'http://hl7.org/fhir/smart-app-launch',
       author: 'HL7 International / FHIR Infrastructure',
-      recommendedForCreation: true,
       isSuggested: true,
     },
     {
@@ -271,7 +219,6 @@ export async function seed(): Promise<void> {
       category: 'CLINICAL',
       canonicalUrl: 'http://hl7.org/fhir/us/mcode',
       author: 'HL7 International / Clinical Interoperability Council',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -283,7 +230,6 @@ export async function seed(): Promise<void> {
       category: 'FINANCIAL',
       canonicalUrl: 'http://hl7.org/fhir/us/carin-bb',
       author: 'CARIN Alliance / HL7 Financial Management',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -295,7 +241,6 @@ export async function seed(): Promise<void> {
       category: 'DAVINCI',
       canonicalUrl: 'http://hl7.org/fhir/us/davinci-crd',
       author: 'Da Vinci Project / HL7 Clinical Decision Support',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -307,7 +252,6 @@ export async function seed(): Promise<void> {
       category: 'DAVINCI',
       canonicalUrl: 'http://hl7.org/fhir/us/davinci-dtr',
       author: 'Da Vinci Project / HL7 Clinical Decision Support',
-      recommendedForCreation: false,
       isSuggested: true,
     },
     {
@@ -319,7 +263,6 @@ export async function seed(): Promise<void> {
       category: 'CLINICAL',
       canonicalUrl: 'http://hl7.org/fhir/us/qicore',
       author: 'HL7 International / Clinical Quality Information',
-      recommendedForCreation: false,
       isSuggested: true,
     },
   ];
@@ -342,7 +285,6 @@ export async function seed(): Promise<void> {
         category: ig.category,
         canonicalUrl: ig.canonicalUrl,
         author: ig.author,
-        recommendedForCreation: ig.recommendedForCreation,
         isSuggested: ig.isSuggested,
       },
     });

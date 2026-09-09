@@ -2,12 +2,14 @@
 
 import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
+import { resolveHapiPartitionName } from '@fhir-studio/core';
 import { getPrisma } from '../db/prisma.js';
 import {
   HapiPartitionClient,
   isFhirReleaseEnabled,
   assertFhirReleaseEnabled,
 } from '../hapi/partition_client.js';
+import { postFhirBatchBundle, type FhirBatchBundle } from '../hapi/batch.js';
 import { verifySandboxAccess } from './security.js';
 import { rewriteFhirPayload, rewriteHeaderUrl } from './url_rewriter.js';
 
@@ -114,12 +116,62 @@ export function createFhirGatewayRouter(): Router {
     }
 
     const hapiBaseUrl = hapiClient.getHapiBaseUrl(versionParam);
-    const targetUrl = `${hapiBaseUrl}/${sandbox.sandboxId}${subpath}`;
-
     const host = req.get('host') || 'localhost:3000';
     const protocol = req.protocol || 'http';
     const proxyBaseUrl = `${protocol}://${host}/api/sandboxes/${sandboxId}/fhir/${versionParam.toLowerCase()}`;
-    const hapiTenantBaseUrl = `${hapiBaseUrl}/${sandbox.sandboxId}`;
+
+    // Root batch/transaction Bundles may mix partitionable clinical resources with
+    // HAPI non-partitionable conformance types (StructureDefinition, ValueSet, …).
+    const body = req.body;
+    const isRootBundlePost =
+      req.method === 'POST' &&
+      !resourceType &&
+      body &&
+      typeof body === 'object' &&
+      !Array.isArray(body) &&
+      (body as { resourceType?: string }).resourceType === 'Bundle' &&
+      ['batch', 'transaction'].includes(String((body as { type?: string }).type || ''));
+
+    if (isRootBundlePost) {
+      try {
+        const result = await postFhirBatchBundle(
+          hapiBaseUrl,
+          sandbox.sandboxId,
+          body as FhirBatchBundle,
+          { timeoutMs: 30_000 },
+        );
+        // Mixed batches may return absolute URLs from both the sandbox and DEFAULT partitions.
+        let rewrittenBody = rewriteFhirPayload(
+          result.response,
+          `${hapiBaseUrl}/${sandbox.sandboxId}`,
+          proxyBaseUrl,
+        );
+        rewrittenBody = rewriteFhirPayload(
+          rewrittenBody,
+          `${hapiBaseUrl}/DEFAULT`,
+          proxyBaseUrl,
+        );
+        res.status(result.status).send(rewrittenBody);
+      } catch (err: any) {
+        console.error(`FHIR Gateway Bundle partition routing error:`, err.message);
+        res.status(502).json({
+          resourceType: 'OperationOutcome',
+          issue: [
+            {
+              severity: 'error',
+              code: 'transient',
+              diagnostics: `FHIR Gateway unable to submit batch Bundle to HAPI FHIR (${err.message}).`,
+            },
+          ],
+        });
+      }
+      return;
+    }
+
+    // Conformance/terminology types must hit DEFAULT (HAPI-1318); clinical types use the sandbox partition.
+    const hapiPartitionName = resolveHapiPartitionName(sandbox.sandboxId, resourceType);
+    const targetUrl = `${hapiBaseUrl}/${hapiPartitionName}${subpath}`;
+    const hapiTenantBaseUrl = `${hapiBaseUrl}/${hapiPartitionName}`;
 
     try {
       const response = await axios({
@@ -135,7 +187,7 @@ export function createFhirGatewayRouter(): Router {
         timeout: 30_000,
       });
 
-      // Rewrite response headers
+      // Rewrite response headers so clients always see the sandbox gateway base URL
       if (response.headers['location']) {
         res.setHeader('Location', rewriteHeaderUrl(response.headers['location'], hapiTenantBaseUrl, proxyBaseUrl) || '');
       }

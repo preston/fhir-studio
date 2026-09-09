@@ -143,13 +143,22 @@
                 }
               </td>
               <td class="text-end">
-                <button
-                  class="btn btn-sm"
-                  [ngClass]="user.isSuspended ? 'btn-outline-success' : 'btn-outline-danger'"
-                  (click)="toggleSuspend(user)"
-                >
-                  {{ user.isSuspended ? 'Unsuspend' : 'Suspend Account' }}
-                </button>
+                <div class="btn-group btn-group-sm">
+                  <button
+                    class="btn btn-outline-secondary"
+                    (click)="openEditUserModal(user)"
+                    title="Edit user"
+                  >
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button
+                    class="btn"
+                    [ngClass]="user.isSuspended ? 'btn-outline-success' : 'btn-outline-danger'"
+                    (click)="toggleSuspend(user)"
+                  >
+                    {{ user.isSuspended ? 'Unsuspend' : 'Suspend' }}
+                  </button>
+                </div>
               </td>
             </tr>
           }
@@ -224,3 +233,223 @@
     </div>
   }
 </div>
+
+<!-- Edit User Modal -->
+@if (showUserModal() && editingUser(); as user) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-person-gear me-2 text-primary"></i>
+            Edit User
+          </h5>
+          <button type="button" class="btn-close" (click)="closeUserModal()" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-4">
+            <h6 class="fw-bold mb-3">Profile</h6>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input
+                    type="text"
+                    class="form-control font-monospace"
+                    id="userIdReadonly"
+                    [value]="user.id"
+                    placeholder="User ID"
+                    readonly
+                    disabled
+                  />
+                  <label for="userIdReadonly">User ID</label>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input
+                    type="text"
+                    class="form-control font-monospace"
+                    id="userSsoSubject"
+                    [value]="user.ssoSubject"
+                    placeholder="SSO Subject"
+                    readonly
+                    disabled
+                  />
+                  <label for="userSsoSubject">SSO Subject</label>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="form-floating">
+                  <input
+                    type="text"
+                    class="form-control font-monospace"
+                    id="userSsoIssuer"
+                    [value]="user.ssoIssuer"
+                    placeholder="SSO Issuer"
+                    readonly
+                    disabled
+                  />
+                  <label for="userSsoIssuer">SSO Issuer</label>
+                </div>
+              </div>
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="userDisplayName"
+                    [formField]="userForm.displayName"
+                    placeholder="Display name"
+                  />
+                  <label for="userDisplayName">Display Name</label>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input
+                    type="email"
+                    class="form-control"
+                    id="userEmail"
+                    [formField]="userForm.email"
+                    placeholder="user@example.com"
+                  />
+                  <label for="userEmail">Email</label>
+                </div>
+              </div>
+            </div>
+            <div class="form-check form-switch mb-3">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                id="userSuspended"
+                [formField]="userForm.isSuspended"
+              />
+              <label class="form-check-label fw-semibold" for="userSuspended">Account Suspended</label>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="saveUserProfile()"
+              [disabled]="savingProfile()"
+            >
+              @if (savingProfile()) {
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+              } @else {
+                <i class="bi bi-check-circle me-1"></i>
+              }
+              Save Profile
+            </button>
+          </div>
+
+          <hr />
+
+          <div class="mb-4">
+            <h6 class="fw-bold mb-3">Group Memberships</h6>
+            @if ((user.memberships || []).length === 0) {
+              <p class="text-muted small mb-3">This user is not a member of any groups.</p>
+            } @else {
+              <ul class="list-group list-group-flush mb-3">
+                @for (m of user.memberships!; track m.id) {
+                  <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                    <span class="fw-semibold">{{ m.group.name }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      (click)="removeGroupMembership(m.group.id)"
+                      [disabled]="mutatingMembership()"
+                      title="Remove from group"
+                      aria-label="Remove from group"
+                    >
+                      <i class="bi bi-x-lg"></i>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+            <div class="input-group">
+              <div class="form-floating">
+                <select
+                  class="form-select"
+                  id="userAddGroup"
+                  [ngModel]="selectedGroupId()"
+                  (ngModelChange)="selectedGroupId.set($event)"
+                >
+                  <option value="">Select a group to add...</option>
+                  @for (g of availableGroups(); track g.id) {
+                    <option [value]="g.id">{{ g.name }}</option>
+                  }
+                </select>
+                <label for="userAddGroup">Add group membership</label>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline-primary"
+                (click)="addGroupMembership()"
+                [disabled]="!selectedGroupId() || mutatingMembership()"
+              >
+                Add Group
+              </button>
+            </div>
+          </div>
+
+          <hr />
+
+          <div>
+            <h6 class="fw-bold mb-3">Role Appointments</h6>
+            @if ((user.appointments || []).length === 0) {
+              <p class="text-muted small mb-3">This user has no direct role appointments.</p>
+            } @else {
+              <ul class="list-group list-group-flush mb-3">
+                @for (a of user.appointments!; track a.id) {
+                  <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                    <span class="fw-semibold">{{ a.role.name }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      (click)="removeRoleAppointment(a.id)"
+                      [disabled]="mutatingAppointment()"
+                      title="Remove role appointment"
+                      aria-label="Remove role appointment"
+                    >
+                      <i class="bi bi-x-lg"></i>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+            <div class="input-group">
+              <div class="form-floating">
+                <select
+                  class="form-select"
+                  id="userAddRole"
+                  [ngModel]="selectedRoleId()"
+                  (ngModelChange)="selectedRoleId.set($event)"
+                >
+                  <option value="">Select a role to appoint...</option>
+                  @for (r of availableRoles(); track r.id) {
+                    <option [value]="r.id">{{ r.name }}</option>
+                  }
+                </select>
+                <label for="userAddRole">Appoint role</label>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline-primary"
+                (click)="addRoleAppointment()"
+                [disabled]="!selectedRoleId() || mutatingAppointment()"
+              >
+                Add Role
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeUserModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

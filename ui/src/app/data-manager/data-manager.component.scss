@@ -1,0 +1,17 @@
+:host {
+  display: block;
+}
+
+.data-manager-page {
+  display: block;
+}
+
+.data-manager-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.data-manager-editor-body {
+  display: block;
+  min-height: 320px;
+}

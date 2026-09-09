@@ -13,7 +13,7 @@ export function createImplementationGuidesRouter(): Router {
   // 1. GET /api/implementation-guides (List registered Implementation Guides)
   router.get('/api/implementation-guides', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { search, fhirVersion, category, recommendedForCreation, isSuggested } = req.query;
+      const { search, fhirVersion, category, isSuggested } = req.query;
 
       const where: Prisma.ImplementationGuideWhereInput = {};
 
@@ -54,17 +54,13 @@ export function createImplementationGuidesRouter(): Router {
         where.category = String(category).toUpperCase();
       }
 
-      if (recommendedForCreation !== undefined) {
-        where.recommendedForCreation = String(recommendedForCreation) === 'true';
-      }
-
       if (isSuggested !== undefined) {
         where.isSuggested = String(isSuggested) === 'true';
       }
 
       const implementationGuides = await prisma.implementationGuide.findMany({
         where,
-        orderBy: [{ recommendedForCreation: 'desc' }, { title: 'asc' }],
+        orderBy: [{ title: 'asc' }],
       });
 
       res.json({ implementationGuides });
@@ -88,7 +84,32 @@ export function createImplementationGuidesRouter(): Router {
       });
 
       const raw = Array.isArray(resp.data) ? resp.data : [];
-      res.json({ results: raw });
+      // packages.fhir.org catalog uses PascalCase (Name/Description/FhirVersion).
+      const results = raw
+        .map((item: Record<string, unknown>) => {
+          const name = String(item['Name'] ?? item['name'] ?? '').trim();
+          if (!name) return null;
+          const descriptionRaw = item['Description'] ?? item['description'];
+          const description =
+            descriptionRaw == null || descriptionRaw === ''
+              ? undefined
+              : String(descriptionRaw);
+          const fhirVersionRaw = item['FhirVersion'] ?? item['fhirVersion'];
+          const versionRaw = item['Version'] ?? item['version'];
+          return {
+            name,
+            description,
+            title: description,
+            fhirVersion: fhirVersionRaw == null ? undefined : String(fhirVersionRaw),
+            version: versionRaw == null ? undefined : String(versionRaw),
+            'dist-tags': versionRaw
+              ? { latest: String(versionRaw) }
+              : undefined,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item != null);
+
+      res.json({ results });
     } catch (err: any) {
       // Return local database matches if external registry call fails or times out
       try {

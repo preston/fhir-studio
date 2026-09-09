@@ -3,6 +3,7 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { form, FormField, required, submit } from '@angular/forms/signals';
 import {
   AdministrationService,
   type AdministrationGroup,
@@ -10,10 +11,22 @@ import {
 
 export type GroupSortField = 'name' | 'description' | 'ssoRoleMapping' | 'membersCount';
 
+interface GroupFormModel {
+  name: string;
+  description: string;
+  ssoRoleMapping: string;
+}
+
+const EMPTY_GROUP_FORM: GroupFormModel = {
+  name: '',
+  description: '',
+  ssoRoleMapping: '',
+};
+
 @Component({
   selector: 'app-admin-groups',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, FormField],
   templateUrl: './admin-groups.component.html',
 })
 export class AdminGroupsComponent implements OnInit {
@@ -33,7 +46,13 @@ export class AdminGroupsComponent implements OnInit {
 
   // Modals & Forms
   public readonly showGroupModal = signal<boolean>(false);
-  public groupForm = { id: '', name: '', description: '', ssoRoleMapping: '' };
+  public readonly isEditing = signal<boolean>(false);
+  public currentGroupId: string | null = null;
+
+  public readonly groupModel = signal<GroupFormModel>({ ...EMPTY_GROUP_FORM });
+  public readonly groupForm = form(this.groupModel, (s) => {
+    required(s.name, { message: 'Group name is required' });
+  });
 
   public readonly filteredGroups = computed(() => {
     let list = this.groups();
@@ -52,8 +71,8 @@ export class AdminGroupsComponent implements OnInit {
     const order = this.sortOrder() === 'asc' ? 1 : -1;
 
     return [...list].sort((a, b) => {
-      let valA: any = '';
-      let valB: any = '';
+      let valA: string | number = '';
+      let valB: string | number = '';
 
       switch (field) {
         case 'name':
@@ -156,34 +175,77 @@ export class AdminGroupsComponent implements OnInit {
   }
 
   public openNewGroupModal(): void {
-    this.groupForm = { id: '', name: '', description: '', ssoRoleMapping: '' };
+    this.isEditing.set(false);
+    this.currentGroupId = null;
+    this.groupModel.set({ ...EMPTY_GROUP_FORM });
     this.showGroupModal.set(true);
   }
 
-  public saveGroup(): void {
-    if (!this.groupForm.name) return;
-    if (this.groupForm.id) {
-      this.administrationService.updateGroup(this.groupForm.id, this.groupForm).subscribe({
-        next: () => {
-          this.showGroupModal.set(false);
-          this.successMessage.set('Group updated.');
-          this.loadGroups();
-        },
-        error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to update group.');
-        },
+  public openEditGroupModal(group: AdministrationGroup): void {
+    this.isEditing.set(true);
+    this.currentGroupId = group.id;
+    this.groupModel.set({
+      name: group.name,
+      description: group.description || '',
+      ssoRoleMapping: group.ssoRoleMapping || '',
+    });
+    this.showGroupModal.set(true);
+  }
+
+  public async saveGroup(): Promise<void> {
+    try {
+      const ok = await submit(this.groupForm, async () => {
+        const payload = this.groupModel();
+        if (this.isEditing() && this.currentGroupId) {
+          await new Promise<void>((resolve, reject) => {
+            this.administrationService
+              .updateGroup(this.currentGroupId!, {
+                name: payload.name,
+                description: payload.description || null,
+                ssoRoleMapping: payload.ssoRoleMapping || null,
+              })
+              .subscribe({
+                next: () => {
+                  this.showGroupModal.set(false);
+                  this.successMessage.set('Group updated.');
+                  this.loadGroups();
+                  resolve();
+                },
+                error: (err) => {
+                  this.errorMessage.set(err?.error?.error || 'Failed to update group.');
+                  reject(err);
+                },
+              });
+          });
+        } else {
+          await new Promise<void>((resolve, reject) => {
+            this.administrationService
+              .createGroup({
+                name: payload.name,
+                description: payload.description || undefined,
+                ssoRoleMapping: payload.ssoRoleMapping || undefined,
+              })
+              .subscribe({
+                next: () => {
+                  this.showGroupModal.set(false);
+                  this.successMessage.set('Group created.');
+                  this.loadGroups();
+                  resolve();
+                },
+                error: (err) => {
+                  this.errorMessage.set(err?.error?.error || 'Failed to create group.');
+                  reject(err);
+                },
+              });
+          });
+        }
       });
-    } else {
-      this.administrationService.createGroup(this.groupForm).subscribe({
-        next: () => {
-          this.showGroupModal.set(false);
-          this.successMessage.set('Group created.');
-          this.loadGroups();
-        },
-        error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to create group.');
-        },
-      });
+
+      if (!ok) {
+        this.errorMessage.set('Group name is required.');
+      }
+    } catch {
+      // Error message already set in subscribe handler.
     }
   }
 

@@ -235,7 +235,6 @@ export function createSandboxesRouter(): Router {
         visibility = 'PRIVATE',
         isShared = false,
         seedData = true,
-        initialIgs = [],
       } = req.body;
 
       if (!sandboxId || !name) {
@@ -332,7 +331,7 @@ export function createSandboxesRouter(): Router {
         });
       }
 
-      // If requested, asynchronously seed 4 diverse Synthea patient bundles and 4 launch scenarios
+      // If requested, asynchronously seed 4 diverse Synthea patient bundles
       if (Boolean(seedData)) {
         const jobService = new JobService(prisma);
         await jobService.enqueueJob(
@@ -344,39 +343,6 @@ export function createSandboxesRouter(): Router {
           },
           req.sessionAuth!.userId,
         );
-      }
-
-      // Asynchronously import any selected initial implementation guide packages
-      if (Array.isArray(initialIgs) && initialIgs.length > 0) {
-        const jobService = new JobService(prisma);
-        for (const ig of initialIgs) {
-          let pkgName = '';
-          let pkgVer = '';
-          if (typeof ig === 'string') {
-            const parts = ig.split(/[@#]/);
-            pkgName = parts[0]?.trim() || '';
-            pkgVer = parts[1]?.trim() || '';
-          } else if (ig && typeof ig === 'object') {
-            pkgName = (ig.name || ig.packageId || '').trim();
-            pkgVer = (ig.version || '').trim();
-          }
-
-          if (pkgName) {
-            await jobService.enqueueJob(
-              {
-                name: `Import Implementation Guide ${pkgName}#${pkgVer || 'latest'} for '${created.name}'`,
-                jobType: 'PACKAGE_IMPORT',
-                sandboxId: created.id,
-                input: {
-                  packageName: pkgName,
-                  packageVersion: pkgVer || 'latest',
-                  sandboxId: created.sandboxId,
-                },
-              },
-              req.sessionAuth!.userId,
-            );
-          }
-        }
       }
 
       res.status(201).json({ sandbox: created });
@@ -450,7 +416,7 @@ export function createSandboxesRouter(): Router {
     res.json({ message: `Sandbox '${sandboxId}' FHIR partition successfully reset.` });
   });
 
-  // 6. DELETE /api/sandboxes/:sandboxId (Delete sandbox)
+  // 6. DELETE /api/sandboxes/:sandboxId (Delete sandbox asynchronously)
   router.delete('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = req.params.sandboxId;
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
@@ -469,13 +435,42 @@ export function createSandboxesRouter(): Router {
       return;
     }
 
-    // Delete HAPI partition
-    await hapiClient.deletePartition(sandbox.fhirVersion, sandbox.partitionId, sandbox.sandboxId);
+    const jobService = new JobService(prisma);
+    const existing = await prisma.job.findFirst({
+      where: {
+        jobType: 'SANDBOX_PURGE',
+        status: { in: ['queued', 'in_progress'] },
+        sandboxId: sandbox.id,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Delete from Postgres
-    await prisma.sandbox.delete({ where: { id: sandbox.id } });
+    if (existing) {
+      res.status(202).json({
+        message: `Sandbox '${sandbox.sandboxId}' deletion is already in progress and may take a while to complete.`,
+        job: existing,
+      });
+      return;
+    }
 
-    res.json({ message: `Sandbox '${sandboxId}' deleted successfully.` });
+    const job = await jobService.enqueueJob(
+      {
+        name: `Purge sandbox '${sandbox.name}'`,
+        jobType: 'SANDBOX_PURGE',
+        sandboxId: sandbox.id,
+        input: {
+          sandboxId: sandbox.sandboxId,
+          partitionId: sandbox.partitionId,
+          fhirVersion: sandbox.fhirVersion,
+        },
+      },
+      userId,
+    );
+
+    res.status(202).json({
+      message: `Sandbox '${sandbox.sandboxId}' will be deleted asynchronously. It may not disappear immediately while data is purged.`,
+      job,
+    });
   });
 
   // 7. Collaborators: POST /api/sandboxes/:sandboxId/collaborators

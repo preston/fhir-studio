@@ -3,6 +3,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ToastrService } from 'ngx-toastr';
 import type {
   AdministrationSandboxFilter,
   SandboxSummary,
@@ -21,6 +22,7 @@ import { FhirReleasesService } from '../../core/services/fhir-releases.service.j
 export class AdminPurgeComponent implements OnInit {
   public readonly administrationService = inject(AdministrationService);
   public readonly fhirReleases = inject(FhirReleasesService);
+  private readonly toastr = inject(ToastrService);
 
   public readonly purgeSandboxes = signal<SandboxSummary[]>([]);
   public readonly purgeTotal = signal<number>(0);
@@ -65,9 +67,13 @@ export class AdminPurgeComponent implements OnInit {
   public purgeSandbox(sandbox: Sandbox | SandboxSummary): void {
     if (confirm(`CRITICAL: Permanently purge sandbox '${sandbox.name}' and delete its HAPI FHIR JPA partition? This action is irreversible.`)) {
       this.administrationService.purgeSandbox(sandbox.sandboxId).subscribe({
-        next: () => {
-          this.successMessage.set(`Sandbox '${sandbox.name}' was purged completely.`);
-          this.loadPurgeSandboxes();
+        next: (res) => {
+          this.toastr.info(
+            res.message ||
+              `Sandbox '${sandbox.name}' will be purged asynchronously and may not disappear immediately.`,
+            'Sandbox purge queued',
+            { timeOut: 8000 },
+          );
         },
         error: (err) => {
           this.errorMessage.set(err?.error?.error || 'Purge failed.');

@@ -387,7 +387,6 @@ model ImplementationGuide {
   category               String   @default("General")
   canonicalUrl           String?  @map("canonical_url")
   url                    String?
-  recommendedForCreation Boolean  @default(false) @map("recommended_for_creation")
   isSuggested            Boolean  @default(true) @map("is_suggested")
   author                 String?
   dependencies           Json     @default("{}")
@@ -399,7 +398,6 @@ model ImplementationGuide {
   @@index([packageId])
   @@index([category])
   @@index([fhirVersion])
-  @@index([recommendedForCreation])
   @@index([isSuggested])
   @@map("implementation_guides")
 }

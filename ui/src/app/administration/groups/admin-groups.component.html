@@ -114,9 +114,14 @@
               <td><code>{{ group.ssoRoleMapping || 'None' }}</code></td>
               <td><span class="badge bg-info text-dark">{{ group.members?.length || 0 }} members</span></td>
               <td class="text-end">
-                <button class="btn btn-sm btn-outline-danger" (click)="deleteGroup(group.id)" title="Delete group">
-                  <i class="bi bi-trash"></i>
-                </button>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" (click)="openEditGroupModal(group)" title="Edit group">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-outline-danger" (click)="deleteGroup(group.id)" title="Delete group">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </td>
             </tr>
           }
@@ -198,26 +203,46 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">{{ groupForm.id ? 'Edit Group' : 'Manage Group' }}</h5>
-          <button type="button" class="btn-close" (click)="showGroupModal.set(false)"></button>
+          <h5 class="modal-title fw-bold">{{ isEditing() ? 'Edit Group' : 'Manage Group' }}</h5>
+          <button type="button" class="btn-close" (click)="showGroupModal.set(false)" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="groupForm.name" placeholder="e.g. Clinical Staff">
+          <div class="form-floating mb-3">
+            <input
+              type="text"
+              class="form-control"
+              id="groupName"
+              [formField]="groupForm.name"
+              placeholder="e.g. Clinical Staff"
+            />
+            <label for="groupName">Group Name <span class="text-danger">*</span></label>
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">SSO Role Mapping Claim</label>
-            <input type="text" class="form-control font-monospace" [(ngModel)]="groupForm.ssoRoleMapping" placeholder="e.g. clinical-staff">
+          <div class="form-floating mb-3">
+            <input
+              type="text"
+              class="form-control font-monospace"
+              id="groupSsoMapping"
+              [formField]="groupForm.ssoRoleMapping"
+              placeholder="e.g. clinical-staff"
+            />
+            <label for="groupSsoMapping">SSO Role Mapping Claim</label>
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Description</label>
-            <input type="text" class="form-control" [(ngModel)]="groupForm.description">
+          <div class="form-floating">
+            <input
+              type="text"
+              class="form-control"
+              id="groupDescription"
+              [formField]="groupForm.description"
+              placeholder="Optional description"
+            />
+            <label for="groupDescription">Description</label>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" (click)="showGroupModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="saveGroup()">Save Group</button>
+          <button type="button" class="btn btn-primary" (click)="saveGroup()">
+            {{ isEditing() ? 'Update Group' : 'Save Group' }}
+          </button>
         </div>
       </div>
     </div>

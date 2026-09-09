@@ -13,6 +13,7 @@ export interface RegistryCatalogSearchResult {
   description?: string;
   title?: string;
   version?: string;
+  fhirVersion?: string;
   'dist-tags'?: { latest?: string };
 }
 
@@ -29,9 +30,6 @@ export class ImplementationGuideService {
     if (filters.search) params = params.set('search', filters.search);
     if (filters.category && filters.category !== 'all') params = params.set('category', filters.category);
     if (filters.fhirVersion && filters.fhirVersion !== 'all') params = params.set('fhirVersion', filters.fhirVersion);
-    if (filters.recommendedForCreation !== undefined) {
-      params = params.set('recommendedForCreation', filters.recommendedForCreation.toString());
-    }
     if (filters.isSuggested !== undefined) {
       params = params.set('isSuggested', filters.isSuggested.toString());
     }

@@ -8,6 +8,52 @@ export function isSupportedFhirRelease(value: unknown): value is FhirRelease {
   return value === 'R4' || value === 'R4B' || value === 'R5';
 }
 
+/** HAPI URL-tenant name for the always-present default partition. */
+export const HAPI_DEFAULT_PARTITION_NAME = 'DEFAULT';
+
+/**
+ * Resource types that HAPI FHIR refuses to store outside the DEFAULT partition
+ * (HAPI-1318). IG conformance/terminology artifacts fall into this set.
+ * @see https://hapifhir.io/hapi-fhir/docs/server_jpa_partitioning/partitioning.html
+ */
+export const HAPI_NON_PARTITIONABLE_RESOURCE_TYPES = [
+  'CapabilityStatement',
+  'CodeSystem',
+  'CompartmentDefinition',
+  'ConceptMap',
+  'Library',
+  'NamingSystem',
+  'OperationDefinition',
+  'Questionnaire',
+  'SearchParameter',
+  'StructureDefinition',
+  'StructureMap',
+  'ValueSet',
+] as const;
+
+export type HapiNonPartitionableResourceType =
+  (typeof HAPI_NON_PARTITIONABLE_RESOURCE_TYPES)[number];
+
+const HAPI_NON_PARTITIONABLE_RESOURCE_TYPE_SET: ReadonlySet<string> = new Set(
+  HAPI_NON_PARTITIONABLE_RESOURCE_TYPES,
+);
+
+export function isHapiNonPartitionableResourceType(
+  resourceType: string | null | undefined,
+): boolean {
+  return !!resourceType && HAPI_NON_PARTITIONABLE_RESOURCE_TYPE_SET.has(resourceType);
+}
+
+/** Resolve the HAPI URL partition segment for a given FHIR resource type. */
+export function resolveHapiPartitionName(
+  sandboxPartitionName: string,
+  resourceType: string | null | undefined,
+): string {
+  return isHapiNonPartitionableResourceType(resourceType)
+    ? HAPI_DEFAULT_PARTITION_NAME
+    : sandboxPartitionName;
+}
+
 export interface FhirEndpointConfig {
   release: FhirRelease;
   partitionId: number;

@@ -49,6 +49,10 @@ export interface AdministrationUser {
   createdAt: string;
   updatedAt: string;
   roles?: AdministrationRole[];
+  appointments?: Array<{
+    id: string;
+    role: AdministrationRole;
+  }>;
   memberships?: Array<{
     id: string;
     group: AdministrationGroup;
@@ -113,6 +117,13 @@ export class AdministrationService {
   // Users
   public getUsers(): Observable<{ users: AdministrationUser[] }> {
     return this.http.get<{ users: AdministrationUser[] }>('/api/administration/users');
+  }
+
+  public updateUser(
+    userId: string,
+    data: { displayName?: string | null; email?: string | null; isSuspended?: boolean },
+  ): Observable<{ user: AdministrationUser }> {
+    return this.http.put<{ user: AdministrationUser }>(`/api/administration/users/${userId}`, data);
   }
 
   public suspendUser(userId: string, isSuspended: boolean): Observable<{ user: AdministrationUser }> {
@@ -203,8 +214,10 @@ export class AdministrationService {
     return this.http.get<AdministrationSandboxListResponse>('/api/administration/sandboxes', { params });
   }
 
-  public purgeSandbox(sandboxId: string): Observable<{ message: string }> {
-    return this.http.delete<{ message: string }>(`/api/administration/sandboxes/${sandboxId}/purge`);
+  public purgeSandbox(sandboxId: string): Observable<{ message: string; job?: { id: string } }> {
+    return this.http.delete<{ message: string; job?: { id: string } }>(
+      `/api/administration/sandboxes/${sandboxId}/purge`,
+    );
   }
 
   // Background Job Worker & Job Management
@@ -276,9 +289,6 @@ export class AdministrationService {
     if (filters.search) params = params.set('search', filters.search);
     if (filters.category && filters.category !== 'all') params = params.set('category', filters.category);
     if (filters.fhirVersion && filters.fhirVersion !== 'all') params = params.set('fhirVersion', filters.fhirVersion);
-    if (filters.recommendedForCreation !== undefined) {
-      params = params.set('recommendedForCreation', filters.recommendedForCreation.toString());
-    }
     if (filters.isSuggested !== undefined) {
       params = params.set('isSuggested', filters.isSuggested.toString());
     }
@@ -320,5 +330,40 @@ export class AdministrationService {
       '/api/administration/implementation-guides/fetch-metadata',
       { packageId, version },
     );
+  }
+
+  public installImplementationGuide(
+    id: string,
+    body: { fhirVersions: string[]; excludeExamples?: boolean },
+  ): Observable<{
+    message: string;
+    implementationGuide: ImplementationGuideSummary;
+    jobs: BackgroundJob[];
+    fhirVersions: string[];
+  }> {
+    return this.http.post<{
+      message: string;
+      implementationGuide: ImplementationGuideSummary;
+      jobs: BackgroundJob[];
+      fhirVersions: string[];
+    }>(`/api/administration/implementation-guides/${id}/install`, body);
+  }
+
+  public installImplementationGuideAdHoc(body: {
+    packageName: string;
+    packageVersion: string;
+    tarballUrl?: string | null;
+    fhirVersions: string[];
+    excludeExamples?: boolean;
+  }): Observable<{
+    message: string;
+    jobs: BackgroundJob[];
+    fhirVersions: string[];
+  }> {
+    return this.http.post<{
+      message: string;
+      jobs: BackgroundJob[];
+      fhirVersions: string[];
+    }>('/api/administration/implementation-guides/install', body);
   }
 }

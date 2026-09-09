@@ -9,7 +9,6 @@ export interface FhirPackageCatalogEntry {
   versions?: Record<string, FhirNpmPackageVersionInfo>;
   fhirVersion?: string[];
   url?: string;
-  recommendedForCreation?: boolean;
 }
 
 export interface FhirNpmPackageVersionInfo {
@@ -59,7 +58,6 @@ export interface ImplementationGuideSummary {
   category: string;
   canonicalUrl: string | null;
   url: string | null;
-  recommendedForCreation: boolean;
   isSuggested: boolean;
   author: string | null;
   dependencies: Record<string, string>;
@@ -77,7 +75,6 @@ export interface CreateImplementationGuidePayload {
   category?: string;
   canonicalUrl?: string | null;
   url?: string | null;
-  recommendedForCreation?: boolean;
   isSuggested?: boolean;
   author?: string | null;
   dependencies?: Record<string, string>;
@@ -93,7 +90,6 @@ export interface UpdateImplementationGuidePayload {
   category?: string;
   canonicalUrl?: string | null;
   url?: string | null;
-  recommendedForCreation?: boolean;
   isSuggested?: boolean;
   author?: string | null;
   dependencies?: Record<string, string>;
@@ -104,7 +100,5 @@ export interface ImplementationGuideFilter {
   search?: string;
   fhirVersion?: string;
   category?: string;
-  recommendedForCreation?: boolean;
   isSuggested?: boolean;
 }
-
