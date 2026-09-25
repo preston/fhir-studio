@@ -11,13 +11,13 @@
     "test": "ng test"
   },
   "dependencies": {
-    "@angular/animations": "^22.1.7",
-    "@angular/common": "^22.1.7",
-    "@angular/compiler": "^22.1.7",
-    "@angular/core": "^22.1.7",
-    "@angular/forms": "^22.1.7",
-    "@angular/platform-browser": "^22.1.7",
-    "@angular/router": "^22.1.7",
+    "@angular/animations": "^22.1.8",
+    "@angular/common": "^22.1.8",
+    "@angular/compiler": "^22.1.8",
+    "@angular/core": "^22.1.8",
+    "@angular/forms": "^22.1.8",
+    "@angular/platform-browser": "^22.1.8",
+    "@angular/router": "^22.1.8",
     "@codemirror/lang-json": "^6.0.2",
     "@fhir-studio/core": "file:../core",
     "@popperjs/core": "^2.11.8",
@@ -35,7 +35,7 @@
   "devDependencies": {
     "@angular/build": "^22.1.8",
     "@angular/cli": "^22.1.8",
-    "@angular/compiler-cli": "^22.1.7",
+    "@angular/compiler-cli": "^22.1.8",
     "@types/node": "^26.6.2",
     "typescript": "<7"
   }
