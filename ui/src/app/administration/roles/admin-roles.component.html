@@ -130,6 +130,9 @@
                   @if (role.permission_package_import) {
                     <span class="badge bg-dark">package.import</span>
                   }
+                  @if (role.permission_knowledge_publish) {
+                    <span class="badge bg-info text-dark">knowledge.publish</span>
+                  }
                 </div>
               </td>
               <td>
@@ -310,6 +313,10 @@
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="permPkg" [formField]="roleForm.permission_package_import">
                 <label class="form-check-label" for="permPkg">permission_package_import</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permKnowledge" [formField]="roleForm.permission_knowledge_publish">
+                <label class="form-check-label" for="permKnowledge">permission_knowledge_publish (global knowledge publish)</label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="permGlobal" [formField]="roleForm.permission_global_manage">

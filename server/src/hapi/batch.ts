@@ -11,8 +11,10 @@ export interface FhirBatchRequestEntry {
   request?: {
     method?: string;
     url?: string;
+    ifNoneExist?: string;
   };
   fullUrl?: string;
+  response?: { status?: string };
 }
 
 export interface FhirBatchBundle {

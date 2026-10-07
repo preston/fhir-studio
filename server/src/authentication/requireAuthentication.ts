@@ -68,6 +68,9 @@ export function createSessionAuth(oidc: OidcBffConfig) {
     if (!record || record.user.isSuspended) {
       return false;
     }
+    if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) {
+      return false;
+    }
     const permissions = await loadEffectivePermissions(prisma, record.userId);
     req.sessionAuth = {
       sub: record.user.ssoSubject,
@@ -83,7 +86,7 @@ export function createSessionAuth(oidc: OidcBffConfig) {
       where: { id: record.id },
       data: { lastUsedAt: new Date() },
     }).catch((err) => {
-      console.warn('Failed to update API token lastUsedAt', err);
+      console.warn('Failed to update personal access token lastUsedAt', err);
     });
     return true;
   }

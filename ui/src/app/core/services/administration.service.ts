@@ -89,6 +89,7 @@ export interface AdministrationRole {
   permission_data_manager: boolean;
   permission_applications_register: boolean;
   permission_package_import: boolean;
+  permission_knowledge_publish: boolean;
   permission_global_manage: boolean;
   createdAt: string;
   updatedAt: string;

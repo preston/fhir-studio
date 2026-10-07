@@ -11,6 +11,8 @@ export interface BooleanPermissions {
   data_manager: boolean;
   applications_register: boolean;
   package_import: boolean;
+  /** Publish Libraries/terminology into HAPI DEFAULT (global knowledge). Default false. */
+  knowledge_publish: boolean;
   global_manage: boolean;
 }
 
@@ -21,6 +23,7 @@ export const DEFAULT_BOOLEAN_PERMISSIONS: Readonly<BooleanPermissions> = {
   data_manager: true,
   applications_register: true,
   package_import: true,
+  knowledge_publish: false,
   global_manage: false,
 };
 

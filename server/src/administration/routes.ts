@@ -316,6 +316,7 @@ export function createAdministrationRouter(): Router {
       permission_data_manager = true,
       permission_applications_register = true,
       permission_package_import = true,
+      permission_knowledge_publish = false,
       permission_global_manage = false,
     } = req.body;
 
@@ -336,6 +337,7 @@ export function createAdministrationRouter(): Router {
         permission_data_manager: Boolean(permission_data_manager),
         permission_applications_register: Boolean(permission_applications_register),
         permission_package_import: Boolean(permission_package_import),
+        permission_knowledge_publish: Boolean(permission_knowledge_publish),
         permission_global_manage: Boolean(permission_global_manage),
       },
     });
@@ -356,6 +358,7 @@ export function createAdministrationRouter(): Router {
       permission_data_manager,
       permission_applications_register,
       permission_package_import,
+      permission_knowledge_publish,
       permission_global_manage,
     } = req.body;
 
@@ -372,6 +375,7 @@ export function createAdministrationRouter(): Router {
         ...(permission_data_manager !== undefined ? { permission_data_manager: Boolean(permission_data_manager) } : {}),
         ...(permission_applications_register !== undefined ? { permission_applications_register: Boolean(permission_applications_register) } : {}),
         ...(permission_package_import !== undefined ? { permission_package_import: Boolean(permission_package_import) } : {}),
+        ...(permission_knowledge_publish !== undefined ? { permission_knowledge_publish: Boolean(permission_knowledge_publish) } : {}),
         ...(permission_global_manage !== undefined ? { permission_global_manage: Boolean(permission_global_manage) } : {}),
       },
     });

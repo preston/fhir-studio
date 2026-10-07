@@ -46,3 +46,6 @@ logs/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Rendered at container start from configuration.template.js
+ui/public/configuration.js

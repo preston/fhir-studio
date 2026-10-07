@@ -31,7 +31,7 @@ export class AppComponent implements OnInit {
 
   public readonly isIsolatedApp = computed(() => {
     const url = this.navUrl();
-    return url.startsWith('/example-application');
+    return url.startsWith('/example-application') || url.startsWith('/cql-with-fhir-example');
   });
 
   public readonly isSandboxesActive = computed(() => {
@@ -46,6 +46,7 @@ export class AppComponent implements OnInit {
       url.startsWith('/applications') ||
       url.startsWith('/apps') ||
       url.startsWith('/example-application') ||
+      url.startsWith('/cql-with-fhir-example') ||
       url.startsWith('/scenarios') ||
       url.startsWith('/personas')
     );
@@ -62,7 +63,8 @@ export class AppComponent implements OnInit {
         this.sandboxService.getSandboxes().subscribe();
       } else {
         const url = this.router.url;
-        const isIsolated = url.startsWith('/example-application');
+        const isIsolated =
+          url.startsWith('/example-application') || url.startsWith('/cql-with-fhir-example');
         if (!isIsolated && url !== '/' && !url.startsWith('/?')) {
           this.router.navigate(['/']);
         }

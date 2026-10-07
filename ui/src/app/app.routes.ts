@@ -18,6 +18,8 @@ import { AdminJobsComponent } from './administration/jobs/admin-jobs.component.j
 import { AdminPurgeComponent } from './administration/purge/admin-purge.component.js';
 import { AdministrationImplementationGuidesComponent } from './administration/implementation-guides/administration-implementation-guides.component.js';
 import { ExampleApplicationComponent } from './example-application/example-application.component.js';
+import { DeveloperPersonalAccessTokensComponent } from './developer/developer-personal-access-tokens.component.js';
+import { CqlWithFhirExampleComponent } from './cql-with-fhir-example/cql-with-fhir-example.component.js';
 import { permissionGuard } from './core/guards/permission.guard.js';
 
 export const routes: Routes = [
@@ -37,6 +39,10 @@ export const routes: Routes = [
   { path: 'apps', redirectTo: 'applications', pathMatch: 'full' },
   { path: 'example-application', component: ExampleApplicationComponent },
   { path: 'example-application/launch', component: ExampleApplicationComponent },
+  { path: 'cql-with-fhir-example', component: CqlWithFhirExampleComponent },
+  { path: 'cql-with-fhir-example/launch', component: CqlWithFhirExampleComponent },
+  { path: 'developer/personal-access-tokens', component: DeveloperPersonalAccessTokensComponent },
+  { path: 'developer/api-tokens', redirectTo: 'developer/personal-access-tokens', pathMatch: 'full' },
   { path: 'scenarios', component: ScenariosManagerComponent },
   { path: 'personas', component: PersonasManagerComponent },
   {

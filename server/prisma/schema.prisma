@@ -64,14 +64,17 @@ model Session {
 model ApiToken {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
+  name       String
   tokenHash  String    @map("token_hash")
   prefix     String
+  expiresAt  DateTime? @map("expires_at")
   lastUsedAt DateTime? @map("last_used_at")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, name])
   @@map("api_tokens")
 }
 
@@ -101,6 +104,7 @@ model Role {
   permission_data_manager    Boolean  @default(true) @map("permission_data_manager")
   permission_applications_register Boolean  @default(true) @map("permission_applications_register")
   permission_package_import  Boolean  @default(true) @map("permission_package_import")
+  permission_knowledge_publish Boolean @default(false) @map("permission_knowledge_publish")
   permission_global_manage   Boolean  @default(false) @map("permission_global_manage")
   permissions                Json     @default("{}")
 

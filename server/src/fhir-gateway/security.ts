@@ -85,7 +85,7 @@ export async function verifySandboxAccess(
           patientId: smartSession.patientFhirId || undefined,
         });
 
-        if (!isAllowed && parsedScopes.length > 0) {
+        if (!isAllowed) {
           return {
             authorized: false,
             reason: `Forbidden: Granted SMART scopes ('${smartSession.scope}') do not permit action '${action}' on resource '${resourceType || 'unknown'}'.`,

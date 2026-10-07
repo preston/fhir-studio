@@ -88,9 +88,10 @@ function parseScopeActions(actionsStr: string): string[] {
 
 export function mapHttpMethodToAction(method: string, path: string): 'c' | 'r' | 'u' | 'd' | 's' {
   const m = method.toUpperCase();
+  const pathOnly = path.split('?')[0];
   if (m === 'GET' || m === 'HEAD') {
     // If path ends with /_search or has query parameters, could be search or read
-    const segments = path.split('?')[0].split('/').filter(Boolean);
+    const segments = pathOnly.split('/').filter(Boolean);
     // e.g. /Patient (search), /Patient/123 (read), /Patient/_search (search)
     if (segments.length === 1 || segments[segments.length - 1] === '_search') {
       return 's';
@@ -98,8 +99,28 @@ export function mapHttpMethodToAction(method: string, path: string): 'c' | 'r' |
     return 'r';
   }
   if (m === 'POST') {
-    if (path.includes('/_search')) {
+    if (pathOnly.includes('/_search')) {
       return 's';
+    }
+    // Only treat known read-like FHIR operations as read. Unknown $ops require create.
+    const opMatch = pathOnly.match(/(?:^|\/)\$([^/]+)$/);
+    if (opMatch) {
+      const op = opMatch[1].toLowerCase();
+      const readLikeOps = new Set([
+        'evaluate',
+        'cql',
+        'everything',
+        'validate',
+        'validate-code',
+        'expand',
+        'lookup',
+        'subsumes',
+        'find-matches',
+        'meta',
+        'graphql',
+        'stats',
+      ]);
+      return readLikeOps.has(op) ? 'r' : 'c';
     }
     return 'c';
   }

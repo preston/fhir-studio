@@ -1,0 +1,202 @@
+<div class="container py-4" id="developer-personal-access-tokens-page">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Personal access tokens</h1>
+      <p class="text-muted mb-0">
+        Mint bearer tokens (<code>fs_…</code>) for machine access to FHIR Studio APIs, including publishing
+        Libraries and terminology into global knowledge. Tokens inherit your account permissions.
+      </p>
+    </div>
+    <button
+      id="mint-personal-access-token-btn"
+      type="button"
+      class="btn btn-primary"
+      (click)="openMintModal()"
+      [disabled]="loading()"
+    >
+      <i class="bi bi-plus-lg me-1"></i> Create token
+    </button>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert-danger" role="alert">{{ errorMessage() }}</div>
+  }
+  @if (successMessage()) {
+    <div class="alert alert-success" role="alert">{{ successMessage() }}</div>
+  }
+
+  @if (mintedToken()) {
+    <div class="alert alert-warning" id="minted-personal-access-token-alert">
+      <div class="fw-semibold mb-2">New token (copy now)</div>
+      <code class="user-select-all d-block text-break mb-2">{{ mintedToken() }}</code>
+      <button type="button" class="btn btn-sm btn-outline-dark" (click)="copyMintedToken()">
+        <i class="bi bi-clipboard me-1"></i> Copy
+      </button>
+    </div>
+  }
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header">Your tokens</div>
+    <div class="card-body p-0">
+      @if (loading()) {
+        <div class="p-4 text-center text-muted">Loading…</div>
+      } @else if (tokens().length === 0) {
+        <div class="p-4 text-muted">No personal access tokens yet.</div>
+      } @else {
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Expires</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (token of tokens(); track token.id) {
+                <tr>
+                  <td class="fw-semibold">{{ token.name }}</td>
+                  <td>{{ expiryLabel(token) }}</td>
+                  <td>{{ token.createdAt | date: 'medium' }}</td>
+                  <td>{{ token.lastUsedAt ? (token.lastUsedAt | date: 'medium') : 'Never' }}</td>
+                  <td class="text-end">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary me-1"
+                      (click)="openRenameModal(token)"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      (click)="openRevokeModal(token)"
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="card shadow-sm" id="personal-access-token-usage-card">
+    <div class="card-header">Using a token</div>
+    <div class="card-body">
+      <p class="text-muted">
+        Call FHIR Studio APIs with
+        <code>Authorization: Bearer fs_…</code>. The public API base URL comes from deploy configuration
+        (<code>FHIR_STUDIO_SERVER_PUBLIC_API_BASE_URL</code>).
+      </p>
+      <div class="mb-2">
+        <span class="form-label">Public API base URL</span>
+        <code class="d-block user-select-all">{{ publicApiBaseUrl() }}</code>
+      </div>
+      <label class="form-label" for="pat-curl-example">Example status check</label>
+      <pre
+        id="pat-curl-example"
+        class="bg-light border rounded p-3 small mb-3 overflow-auto"
+      >{{ curlExample() }}</pre>
+      <button type="button" class="btn btn-outline-primary btn-sm" (click)="copyCurlExample()">
+        <i class="bi bi-clipboard me-1"></i> Copy curl
+      </button>
+    </div>
+  </div>
+</div>
+
+@if (showMintModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Create personal access token</h5>
+          <button type="button" class="btn-close" aria-label="Close" (click)="closeMintModal()"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" for="pat-mint-name">Name <span class="text-danger">*</span></label>
+            <input
+              id="pat-mint-name"
+              class="form-control"
+              [ngModel]="mintName()"
+              (ngModelChange)="mintName.set($event)"
+              name="mintName"
+              placeholder="e.g. CI publish"
+              required
+            />
+          </div>
+          <div class="mb-0">
+            <label class="form-label" for="pat-mint-expires">Expires (optional)</label>
+            <input
+              id="pat-mint-expires"
+              type="datetime-local"
+              class="form-control"
+              [ngModel]="mintExpiresAt()"
+              (ngModelChange)="mintExpiresAt.set($event)"
+              name="mintExpiresAt"
+            />
+            <div class="form-text">Leave blank for no expiry. Expiry cannot be changed after creation.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeMintModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="confirmMint()">Create</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (showRenameModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Rename token</h5>
+          <button type="button" class="btn-close" aria-label="Close" (click)="closeRenameModal()"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label" for="pat-rename-name">Name</label>
+          <input
+            id="pat-rename-name"
+            class="form-control"
+            [ngModel]="renameName()"
+            (ngModelChange)="renameName.set($event)"
+            name="renameName"
+          />
+          <div class="form-text mt-2">The token secret and expiry cannot be changed.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeRenameModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="confirmRename()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (showRevokeModal()) {
+  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Revoke token</h5>
+          <button type="button" class="btn-close" aria-label="Close" (click)="closeRevokeModal()"></button>
+        </div>
+        <div class="modal-body">
+          Revoke <strong>{{ revokeTarget()?.name }}</strong>? Integrations using this token will stop working.
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeRevokeModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" (click)="confirmRevoke()">Revoke</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}

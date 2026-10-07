@@ -27,7 +27,5 @@
     "diagram": "command -v plantuml >/dev/null 2>&1 && plantuml -tpng doc/*.puml || echo 'plantuml not found on PATH; install PlantUML to render doc/*.puml'",
     "check:ports": "./scripts/check-ports.sh",
     "test": "npm run test --workspaces --if-present"
-  },
-  "overrides": {
   }
 }

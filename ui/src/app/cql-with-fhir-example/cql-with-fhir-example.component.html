@@ -1,0 +1,133 @@
+<div class="container py-4" id="cql-with-fhir-example-page">
+  <div class="mb-4">
+    <h1 class="h3 mb-1">CQL with FHIR Example</h1>
+    <p class="text-muted mb-0">
+      SMART on FHIR v2 sample that discovers Libraries in global knowledge and runs
+      <code>$evaluate</code> for the launch Patient. Intended as a fork-friendly starter for a future
+      in-Studio SMART app builder.
+    </p>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert-danger" role="alert">{{ errorMessage() }}</div>
+  }
+
+  @if (mode() === 'launch' || mode() === 'callback' || loading()) {
+    <div class="alert alert-info d-flex align-items-center gap-2">
+      <div class="spinner-border spinner-border-sm" role="status"></div>
+      <span>{{ currentStep() }}</span>
+    </div>
+  }
+
+  @if (mode() === 'standalone') {
+    <div class="card shadow-sm">
+      <div class="card-header">Standalone launch</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label" for="cql-example-sandbox">Sandbox</label>
+          <select
+            id="cql-example-sandbox"
+            class="form-select"
+            [(ngModel)]="selectedSandboxId"
+            name="selectedSandboxId"
+          >
+            @for (sb of sandboxService.sandboxes(); track sb.id) {
+              <option [ngValue]="sb.sandboxId">{{ sb.name }} ({{ sb.fhirVersion }})</option>
+            }
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="cql-example-scope">Scope</label>
+          <input id="cql-example-scope" class="form-control" [(ngModel)]="clientScope" name="clientScope" />
+        </div>
+        <button
+          id="cql-example-standalone-launch"
+          type="button"
+          class="btn btn-primary"
+          (click)="startStandalone()"
+        >
+          Launch with SMART
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (mode() === 'connected') {
+    <div class="row g-4">
+      <div class="col-lg-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header">Context</div>
+          <div class="card-body">
+            <dl class="mb-0">
+              <dt>Patient</dt>
+              <dd>{{ patientDisplay() || patientId() || 'None' }}</dd>
+              <dt>FHIR base</dt>
+              <dd><code class="small text-break">{{ fhirBaseUrl() }}</code></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Libraries (global knowledge)</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" (click)="searchLibraries()">
+              Refresh
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="input-group mb-3">
+              <input
+                id="cql-example-library-query"
+                class="form-control"
+                placeholder="Filter by name"
+                [ngModel]="libraryQuery()"
+                (ngModelChange)="libraryQuery.set($event)"
+                name="libraryQuery"
+              />
+              <button class="btn btn-outline-secondary" type="button" (click)="searchLibraries()">
+                Search
+              </button>
+            </div>
+            <select
+              id="cql-example-library-select"
+              class="form-select mb-3"
+              [ngModel]="selectedLibraryId()"
+              (ngModelChange)="selectedLibraryId.set($event)"
+              name="selectedLibraryId"
+            >
+              @for (lib of libraries(); track lib.id) {
+                <option [ngValue]="lib.id">
+                  {{ lib.title || lib.name || lib.id }}
+                  @if (lib.version) {
+                    ({{ lib.version }})
+                  }
+                </option>
+              }
+            </select>
+            <button
+              id="cql-example-evaluate-btn"
+              type="button"
+              class="btn btn-success"
+              (click)="evaluateSelected()"
+              [disabled]="!selectedLibraryId() || loading()"
+            >
+              Run Library/$evaluate
+            </button>
+          </div>
+        </div>
+
+        @if (evaluateResult()) {
+          <div class="card shadow-sm">
+            <div class="card-header">$evaluate result</div>
+            <div class="card-body">
+              <pre class="mb-0 small bg-light p-3 rounded overflow-auto" style="max-height: 28rem;">{{
+                evaluateResult() | json
+              }}</pre>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

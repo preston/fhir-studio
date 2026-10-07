@@ -21,6 +21,8 @@ import { SubscriptionHub } from './subscriptions/hub.js';
 import { createAdministrationRouter } from './administration/routes.js';
 import { createImplementationGuidesRouter } from './implementation-guides/routes.js';
 import { createJobsRouter } from './jobs/routes.js';
+import { createApiTokensRouter } from './authentication/apiTokenRoutes.js';
+import { createKnowledgeRouter } from './knowledge/routes.js';
 import { disconnectPrisma } from './db/prisma.js';
 
 const oidcConfig = loadSsoConfig();
@@ -82,6 +84,8 @@ app.use(createSubscriptionsRouter());
 app.use(createAdministrationRouter());
 app.use(createImplementationGuidesRouter());
 app.use(createJobsRouter());
+app.use(createApiTokensRouter());
+app.use(createKnowledgeRouter());
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

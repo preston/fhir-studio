@@ -64,6 +64,11 @@
                   </a>
                 </li>
                 <li>
+                  <a class="dropdown-item" routerLink="/cql-with-fhir-example" routerLinkActive="active">
+                    <i class="bi bi-braces me-2"></i>CQL with FHIR Example
+                  </a>
+                </li>
+                <li>
                   <a class="dropdown-item" routerLink="/scenarios" routerLinkActive="active">
                     <i class="bi bi-play-circle me-2"></i>Launch Scenarios
                   </a>
@@ -172,6 +177,11 @@
                   {{ auth.currentUser()?.email }}
                 </li>
                 <li><hr class="dropdown-divider"></li>
+                <li>
+                  <a class="dropdown-item" routerLink="/developer/personal-access-tokens">
+                    <i class="bi bi-key me-2"></i>Personal access tokens
+                  </a>
+                </li>
                 @if (auth.isGlobalAdmin()) {
                   <li>
                     <a class="dropdown-item" routerLink="/administration">

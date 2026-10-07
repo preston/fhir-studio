@@ -9,6 +9,7 @@ export type PermissionKey =
   | 'data_manager'
   | 'applications_register'
   | 'package_import'
+  | 'knowledge_publish'
   | 'global_manage';
 
 export function mergeBooleanPermissions(sources: Array<Partial<BooleanPermissions>>): BooleanPermissions {
@@ -19,6 +20,7 @@ export function mergeBooleanPermissions(sources: Array<Partial<BooleanPermission
     data_manager: false,
     applications_register: false,
     package_import: false,
+    knowledge_publish: false,
     global_manage: false,
   };
 
@@ -29,6 +31,7 @@ export function mergeBooleanPermissions(sources: Array<Partial<BooleanPermission
     if (src.data_manager) result.data_manager = true;
     if (src.applications_register) result.applications_register = true;
     if (src.package_import) result.package_import = true;
+    if (src.knowledge_publish) result.knowledge_publish = true;
     if (src.global_manage) result.global_manage = true;
   }
 

@@ -2,7 +2,11 @@
 
 import express, { type Request, type Response, type Router } from 'express';
 import axios from 'axios';
-import { resolveHapiPartitionName } from '@fhir-studio/core';
+import {
+  HAPI_DEFAULT_PARTITION_NAME,
+  isKnowledgePublishResourceType,
+  resolveHapiPartitionName,
+} from '@fhir-studio/core';
 import { getPrisma } from '../db/prisma.js';
 import {
   HapiPartitionClient,
@@ -12,6 +16,46 @@ import {
 import { postFhirBatchBundle, type FhirBatchBundle } from '../hapi/batch.js';
 import { verifySandboxAccess } from './security.js';
 import { rewriteFhirPayload, rewriteHeaderUrl } from './url_rewriter.js';
+import { hasPermission } from '../authorization/permissions.js';
+
+function isKnowledgeMutationRequest(method: string, path: string, resourceType?: string): boolean {
+  if (!isKnowledgePublishResourceType(resourceType)) {
+    return false;
+  }
+  const m = method.toUpperCase();
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') {
+    return false;
+  }
+  const pathOnly = path.split('?')[0];
+  // Extended operations ($evaluate, $cql, …) are not knowledge mutations.
+  if (/(?:^|\/)\$[^/]+$/.test(pathOnly)) {
+    return false;
+  }
+  if (m === 'POST' && pathOnly.includes('/_search')) {
+    return false;
+  }
+  return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE';
+}
+
+function bundleMutatesDefaultKnowledge(bundle: FhirBatchBundle): boolean {
+  for (const entry of bundle.entry || []) {
+    const rt =
+      entry.resource?.resourceType ||
+      String(entry.request?.url || '').split('?')[0].split('/')[0];
+    const method = String(entry.request?.method || 'GET').toUpperCase();
+    if (!isKnowledgePublishResourceType(rt)) {
+      continue;
+    }
+    if (method === 'GET' || method === 'HEAD') {
+      continue;
+    }
+    if (/(?:^|\/)\$[^/]+$/.test(String(entry.request?.url || '').split('?')[0])) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
 
 export function createFhirGatewayRouter(): Router {
   const router = express.Router();
@@ -102,7 +146,8 @@ export function createFhirGatewayRouter(): Router {
     );
 
     if (!accessResult.authorized) {
-      res.status(401).json({
+      const status = accessResult.reason?.startsWith('Forbidden:') ? 403 : 401;
+      res.status(status).json({
         resourceType: 'OperationOutcome',
         issue: [
           {
@@ -114,6 +159,26 @@ export function createFhirGatewayRouter(): Router {
       });
       return;
     }
+
+    // Global knowledge (HAPI DEFAULT / HAPI-1318 types) is write-gated by knowledge_publish.
+    // Sandbox owners, collaborators, open-access, and SMART clients must not bypass
+    // POST /api/knowledge/publish by writing Library/ValueSet/… via the sandbox FHIR base.
+    const denyKnowledgeWrite = () => {
+      res.status(403).json({
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'forbidden',
+            diagnostics:
+              'Writing global knowledge resources (Library, ValueSet, CodeSystem, …) requires the knowledge_publish permission via POST /api/knowledge/publish.',
+          },
+        ],
+      });
+    };
+    const canPublishKnowledge =
+      hasPermission(req.effectivePermissions, 'knowledge_publish') ||
+      hasPermission(req.effectivePermissions, 'global_manage');
 
     const hapiBaseUrl = hapiClient.getHapiBaseUrl(versionParam);
     const host = req.get('host') || 'localhost:3000';
@@ -133,6 +198,10 @@ export function createFhirGatewayRouter(): Router {
       ['batch', 'transaction'].includes(String((body as { type?: string }).type || ''));
 
     if (isRootBundlePost) {
+      if (bundleMutatesDefaultKnowledge(body as FhirBatchBundle) && !canPublishKnowledge) {
+        denyKnowledgeWrite();
+        return;
+      }
       try {
         const result = await postFhirBatchBundle(
           hapiBaseUrl,
@@ -148,7 +217,7 @@ export function createFhirGatewayRouter(): Router {
         );
         rewrittenBody = rewriteFhirPayload(
           rewrittenBody,
-          `${hapiBaseUrl}/DEFAULT`,
+          `${hapiBaseUrl}/${HAPI_DEFAULT_PARTITION_NAME}`,
           proxyBaseUrl,
         );
         res.status(result.status).send(rewrittenBody);
@@ -165,6 +234,11 @@ export function createFhirGatewayRouter(): Router {
           ],
         });
       }
+      return;
+    }
+
+    if (isKnowledgeMutationRequest(req.method, subpath, resourceType) && !canPublishKnowledge) {
+      denyKnowledgeWrite();
       return;
     }
 

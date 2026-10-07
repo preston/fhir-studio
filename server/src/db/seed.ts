@@ -29,6 +29,7 @@ export async function seed(): Promise<void> {
       permission_data_manager: true,
       permission_applications_register: true,
       permission_package_import: true,
+      permission_knowledge_publish: true,
       permission_global_manage: true,
     },
     update: {
@@ -39,6 +40,7 @@ export async function seed(): Promise<void> {
       permission_data_manager: true,
       permission_applications_register: true,
       permission_package_import: true,
+      permission_knowledge_publish: true,
       permission_global_manage: true,
     },
   });
@@ -56,6 +58,7 @@ export async function seed(): Promise<void> {
       permission_data_manager: true,
       permission_applications_register: true,
       permission_package_import: true,
+      permission_knowledge_publish: false,
       permission_global_manage: false,
     },
     update: {
@@ -67,6 +70,7 @@ export async function seed(): Promise<void> {
       permission_data_manager: true,
       permission_applications_register: true,
       permission_package_import: true,
+      permission_knowledge_publish: false,
       permission_global_manage: false,
     },
   });
@@ -141,6 +145,19 @@ export async function seed(): Promise<void> {
       isCustom: false,
       isSample: true,
       scope: 'openid profile email patient/*.read patient/*.rs launch launch/patient fhirUser',
+    },
+    {
+      clientId: 'cql-with-fhir-example',
+      clientName: 'CQL with FHIR Example',
+      launchUri: '/cql-with-fhir-example/launch',
+      redirectUris: ['/cql-with-fhir-example', '/cql-with-fhir-example/launch'],
+      briefDescription:
+        'Reference SMART on FHIR v2 app that discovers Libraries in global knowledge and runs Library/$evaluate with sandbox data/content/terminology Endpoints.',
+      author: 'Logica Health / FHIR Studio',
+      isCustom: false,
+      isSample: true,
+      scope:
+        'openid profile email patient/*.read patient/*.rs user/Library.rs launch launch/patient fhirUser',
     },
   ];
 

@@ -49,6 +49,7 @@ export async function loadEffectivePermissions(
       data_manager: r.permission_data_manager,
       applications_register: r.permission_applications_register,
       package_import: r.permission_package_import,
+      knowledge_publish: r.permission_knowledge_publish,
       global_manage: r.permission_global_manage,
     })),
   );

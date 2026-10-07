@@ -24,13 +24,19 @@ RUN npm run build --workspace=@fhir-studio/core \
 FROM nginx:stable-alpine
 LABEL maintainer="Preston Lee"
 
+# envsubst for configuration.template.js
+RUN apk add --no-cache gettext
+
 COPY ui/nginx.conf /etc/nginx/conf.d/default.conf
 
 WORKDIR /usr/share/nginx/html
 RUN rm -rf *
 
 COPY --from=builder /app/ui/dist/ui/browser .
+COPY ui/public/configuration.template.js .
+COPY ui/entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["./entrypoint.sh"]
