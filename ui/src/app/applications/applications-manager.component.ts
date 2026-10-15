@@ -7,6 +7,7 @@ import { RouterLink } from '@angular/router';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
 import { AuthService } from '../core/services/auth.service.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 @Component({
   selector: 'app-applications-manager',
@@ -15,14 +16,15 @@ import { AuthService } from '../core/services/auth.service.js';
   templateUrl: './applications-manager.component.html',
 })
 export class ApplicationsManagerComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly sandboxService = inject(SandboxService);
   public readonly applicationsService = inject(ApplicationsService);
   public readonly auth = inject(AuthService);
 
   public readonly applications = signal<SmartApplication[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   public readonly showRegisterModal = signal<boolean>(false);
   public newApplication = {
@@ -61,6 +63,7 @@ export class ApplicationsManagerComponent implements OnInit {
     this.applicationsService.getSandboxApplications(targetId).subscribe({
       next: (res) => {
         this.applications.set(res?.applications || []);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -71,9 +74,10 @@ export class ApplicationsManagerComponent implements OnInit {
   }
 
   public registerApplication(): void {
+    this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
     if (!current || !this.newApplication.clientName || !this.newApplication.launchUri) {
-      this.errorMessage.set('Application Name and Launch URI are required.');
+      this.formError.set('Application Name and Launch URI are required.');
       return;
     }
 
@@ -97,11 +101,11 @@ export class ApplicationsManagerComponent implements OnInit {
       .subscribe({
         next: () => {
           this.showRegisterModal.set(false);
-          this.successMessage.set(`Application '${this.newApplication.clientName}' registered successfully.`);
+          this.toast.success(`Application '${this.newApplication.clientName}' registered successfully.`);
           this.loadApplications(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to register application.');
+          this.toast.error(err?.error?.error || 'Failed to register application.');
         },
       });
   }
@@ -112,11 +116,11 @@ export class ApplicationsManagerComponent implements OnInit {
     if (confirm(`Are you sure you want to delete application '${application.clientName}'?`)) {
       this.applicationsService.deleteApplication(current.sandboxId, application.id).subscribe({
         next: () => {
-          this.successMessage.set(`Application '${application.clientName}' deleted.`);
+          this.toast.success(`Application '${application.clientName}' deleted.`);
           this.loadApplications(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete application.');
+          this.toast.error(err?.error?.error || 'Failed to delete application.');
         },
       });
     }

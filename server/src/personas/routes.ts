@@ -3,13 +3,15 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { getPrisma } from '../db/prisma.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createPersonasRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
 
   // 1. GET /api/sandboxes/:sandboxId/personas
   router.get('/api/sandboxes/:sandboxId/personas', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox) {
@@ -27,7 +29,7 @@ export function createPersonasRouter(): Router {
 
   // 2. POST /api/sandboxes/:sandboxId/personas
   router.post('/api/sandboxes/:sandboxId/personas', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const {
       personaUserId,
       personaName,
@@ -64,7 +66,7 @@ export function createPersonasRouter(): Router {
 
   // 3. PUT /api/sandboxes/:sandboxId/personas/:personaId
   router.put('/api/sandboxes/:sandboxId/personas/:personaId', async (req: Request, res: Response): Promise<void> => {
-    const { personaId } = req.params;
+    const personaId = routeParam(req.params.personaId);
     const { personaName, fhirResourceType, fhirResourceId, fhirResourceName } = req.body;
 
     const updated = await prisma.userPersona.update({
@@ -82,7 +84,7 @@ export function createPersonasRouter(): Router {
 
   // 4. DELETE /api/sandboxes/:sandboxId/personas/:personaId
   router.delete('/api/sandboxes/:sandboxId/personas/:personaId', async (req: Request, res: Response): Promise<void> => {
-    const { personaId } = req.params;
+    const personaId = routeParam(req.params.personaId);
     await prisma.userPersona.delete({ where: { id: personaId } });
     res.json({ message: 'User persona deleted successfully.' });
   });

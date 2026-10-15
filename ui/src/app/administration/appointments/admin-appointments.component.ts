@@ -10,6 +10,7 @@ import {
   type AdministrationGroup,
   type AdministrationRole,
 } from '../../core/services/administration.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type AppointmentSortField = 'entityType' | 'entityId' | 'roleName' | 'createdAt';
 
@@ -20,6 +21,7 @@ export type AppointmentSortField = 'entityType' | 'entityId' | 'roleName' | 'cre
   templateUrl: './admin-appointments.component.html',
 })
 export class AdminAppointmentsComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
 
   public readonly appointments = signal<AdministrationAppointment[]>([]);
@@ -27,7 +29,6 @@ export class AdminAppointmentsComponent implements OnInit {
   public readonly groups = signal<AdministrationGroup[]>([]);
   public readonly roles = signal<AdministrationRole[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   // Search, Sort, Pagination state
@@ -121,6 +122,7 @@ export class AdminAppointmentsComponent implements OnInit {
     this.administrationService.getAppointments().subscribe({
       next: (res) => {
         this.appointments.set(res.appointments);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -205,11 +207,11 @@ export class AdminAppointmentsComponent implements OnInit {
     this.administrationService.createAppointment(this.appointmentForm).subscribe({
       next: () => {
         this.showAppointmentModal.set(false);
-        this.successMessage.set('Appointment created.');
+        this.toast.success('Appointment created.');
         this.loadData();
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to create appointment.');
+        this.toast.error(err?.error?.error || 'Failed to create appointment.');
       },
     });
   }
@@ -218,11 +220,11 @@ export class AdminAppointmentsComponent implements OnInit {
     if (confirm('Delete this appointment?')) {
       this.administrationService.deleteAppointment(id).subscribe({
         next: () => {
-          this.successMessage.set('Appointment deleted.');
+          this.toast.success('Appointment deleted.');
           this.loadData();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete appointment.');
+          this.toast.error(err?.error?.error || 'Failed to delete appointment.');
         },
       });
     }

@@ -10,6 +10,7 @@ import {
   type AdministrationGroup,
   type AdministrationRole,
 } from '../../core/services/administration.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type UserSortField = 'name' | 'email' | 'sessions' | 'status' | 'createdAt';
 
@@ -26,13 +27,13 @@ interface UserProfileFormModel {
   templateUrl: './admin-users.component.html',
 })
 export class AdminUsersComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
 
   public readonly users = signal<AdministrationUser[]>([]);
   public readonly allGroups = signal<AdministrationGroup[]>([]);
   public readonly allRoles = signal<AdministrationRole[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   // Search, Filter, Sort, Pagination state
@@ -269,19 +270,19 @@ export class AdminUsersComponent implements OnInit {
             })
             .subscribe({
               next: () => {
-                this.successMessage.set('User profile updated.');
+                this.toast.success('User profile updated.');
                 this.loadUsers();
                 resolve();
               },
               error: (err) => {
-                this.errorMessage.set(err?.error?.error || 'Failed to update user.');
+                this.toast.error(err?.error?.error || 'Failed to update user.');
                 reject(err);
               },
             });
         });
       });
     } catch {
-      // Error message already set in subscribe handler.
+      // The subscribe handler already displayed the error toast.
     } finally {
       this.savingProfile.set(false);
     }
@@ -295,13 +296,13 @@ export class AdminUsersComponent implements OnInit {
     this.mutatingMembership.set(true);
     this.administrationService.addGroupMember(groupId, user.id).subscribe({
       next: () => {
-        this.successMessage.set('User added to group.');
+        this.toast.success('User added to group.');
         this.selectedGroupId.set('');
         this.mutatingMembership.set(false);
         this.loadUsers();
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to add group membership.');
+        this.toast.error(err?.error?.error || 'Failed to add group membership.');
         this.mutatingMembership.set(false);
       },
     });
@@ -314,12 +315,12 @@ export class AdminUsersComponent implements OnInit {
     this.mutatingMembership.set(true);
     this.administrationService.removeGroupMember(groupId, user.id).subscribe({
       next: () => {
-        this.successMessage.set('User removed from group.');
+        this.toast.success('User removed from group.');
         this.mutatingMembership.set(false);
         this.loadUsers();
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to remove group membership.');
+        this.toast.error(err?.error?.error || 'Failed to remove group membership.');
         this.mutatingMembership.set(false);
       },
     });
@@ -339,13 +340,13 @@ export class AdminUsersComponent implements OnInit {
       })
       .subscribe({
         next: () => {
-          this.successMessage.set('Role appointed to user.');
+          this.toast.success('Role appointed to user.');
           this.selectedRoleId.set('');
           this.mutatingAppointment.set(false);
           this.loadUsers();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to appoint role.');
+          this.toast.error(err?.error?.error || 'Failed to appoint role.');
           this.mutatingAppointment.set(false);
         },
       });
@@ -355,12 +356,12 @@ export class AdminUsersComponent implements OnInit {
     this.mutatingAppointment.set(true);
     this.administrationService.deleteAppointment(appointmentId).subscribe({
       next: () => {
-        this.successMessage.set('Role appointment removed.');
+        this.toast.success('Role appointment removed.');
         this.mutatingAppointment.set(false);
         this.loadUsers();
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to remove role appointment.');
+        this.toast.error(err?.error?.error || 'Failed to remove role appointment.');
         this.mutatingAppointment.set(false);
       },
     });
@@ -380,10 +381,10 @@ export class AdminUsersComponent implements OnInit {
             this.editingUser.set({ ...editing, isSuspended: nextState });
             this.userModel.update((m) => ({ ...m, isSuspended: nextState }));
           }
-          this.successMessage.set(`User account ${action}ed successfully.`);
+          this.toast.success(`User account ${action}ed successfully.`);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || `Failed to ${action} user.`);
+          this.toast.error(err?.error?.error || `Failed to ${action} user.`);
         },
       });
     }

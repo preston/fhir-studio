@@ -13,6 +13,8 @@ import {
   verifyPkceChallenge,
 } from './crypto.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createSmartIdpRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -114,7 +116,7 @@ export function createSmartIdpRouter(): Router {
 
   // 4. Create SMART Launch Context (invoked by EHR Simulator or Launch Scenario)
   router.post('/api/sandboxes/:sandboxId/launch-context', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const {
       patientFhirId,
       patientName,

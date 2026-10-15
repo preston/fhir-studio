@@ -3,13 +3,15 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { getPrisma } from '../db/prisma.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createScenariosRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
 
   // 1. GET /api/sandboxes/:sandboxId/scenarios
   router.get('/api/sandboxes/:sandboxId/scenarios', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox) {
@@ -31,7 +33,7 @@ export function createScenariosRouter(): Router {
 
   // 2. POST /api/sandboxes/:sandboxId/scenarios
   router.post('/api/sandboxes/:sandboxId/scenarios', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const {
       title,
       description,
@@ -86,7 +88,7 @@ export function createScenariosRouter(): Router {
 
   // 3. PUT /api/sandboxes/:sandboxId/scenarios/:scenarioId
   router.put('/api/sandboxes/:sandboxId/scenarios/:scenarioId', async (req: Request, res: Response): Promise<void> => {
-    const { scenarioId } = req.params;
+    const scenarioId = routeParam(req.params.scenarioId);
     const {
       title,
       description,
@@ -129,7 +131,7 @@ export function createScenariosRouter(): Router {
 
   // 4. DELETE /api/sandboxes/:sandboxId/scenarios/:scenarioId
   router.delete('/api/sandboxes/:sandboxId/scenarios/:scenarioId', async (req: Request, res: Response): Promise<void> => {
-    const { scenarioId } = req.params;
+    const scenarioId = routeParam(req.params.scenarioId);
     await prisma.launchScenario.delete({ where: { id: scenarioId } });
     res.json({ message: 'Launch scenario deleted successfully.' });
   });

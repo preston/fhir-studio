@@ -4,19 +4,12 @@
     <p class="text-muted mb-0">Manage synthetic Practitioner and Patient personas for SMART OAuth simulated sign-ins.</p>
   </div>
   <div>
-    <button class="btn btn-primary d-flex align-items-center gap-1" (click)="showCreateModal.set(true)">
+    <button class="btn btn-primary d-flex align-items-center gap-1" (click)="formError.set(null); showCreateModal.set(true)">
       <i class="bi bi-person-plus-fill"></i>
       <span>New Persona</span>
     </button>
   </div>
 </div>
-
-@if (successMessage()) {
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
-    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
-  </div>
-}
 
 @if (errorMessage()) {
   <div class="alert alert-danger alert-dismissible fade show" role="alert">
@@ -72,6 +65,9 @@
           <button type="button" class="btn-close" (click)="showCreateModal.set(false)"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <div class="mb-3">
             <label class="form-label fw-semibold">Persona Name <span class="text-danger">*</span></label>
             <input type="text" class="form-control" [(ngModel)]="newPersona.personaName" placeholder="e.g. Dr. Robert Vance, MD">

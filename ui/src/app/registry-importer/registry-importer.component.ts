@@ -14,6 +14,7 @@ import {
   ImplementationGuideService,
   type RegistryCatalogSearchResult,
 } from '../core/services/implementation-guide.service.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 export interface PackageResourceItem {
   key: string;
@@ -48,6 +49,7 @@ export interface ImportTypeResult {
   styleUrls: ['./registry-importer.component.scss'],
 })
 export class RegistryImporterComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly auth = inject(AuthService);
   public readonly sandboxService = inject(SandboxService);
   private readonly fhirService = inject(FhirService);
@@ -62,7 +64,6 @@ export class RegistryImporterComponent implements OnInit {
   public readonly importProgress = signal<number>(0);
   public readonly importStatusText = signal<string>('');
   public readonly importLogs = signal<string[]>([]);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   public readonly previewItems = signal<PackageResourceItem[]>([]);
@@ -136,7 +137,6 @@ export class RegistryImporterComponent implements OnInit {
           this.clearPreview();
           this.isPreparing.set(true);
           this.errorMessage.set(null);
-          this.successMessage.set(null);
           this.importProgress.set(10);
           this.importStatusText.set(`Reading ${file.name}...`);
           this.importLogs.set([`Starting local upload for ${file.name}`]);
@@ -158,7 +158,6 @@ export class RegistryImporterComponent implements OnInit {
     this.clearPreview();
     this.isPreparing.set(true);
     this.errorMessage.set(null);
-    this.successMessage.set(null);
     this.importProgress.set(10);
     this.importStatusText.set(`Downloading ${pkgName}#${targetVersion}...`);
     this.importLogs.set([`Starting download for ${pkgName}@${targetVersion}`]);
@@ -441,7 +440,6 @@ export class RegistryImporterComponent implements OnInit {
 
     this.isImporting.set(true);
     this.errorMessage.set(null);
-    this.successMessage.set(null);
     this.lastTypeResults.set([]);
     this.lastFailures.set([]);
     this.lastWroteConformanceToDefault.set(items.some((item) => item.isConformance));
@@ -550,8 +548,12 @@ export class RegistryImporterComponent implements OnInit {
     const conformanceNote = this.lastWroteConformanceToDefault()
       ? ' Conformance/terminology types were stored in the shared DEFAULT partition.'
       : '';
-    this.successMessage.set(
-      `Imported ${successful}/${items.length} selected resources into '${current.name}'${suffix}.${conformanceNote}`,
-    );
+    const message = `Imported ${successful}/${items.length} selected resources into '${current.name}'${suffix}.${conformanceNote}`;
+    this.importStatusText.set(message);
+    if (failed > 0) {
+      this.toast.warning(message, 'Import completed with errors', { durationMs: 8000 });
+    } else {
+      this.toast.success(message, 'Import completed');
+    }
   }
 }

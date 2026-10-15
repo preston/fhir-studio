@@ -13,6 +13,8 @@ import { requirePermission } from '../authorization/requirePermission.js';
 import { hasPermission } from '../authorization/permissions.js';
 import { JobService } from '../jobs/service.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 const RESERVED_SLUGS = new Set([
   'check-availability',
   'access',
@@ -166,7 +168,7 @@ export function createSandboxesRouter(): Router {
 
   // 2. GET /api/sandboxes/:sandboxId (Sandbox details)
   router.get('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({
       where: { sandboxId },
       include: {
@@ -205,7 +207,7 @@ export function createSandboxesRouter(): Router {
 
   // 2b. POST /api/sandboxes/:sandboxId/access (Explicit UI access tracking)
   router.post('/api/sandboxes/:sandboxId/access', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({
       where: { sandboxId },
       select: { id: true, fhirVersion: true },
@@ -351,7 +353,7 @@ export function createSandboxesRouter(): Router {
 
   // 4. PUT /api/sandboxes/:sandboxId (Update sandbox settings)
   router.put('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const { name, description, allowOpenAccess, visibility, isShared } = req.body;
 
     const sandbox = await prisma.sandbox.findUnique({
@@ -392,7 +394,7 @@ export function createSandboxesRouter(): Router {
 
   // 5. POST /api/sandboxes/:sandboxId/reset (Reset partition data)
   router.post('/api/sandboxes/:sandboxId/reset', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
@@ -418,7 +420,7 @@ export function createSandboxesRouter(): Router {
 
   // 6. DELETE /api/sandboxes/:sandboxId (Delete sandbox asynchronously)
   router.delete('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
@@ -475,7 +477,7 @@ export function createSandboxesRouter(): Router {
 
   // 7. Collaborators: POST /api/sandboxes/:sandboxId/collaborators
   router.post('/api/sandboxes/:sandboxId/collaborators', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const { email, role = 'READ_WRITE' } = req.body;
 
     if (!email) {
@@ -523,7 +525,8 @@ export function createSandboxesRouter(): Router {
 
   // 8. Collaborators: DELETE /api/sandboxes/:sandboxId/collaborators/:userId
   router.delete('/api/sandboxes/:sandboxId/collaborators/:userId', async (req: Request, res: Response): Promise<void> => {
-    const { sandboxId, userId } = req.params;
+    const sandboxId = routeParam(req.params.sandboxId);
+    const userId = routeParam(req.params.userId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });

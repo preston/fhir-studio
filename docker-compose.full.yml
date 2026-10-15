@@ -1,11 +1,16 @@
-# FHIR Studio Local Development Stack
+# FHIR Studio Production Stack
 # Services:
 #   - PostgreSQL (port 5432) for FHIR Studio BFF Server, Authentik, and HAPI FHIR instances
 #   - Redis (port 6379) for Authentik
-#   - Authentik Server & Worker (port 9000) for local SSO
+#   - Authentik Server & Worker (port 9000) for SSO
 #   - HAPI FHIR JPA v8.10.0-3 (R4, port 8083) with Partitioning enabled & Postgres DB (hapi_r4)
 #   - HAPI FHIR JPA v8.10.0-3 (R4B, port 8084) with Partitioning enabled & Postgres DB (hapi_r4b)
 #   - HAPI FHIR JPA v8.10.0-3 (R5, port 8085) with Partitioning enabled & Postgres DB (hapi_r5)
+#   - FHIR Studio Server (port 3000) REST API, SMART IdP, and FHIR Gateway
+#   - FHIR Studio UI (port 4200) Angular Developer Web Console
+
+# Preserve the existing Compose project and named volumes after moving this file.
+name: docker
 
 services:
   fhir-studio-postgres:
@@ -23,7 +28,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
     volumes:
       - fhir-studio-postgres-data:/var/lib/postgresql
-      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
     ports:
       - "5433:5432"
     restart: unless-stopped
@@ -85,7 +90,7 @@ services:
       AUTHENTIK_BOOTSTRAP_PASSWORD: password
     volumes:
       - fhir-studio-authentik-data:/data
-      - ./authentik/blueprints:/blueprints/custom:ro
+      - ./docker/authentik/blueprints:/blueprints/custom:ro
     shm_size: 512mb
     restart: unless-stopped
 
@@ -222,6 +227,83 @@ services:
       hapi.fhir.maximum_expansion_size: "20000"
       hapi.fhir.pre_expand_value_sets_max_count: "20000"
       hapi.fhir.pre_expand_value_sets_default_count: "20000"
+    restart: unless-stopped
+
+  fhir-studio-server:
+    image: preston/fhir-studio-server:latest
+    container_name: fhir-studio-server
+    depends_on:
+      fhir-studio-postgres:
+        condition: service_healthy
+      fhir-studio-redis:
+        condition: service_healthy
+      fhir-studio-authentik-server:
+        condition: service_started
+      fhir-studio-hapi-r4:
+        condition: service_started
+      fhir-studio-hapi-r4b:
+        condition: service_started
+      fhir-studio-hapi-r5:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_SERVER_SSO_ISSUER_URL: http://localhost:9000/application/o/fhir-studio/
+      FHIR_STUDIO_SERVER_SSO_CLIENT_ID: fhir-studio-development
+      FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET: fhir-studio-development-secret
+      FHIR_STUDIO_SERVER_SSO_REDIRECT_URL: http://localhost:3000/sso/callback
+      FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL: http://localhost:4200
+      FHIR_STUDIO_SERVER_UI_BASE_URL: http://localhost:4200
+      FHIR_STUDIO_SERVER_CORS_ORIGINS: http://localhost:4200
+      FHIR_STUDIO_SERVER_SESSION_SECRET: fhir-studio-development-session-secret-32b
+      FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: fhir-studio-development-api-token-pepper-32b
+      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
+      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
+      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # Same image as the API; overrides CMD so this process only consumes the Postgres job queue.
+  # Scale horizontally with `docker compose up --scale fhir-studio-worker=N` without changing API replicas.
+  # No fixed container_name so --scale works. stop_grace_period covers worker SHUTDOWN_GRACE_MS (25s).
+  fhir-studio-worker:
+    image: preston/fhir-studio-server:latest
+    depends_on:
+      fhir-studio-postgres:
+        condition: service_healthy
+      fhir-studio-server:
+        condition: service_started
+      fhir-studio-hapi-r4:
+        condition: service_started
+      fhir-studio-hapi-r4b:
+        condition: service_started
+      fhir-studio-hapi-r5:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
+      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
+      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
+      FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+    command: ["node", "build/worker.js"]
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  fhir-studio-ui:
+    image: preston/fhir-studio-ui:latest
+    container_name: fhir-studio-ui
+    depends_on:
+      - fhir-studio-server
+    ports:
+      - "4200:80"
     restart: unless-stopped
 
 volumes:

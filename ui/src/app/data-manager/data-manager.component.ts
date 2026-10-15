@@ -14,6 +14,7 @@ import {
   type FhirCapabilityStatementResource,
   type FhirCapabilityStatementSearchParam,
 } from '@fhir-studio/core';
+import { ToastService } from '../core/services/toast.service.js';
 
 export interface FreetextOption {
   key: string;
@@ -40,6 +41,7 @@ const STANDARD_GLOBAL_SEARCH_PARAMS: FhirCapabilityStatementSearchParam[] = [
   styleUrl: './data-manager.component.scss',
 })
 export class DataManagerComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   public readonly sandboxService = inject(SandboxService);
   private readonly fhirService = inject(FhirService);
@@ -74,7 +76,6 @@ export class DataManagerComponent implements OnInit {
   public readonly editedJson = signal<string>('');
   public readonly isNewResource = signal<boolean>(false);
   public readonly validationOutcome = signal<FhirOperationOutcome | null>(null);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   // Computed Properties Driven by Server Metadata
@@ -500,19 +501,23 @@ export class DataManagerComponent implements OnInit {
     try {
       const parsed = JSON.parse(this.editedJson());
       this.editedJson.set(JSON.stringify(parsed, null, 2));
+      this.errorMessage.set(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Invalid JSON format';
       this.errorMessage.set(`Cannot format invalid JSON: ${msg}`);
     }
   }
 
-  public copyPreviewUrl(): void {
+  public async copyPreviewUrl(): Promise<void> {
     const url = this.previewUrl();
     if (!url) return;
-    navigator.clipboard.writeText(url).then(() => {
+    try {
+      await navigator.clipboard.writeText(url);
       this.copiedPreview.set(true);
       setTimeout(() => this.copiedPreview.set(false), 2000);
-    });
+    } catch {
+      this.toast.error('Could not copy the FHIR search URL. Select and copy it manually.');
+    }
   }
 
   public validateCurrentResource(): void {
@@ -521,6 +526,7 @@ export class DataManagerComponent implements OnInit {
 
     try {
       const parsed = JSON.parse(this.editedJson());
+      this.errorMessage.set(null);
       this.validating.set(true);
       this.validationOutcome.set(null);
 
@@ -538,7 +544,7 @@ export class DataManagerComponent implements OnInit {
             const issues = outcome.issue || [];
             const errors = issues.filter((i) => i.severity === 'error' || i.severity === 'fatal');
             if (errors.length === 0) {
-              this.successMessage.set(`Validation passed: Conforms to FHIR ${current?.fhirVersion} constraints.`);
+              this.toast.success(`Validation passed: Conforms to FHIR ${current?.fhirVersion} constraints.`);
             } else {
               this.errorMessage.set(`Validation found ${errors.length} issue(s). See diagnostic details below.`);
             }
@@ -563,6 +569,7 @@ export class DataManagerComponent implements OnInit {
 
     try {
       const parsed = JSON.parse(this.editedJson());
+      this.errorMessage.set(null);
       this.loading.set(true);
 
       if (this.isNewResource()) {
@@ -575,7 +582,7 @@ export class DataManagerComponent implements OnInit {
           )
           .subscribe({
             next: (saved) => {
-              this.successMessage.set(`Resource ${saved['resourceType']}/${saved['id']} created successfully.`);
+              this.toast.success(`Resource ${saved['resourceType']}/${saved['id']} created successfully.`);
               this.inspectResource(saved);
               this.executeQuery();
             },
@@ -595,7 +602,7 @@ export class DataManagerComponent implements OnInit {
           )
           .subscribe({
             next: (saved) => {
-              this.successMessage.set(`Resource ${saved['resourceType']}/${saved['id']} updated.`);
+              this.toast.success(`Resource ${saved['resourceType']}/${saved['id']} updated.`);
               this.inspectResource(saved);
               this.executeQuery();
             },
@@ -624,7 +631,7 @@ export class DataManagerComponent implements OnInit {
         )
         .subscribe({
           next: () => {
-            this.successMessage.set(`Resource ${res['resourceType']}/${res['id']} deleted.`);
+            this.toast.success(`Resource ${res['resourceType']}/${res['id']} deleted.`);
             this.selectedResource.set(null);
             this.executeQuery();
           },

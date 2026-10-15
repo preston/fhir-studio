@@ -22,13 +22,6 @@
   </p>
 </div>
 
-@if (successMessage()) {
-<div class="alert alert-success alert-dismissible fade show" role="alert">
-  <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
-  <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
-</div>
-}
-
 @if (errorMessage()) {
 <div class="alert alert-danger alert-dismissible fade show" role="alert">
   <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}

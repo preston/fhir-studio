@@ -21,10 +21,6 @@
   @if (errorMessage()) {
     <div class="alert alert-danger" role="alert">{{ errorMessage() }}</div>
   }
-  @if (successMessage()) {
-    <div class="alert alert-success" role="alert">{{ successMessage() }}</div>
-  }
-
   @if (mintedToken()) {
     <div class="alert alert-warning" id="minted-personal-access-token-alert">
       <div class="fw-semibold mb-2">New token (copy now)</div>
@@ -119,6 +115,9 @@
           <button type="button" class="btn-close" aria-label="Close" (click)="closeMintModal()"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <div class="mb-3">
             <label class="form-label" for="pat-mint-name">Name <span class="text-danger">*</span></label>
             <input
@@ -162,6 +161,9 @@
           <button type="button" class="btn-close" aria-label="Close" (click)="closeRenameModal()"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <label class="form-label" for="pat-rename-name">Name</label>
           <input
             id="pat-rename-name"

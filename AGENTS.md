@@ -29,7 +29,7 @@
   - Full ESM (`type: "module"`).
   - Express routing conventions (e.g., named wildcard syntax `/:version{/*path}` via `path-to-regexp` v8).
   - Clean separation between route handlers, business services, and database layers.
-  - Make sure that `server/.env.example` will always work out-of-the-box when used by a new developer, per the README.md instructions (values must match `docker/docker-compose.development.yml`).
+  - Make sure that `server/.env.example` will always work out-of-the-box when used by a new developer, per the README.md instructions (values must match `docker-compose.development.yml`).
   - Required env validation is centralized in `server/src/env.ts` (`requireEnvAll`, `SERVER_REQUIRED_ENV`, `WORKER_REQUIRED_ENV`). The API uses `loadSsoConfig()`; the worker uses `loadWorkerConfig()`. Do not add silent localhost fallbacks for required vars — missing config must exit with the shared helpful error that points at copying `.env.example`.
 - **Angular**:
   - Use the latest stable version of Angular and Bootstrap

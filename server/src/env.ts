@@ -45,13 +45,13 @@ export function readEnv(name: string, ...aliases: string[]): string | undefined 
 
 /**
  * Exit with a developer-oriented message when required configuration is missing.
- * Points at `.env.example`, which matches `docker/docker-compose.development.yml`.
+ * Points at `.env.example`, which matches `docker-compose.development.yml`.
  */
 export function exitMissingEnv(missing: string[]): never {
   const list = missing.map((name) => `  - ${name}`).join('\n');
   console.error(
     `Missing required environment variable(s):\n${list}\n\n` +
-      `For local development with docker/docker-compose.development.yml:\n` +
+      `For local development with docker-compose.development.yml:\n` +
       `  cp server/.env.example server/.env\n`,
   );
   process.exit(1);

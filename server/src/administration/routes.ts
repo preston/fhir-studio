@@ -9,6 +9,8 @@ import { requirePermission } from '../authorization/requirePermission.js';
 import { JobService } from '../jobs/service.js';
 import type { FhirRelease } from '@fhir-studio/core';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createAdministrationRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -138,7 +140,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.put('/api/administration/users/:userId', async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params;
+    const userId = routeParam(req.params.userId);
     const { displayName, email, isSuspended } = req.body;
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -166,7 +168,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.put('/api/administration/users/:userId/suspend', async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params;
+    const userId = routeParam(req.params.userId);
     const { isSuspended } = req.body;
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -238,7 +240,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.put('/api/administration/groups/:groupId', async (req: Request, res: Response): Promise<void> => {
-    const { groupId } = req.params;
+    const groupId = routeParam(req.params.groupId);
     const { name, description, ssoRoleMapping } = req.body;
 
     const updated = await prisma.group.update({
@@ -254,13 +256,13 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/groups/:groupId', async (req: Request, res: Response): Promise<void> => {
-    const { groupId } = req.params;
+    const groupId = routeParam(req.params.groupId);
     await prisma.group.delete({ where: { id: groupId } });
     res.json({ message: 'Group deleted successfully.' });
   });
 
   router.post('/api/administration/groups/:groupId/members', async (req: Request, res: Response): Promise<void> => {
-    const { groupId } = req.params;
+    const groupId = routeParam(req.params.groupId);
     const { userId } = req.body;
 
     if (!userId) {
@@ -284,7 +286,8 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/groups/:groupId/members/:userId', async (req: Request, res: Response): Promise<void> => {
-    const { groupId, userId } = req.params;
+    const groupId = routeParam(req.params.groupId);
+    const userId = routeParam(req.params.userId);
     await prisma.member.deleteMany({
       where: { groupId, userId },
     });
@@ -346,7 +349,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.put('/api/administration/roles/:roleId', async (req: Request, res: Response): Promise<void> => {
-    const { roleId } = req.params;
+    const roleId = routeParam(req.params.roleId);
     const {
       name,
       description,
@@ -384,7 +387,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/roles/:roleId', async (req: Request, res: Response): Promise<void> => {
-    const { roleId } = req.params;
+    const roleId = routeParam(req.params.roleId);
     await prisma.role.delete({ where: { id: roleId } });
     res.json({ message: 'Role deleted successfully.' });
   });
@@ -432,7 +435,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/appointments/:appointmentId', async (req: Request, res: Response): Promise<void> => {
-    const { appointmentId } = req.params;
+    const appointmentId = routeParam(req.params.appointmentId);
     await prisma.appointment.delete({ where: { id: appointmentId } });
     res.json({ message: 'Appointment deleted successfully.' });
   });
@@ -618,7 +621,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/sandboxes/:sandboxId/purge', async (req: Request, res: Response): Promise<void> => {
-    const { sandboxId } = req.params;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox) {
@@ -757,7 +760,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.put('/api/administration/implementation-guides/:id', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const {
       packageId,
       version,
@@ -801,7 +804,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.delete('/api/administration/implementation-guides/:id', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const ig = await prisma.implementationGuide.findUnique({ where: { id } });
     if (!ig) {
       res.status(404).json({ error: `Implementation Guide with ID '${id}' not found.` });
@@ -901,7 +904,7 @@ export function createAdministrationRouter(): Router {
   });
 
   router.post('/api/administration/implementation-guides/:id/install', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const { fhirVersions, excludeExamples = true } = req.body || {};
 
     const ig = await prisma.implementationGuide.findUnique({ where: { id } });

@@ -10,6 +10,7 @@ import type {
 } from '@fhir-studio/core';
 import { firstValueFrom } from 'rxjs';
 import { DeployConfigKeys, readDeployConfigUrl } from '../core/deploy-config.lib.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 @Component({
   selector: 'app-developer-personal-access-tokens',
@@ -18,12 +19,13 @@ import { DeployConfigKeys, readDeployConfigUrl } from '../core/deploy-config.lib
   templateUrl: './developer-personal-access-tokens.component.html',
 })
 export class DeveloperPersonalAccessTokensComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   private readonly http = inject(HttpClient);
 
   readonly tokens = signal<PersonalAccessTokenListItem[]>([]);
   readonly loading = signal(false);
   readonly errorMessage = signal<string | null>(null);
-  readonly successMessage = signal<string | null>(null);
+  readonly formError = signal<string | null>(null);
   readonly mintedToken = signal<string | null>(null);
 
   readonly mintName = signal('');
@@ -74,7 +76,7 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
   openMintModal(): void {
     this.mintName.set('');
     this.mintExpiresAt.set('');
-    this.errorMessage.set(null);
+    this.formError.set(null);
     this.showMintModal.set(true);
   }
 
@@ -83,13 +85,12 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
   }
 
   async confirmMint(): Promise<void> {
+    this.formError.set(null);
     const name = this.mintName().trim();
     if (!name) {
-      this.errorMessage.set('Name is required.');
+      this.formError.set('Name is required.');
       return;
     }
-    this.errorMessage.set(null);
-    this.successMessage.set(null);
     try {
       const expiresRaw = this.mintExpiresAt().trim();
       const body: { name: string; expiresAt?: string } = { name };
@@ -100,18 +101,18 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
         this.http.post<PersonalAccessTokenMintResponse>('/api/personal-access-tokens', body),
       );
       this.mintedToken.set(res.token);
-      this.successMessage.set('Personal access token created. Copy it now — it will not be shown again.');
+      this.toast.success('Personal access token created. Copy it now — it will not be shown again.');
       this.showMintModal.set(false);
       await this.loadTokens();
     } catch (err: any) {
-      this.errorMessage.set(err?.error?.error || 'Failed to create personal access token.');
+      this.toast.error(err?.error?.error || 'Failed to create personal access token.');
     }
   }
 
   openRenameModal(token: PersonalAccessTokenListItem): void {
     this.renameTarget.set(token);
     this.renameName.set(token.name);
-    this.errorMessage.set(null);
+    this.formError.set(null);
     this.showRenameModal.set(true);
   }
 
@@ -121,28 +122,27 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
   }
 
   async confirmRename(): Promise<void> {
+    this.formError.set(null);
     const target = this.renameTarget();
     const name = this.renameName().trim();
     if (!target || !name) {
-      this.errorMessage.set('Name is required.');
+      this.formError.set('Name is required.');
       return;
     }
-    this.errorMessage.set(null);
     try {
       await firstValueFrom(
         this.http.patch(`/api/personal-access-tokens/${target.id}`, { name }),
       );
-      this.successMessage.set('Token name updated.');
+      this.toast.success('Token name updated.');
       this.closeRenameModal();
       await this.loadTokens();
     } catch (err: any) {
-      this.errorMessage.set(err?.error?.error || 'Failed to rename personal access token.');
+      this.toast.error(err?.error?.error || 'Failed to rename personal access token.');
     }
   }
 
   openRevokeModal(token: PersonalAccessTokenListItem): void {
     this.revokeTarget.set(token);
-    this.errorMessage.set(null);
     this.showRevokeModal.set(true);
   }
 
@@ -156,10 +156,9 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
     if (!target) {
       return;
     }
-    this.errorMessage.set(null);
     try {
       await firstValueFrom(this.http.delete(`/api/personal-access-tokens/${target.id}`));
-      this.successMessage.set('Personal access token revoked.');
+      this.toast.success('Personal access token revoked.');
       const minted = this.mintedToken();
       this.closeRevokeModal();
       await this.loadTokens();
@@ -168,20 +167,27 @@ export class DeveloperPersonalAccessTokensComponent implements OnInit {
         this.mintedToken.set(null);
       }
     } catch (err: any) {
-      this.errorMessage.set(err?.error?.error || 'Failed to revoke personal access token.');
+      this.toast.error(err?.error?.error || 'Failed to revoke personal access token.');
     }
   }
 
   copyMintedToken(): void {
     const token = this.mintedToken();
     if (!token) return;
-    void navigator.clipboard.writeText(token);
-    this.successMessage.set('Token copied to clipboard.');
+    void this.copyToClipboard(token, 'Token copied to clipboard.');
   }
 
   copyCurlExample(): void {
-    void navigator.clipboard.writeText(this.curlExample());
-    this.successMessage.set('curl example copied to clipboard.');
+    void this.copyToClipboard(this.curlExample(), 'curl example copied to clipboard.');
+  }
+
+  private async copyToClipboard(value: string, message: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      this.toast.success(message);
+    } catch {
+      this.toast.error('Could not copy to clipboard. Select and copy the text manually.');
+    }
   }
 
   expiryLabel(token: PersonalAccessTokenListItem): string {

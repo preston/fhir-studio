@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
 import { HapiPartitionClient, isFhirReleaseEnabled } from '../hapi/partition_client.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createHooksRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -13,7 +15,7 @@ export function createHooksRouter(): Router {
 
   // 1. GET /api/sandboxes/:sandboxId/cds-services
   router.get('/api/sandboxes/:sandboxId/cds-services', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
@@ -31,7 +33,7 @@ export function createHooksRouter(): Router {
 
   // 2. POST /api/sandboxes/:sandboxId/cds-services (Register and discover services)
   router.post('/api/sandboxes/:sandboxId/cds-services', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const { name, url } = req.body;
 
     if (!name || !url) {
@@ -71,14 +73,14 @@ export function createHooksRouter(): Router {
 
   // 3. DELETE /api/sandboxes/:sandboxId/cds-services/:id
   router.delete('/api/sandboxes/:sandboxId/cds-services/:id', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     await prisma.cdsServiceEndpoint.delete({ where: { id } });
     res.json({ message: 'CDS Service endpoint deleted.' });
   });
 
   // 4. POST /api/sandboxes/:sandboxId/cds-services/proxy (Invoke CDS Hook & Resolve Prefetch)
   router.post('/api/sandboxes/:sandboxId/cds-services/proxy', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const { serviceUrl, hook = 'patient-view', hookInstance, context = {}, prefetch = {}, prefetchTemplates } = req.body;
 
     if (!serviceUrl) {

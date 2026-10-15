@@ -18,6 +18,8 @@ import { verifySandboxAccess } from './security.js';
 import { rewriteFhirPayload, rewriteHeaderUrl } from './url_rewriter.js';
 import { hasPermission } from '../authorization/permissions.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 function isKnowledgeMutationRequest(method: string, path: string, resourceType?: string): boolean {
   if (!isKnowledgePublishResourceType(resourceType)) {
     return false;
@@ -64,8 +66,8 @@ export function createFhirGatewayRouter(): Router {
 
   // Handler for /api/sandboxes/:sandboxId/fhir/:version and all subpaths
   const proxyHandler = async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
-    const versionParam = (req.params.version || 'r4').toUpperCase();
+    const sandboxId = routeParam(req.params.sandboxId);
+    const versionParam = (routeParam(req.params.version) || 'r4').toUpperCase();
 
     try {
       assertFhirReleaseEnabled(versionParam);
@@ -115,7 +117,7 @@ export function createFhirGatewayRouter(): Router {
       return;
     }
 
-    // Determine subpath within FHIR endpoint
+    // Determine subpath within FHIR endpoint (`*path` is string[] under Express 5 types)
     const pathParam = req.params.path;
     const subpath = Array.isArray(pathParam)
       ? (pathParam.length > 0 ? `/${pathParam.join('/')}` : '')

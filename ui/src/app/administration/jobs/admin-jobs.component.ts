@@ -11,6 +11,7 @@ import type {
 } from '@fhir-studio/core';
 import { AdministrationService } from '../../core/services/administration.service.js';
 import { SandboxService, type Sandbox } from '../../core/services/sandbox.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type JobSortField = NonNullable<JobFilter['sortBy']>;
 
@@ -21,6 +22,7 @@ export type JobSortField = NonNullable<JobFilter['sortBy']>;
   templateUrl: './admin-jobs.component.html',
 })
 export class AdminJobsComponent implements OnInit, OnDestroy {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
   public readonly sandboxService = inject(SandboxService);
 
@@ -29,7 +31,6 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
   public readonly totalJobs = signal<number>(0);
   public readonly allSandboxes = signal<Sandbox[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   public readonly statusOptions: { value: JobStatus; label: string }[] = [
@@ -110,6 +111,7 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
     this.administrationService.getJobs(this.jobFilters()).subscribe({
       next: (res) => {
         this.jobs.set(res.jobs);
+        this.errorMessage.set(null);
         this.totalJobs.set(res.total);
         this.jobsSummary.set(res.summary);
         this.loading.set(false);
@@ -275,11 +277,11 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (res) => {
           this.showTestJobModal.set(false);
-          this.successMessage.set(`Job '${res.job.name}' enqueued successfully.`);
+          this.toast.info(`Job '${res.job.name}' enqueued successfully.`);
           this.loadJobs();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to enqueue test job.');
+          this.toast.error(err?.error?.error || 'Failed to enqueue test job.');
         },
       });
   }
@@ -288,7 +290,7 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
     if (confirm(`Cancel active background job '${job.name}'?`)) {
       this.administrationService.cancelJob(job.id).subscribe({
         next: () => {
-          this.successMessage.set(`Job '${job.name}' was cancelled.`);
+          this.toast.success(`Job '${job.name}' was cancelled.`);
           this.loadJobs();
           const curr = this.selectedJob();
           if (curr && curr.id === job.id) {
@@ -296,7 +298,7 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
           }
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to cancel job.');
+          this.toast.error(err?.error?.error || 'Failed to cancel job.');
         },
       });
     }
@@ -305,11 +307,11 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
   public retryJob(job: BackgroundJob): void {
     this.administrationService.retryJob(job.id).subscribe({
       next: (res) => {
-        this.successMessage.set(`Job '${job.name}' re-enqueued as #${res.job.id.slice(0, 8)}.`);
+        this.toast.info(`Job '${job.name}' re-enqueued as #${res.job.id.slice(0, 8)}.`);
         this.loadJobs();
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to retry job.');
+        this.toast.error(err?.error?.error || 'Failed to retry job.');
       },
     });
   }
@@ -318,14 +320,14 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
     if (confirm(`Delete job record '${job.name}'?`)) {
       this.administrationService.deleteJob(job.id).subscribe({
         next: () => {
-          this.successMessage.set(`Job record deleted.`);
+          this.toast.success(`Job record deleted.`);
           if (this.showJobDetailModal() && this.selectedJob()?.id === job.id) {
             this.showJobDetailModal.set(false);
           }
           this.loadJobs();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete job.');
+          this.toast.error(err?.error?.error || 'Failed to delete job.');
         },
       });
     }
@@ -335,11 +337,11 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
     if (confirm('Purge all completed, failed, and cancelled jobs from history?')) {
       this.administrationService.purgeCompletedJobs().subscribe({
         next: (res) => {
-          this.successMessage.set(res.message);
+          this.toast.success(res.message);
           this.loadJobs();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to purge completed jobs.');
+          this.toast.error(err?.error?.error || 'Failed to purge completed jobs.');
         },
       });
     }

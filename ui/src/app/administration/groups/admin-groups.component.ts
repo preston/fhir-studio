@@ -8,6 +8,7 @@ import {
   AdministrationService,
   type AdministrationGroup,
 } from '../../core/services/administration.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type GroupSortField = 'name' | 'description' | 'ssoRoleMapping' | 'membersCount';
 
@@ -30,12 +31,13 @@ const EMPTY_GROUP_FORM: GroupFormModel = {
   templateUrl: './admin-groups.component.html',
 })
 export class AdminGroupsComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
 
   public readonly groups = signal<AdministrationGroup[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   // Search, Sort, Pagination state
   public readonly search = signal<string>('');
@@ -124,6 +126,7 @@ export class AdminGroupsComponent implements OnInit {
     this.administrationService.getGroups().subscribe({
       next: (res) => {
         this.groups.set(res.groups);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -175,6 +178,7 @@ export class AdminGroupsComponent implements OnInit {
   }
 
   public openNewGroupModal(): void {
+    this.formError.set(null);
     this.isEditing.set(false);
     this.currentGroupId = null;
     this.groupModel.set({ ...EMPTY_GROUP_FORM });
@@ -182,6 +186,7 @@ export class AdminGroupsComponent implements OnInit {
   }
 
   public openEditGroupModal(group: AdministrationGroup): void {
+    this.formError.set(null);
     this.isEditing.set(true);
     this.currentGroupId = group.id;
     this.groupModel.set({
@@ -193,6 +198,7 @@ export class AdminGroupsComponent implements OnInit {
   }
 
   public async saveGroup(): Promise<void> {
+    this.formError.set(null);
     try {
       const ok = await submit(this.groupForm, async () => {
         const payload = this.groupModel();
@@ -207,12 +213,12 @@ export class AdminGroupsComponent implements OnInit {
               .subscribe({
                 next: () => {
                   this.showGroupModal.set(false);
-                  this.successMessage.set('Group updated.');
+                  this.toast.success('Group updated.');
                   this.loadGroups();
                   resolve();
                 },
                 error: (err) => {
-                  this.errorMessage.set(err?.error?.error || 'Failed to update group.');
+                  this.toast.error(err?.error?.error || 'Failed to update group.');
                   reject(err);
                 },
               });
@@ -228,12 +234,12 @@ export class AdminGroupsComponent implements OnInit {
               .subscribe({
                 next: () => {
                   this.showGroupModal.set(false);
-                  this.successMessage.set('Group created.');
+                  this.toast.success('Group created.');
                   this.loadGroups();
                   resolve();
                 },
                 error: (err) => {
-                  this.errorMessage.set(err?.error?.error || 'Failed to create group.');
+                  this.toast.error(err?.error?.error || 'Failed to create group.');
                   reject(err);
                 },
               });
@@ -242,10 +248,10 @@ export class AdminGroupsComponent implements OnInit {
       });
 
       if (!ok) {
-        this.errorMessage.set('Group name is required.');
+        this.formError.set('Group name is required.');
       }
     } catch {
-      // Error message already set in subscribe handler.
+      // The subscribe handler already displayed the error toast.
     }
   }
 
@@ -253,11 +259,11 @@ export class AdminGroupsComponent implements OnInit {
     if (confirm('Delete this group?')) {
       this.administrationService.deleteGroup(groupId).subscribe({
         next: () => {
-          this.successMessage.set('Group deleted.');
+          this.toast.success('Group deleted.');
           this.loadGroups();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete group.');
+          this.toast.error(err?.error?.error || 'Failed to delete group.');
         },
       });
     }

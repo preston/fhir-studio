@@ -34,7 +34,6 @@
             "styles": [
               "../node_modules/bootstrap-icons/font/bootstrap-icons.css",
               "../node_modules/bootswatch/dist/materia/bootstrap.min.css",
-              "../node_modules/ngx-toastr/toastr.css",
               "src/app/stylesheets/styles.scss"
             ],
             "scripts": [

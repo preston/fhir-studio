@@ -8,6 +8,7 @@ import {
   AdministrationService,
   type AdministrationRole,
 } from '../../core/services/administration.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type RoleSortField = 'name' | 'ssoRoleMapping' | 'default';
 
@@ -48,12 +49,13 @@ const EMPTY_ROLE_FORM: RoleFormModel = {
   templateUrl: './admin-roles.component.html',
 })
 export class AdminRolesComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
 
   public readonly roles = signal<AdministrationRole[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   // Search, Sort, Pagination state
   public readonly search = signal<string>('');
@@ -138,6 +140,7 @@ export class AdminRolesComponent implements OnInit {
     this.administrationService.getRoles().subscribe({
       next: (res) => {
         this.roles.set(res.roles);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -189,6 +192,7 @@ export class AdminRolesComponent implements OnInit {
   }
 
   public openNewRoleModal(): void {
+    this.formError.set(null);
     this.isEditing.set(false);
     this.currentRoleId = null;
     this.roleModel.set({ ...EMPTY_ROLE_FORM });
@@ -196,6 +200,7 @@ export class AdminRolesComponent implements OnInit {
   }
 
   public openEditRoleModal(role: AdministrationRole): void {
+    this.formError.set(null);
     this.isEditing.set(true);
     this.currentRoleId = role.id;
     this.roleModel.set({
@@ -216,6 +221,7 @@ export class AdminRolesComponent implements OnInit {
   }
 
   public async saveRole(): Promise<void> {
+    this.formError.set(null);
     try {
       const ok = await submit(this.roleForm, async () => {
         const payload = this.roleModel();
@@ -224,12 +230,12 @@ export class AdminRolesComponent implements OnInit {
             this.administrationService.updateRole(this.currentRoleId!, payload).subscribe({
               next: () => {
                 this.showRoleModal.set(false);
-                this.successMessage.set('Role updated.');
+                this.toast.success('Role updated.');
                 this.loadRoles();
                 resolve();
               },
               error: (err) => {
-                this.errorMessage.set(err?.error?.error || 'Failed to update role.');
+                this.toast.error(err?.error?.error || 'Failed to update role.');
                 reject(err);
               },
             });
@@ -239,12 +245,12 @@ export class AdminRolesComponent implements OnInit {
             this.administrationService.createRole(payload).subscribe({
               next: () => {
                 this.showRoleModal.set(false);
-                this.successMessage.set('Role created.');
+                this.toast.success('Role created.');
                 this.loadRoles();
                 resolve();
               },
               error: (err) => {
-                this.errorMessage.set(err?.error?.error || 'Failed to create role.');
+                this.toast.error(err?.error?.error || 'Failed to create role.');
                 reject(err);
               },
             });
@@ -253,10 +259,10 @@ export class AdminRolesComponent implements OnInit {
       });
 
       if (!ok) {
-        this.errorMessage.set('Role name is required.');
+        this.formError.set('Role name is required.');
       }
     } catch {
-      // Error message already set in subscribe handler.
+      // The subscribe handler already displayed the error toast.
     }
   }
 
@@ -264,11 +270,11 @@ export class AdminRolesComponent implements OnInit {
     if (confirm('Delete this role?')) {
       this.administrationService.deleteRole(roleId).subscribe({
         next: () => {
-          this.successMessage.set('Role deleted.');
+          this.toast.success('Role deleted.');
           this.loadRoles();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete role.');
+          this.toast.error(err?.error?.error || 'Failed to delete role.');
         },
       });
     }

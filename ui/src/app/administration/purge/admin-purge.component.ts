@@ -3,7 +3,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ToastrService } from 'ngx-toastr';
 import type {
   AdministrationSandboxFilter,
   SandboxSummary,
@@ -12,6 +11,7 @@ import type {
 import { AdministrationService } from '../../core/services/administration.service.js';
 import type { Sandbox } from '../../core/services/sandbox.service.js';
 import { FhirReleasesService } from '../../core/services/fhir-releases.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   selector: 'app-admin-purge',
@@ -22,13 +22,12 @@ import { FhirReleasesService } from '../../core/services/fhir-releases.service.j
 export class AdminPurgeComponent implements OnInit {
   public readonly administrationService = inject(AdministrationService);
   public readonly fhirReleases = inject(FhirReleasesService);
-  private readonly toastr = inject(ToastrService);
+  private readonly toast = inject(ToastService);
 
   public readonly purgeSandboxes = signal<SandboxSummary[]>([]);
   public readonly purgeTotal = signal<number>(0);
   public readonly purgeTotalPages = signal<number>(1);
   public readonly purgeLoading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
 
   public readonly purgeFilters = signal<AdministrationSandboxFilter>({
@@ -53,6 +52,7 @@ export class AdminPurgeComponent implements OnInit {
     this.administrationService.getAdminSandboxes(this.purgeFilters()).subscribe({
       next: (res) => {
         this.purgeSandboxes.set(res.sandboxes);
+        this.errorMessage.set(null);
         this.purgeTotal.set(res.total);
         this.purgeTotalPages.set(res.totalPages);
         this.purgeLoading.set(false);
@@ -68,15 +68,15 @@ export class AdminPurgeComponent implements OnInit {
     if (confirm(`CRITICAL: Permanently purge sandbox '${sandbox.name}' and delete its HAPI FHIR JPA partition? This action is irreversible.`)) {
       this.administrationService.purgeSandbox(sandbox.sandboxId).subscribe({
         next: (res) => {
-          this.toastr.info(
+          this.toast.info(
             res.message ||
               `Sandbox '${sandbox.name}' will be purged asynchronously and may not disappear immediately.`,
             'Sandbox purge queued',
-            { timeOut: 8000 },
+            { durationMs: 8000 },
           );
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Purge failed.');
+          this.toast.error(err?.error?.error || 'Purge failed.');
         },
       });
     }

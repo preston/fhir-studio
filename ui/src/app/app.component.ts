@@ -8,11 +8,12 @@ import { filter, map } from 'rxjs';
 import { AuthService } from './core/services/auth.service.js';
 import { SandboxService, type Sandbox } from './core/services/sandbox.service.js';
 import { LandingComponent } from './landing/landing.component.js';
+import { ToastContainerComponent } from './shared/toast-container/toast-container.component.js';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, LandingComponent],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, LandingComponent, ToastContainerComponent],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
 })

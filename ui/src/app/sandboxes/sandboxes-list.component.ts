@@ -7,10 +7,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap, catchError } from 'rxjs/operators';
-import { ToastrService } from 'ngx-toastr';
 import { SandboxService, type Sandbox, type SandboxCollaborator } from '../core/services/sandbox.service.js';
 import { AuthService } from '../core/services/auth.service.js';
 import { FhirReleasesService, type FhirReleaseId } from '../core/services/fhir-releases.service.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 export type SandboxSortField = 'name' | 'sandboxId' | 'fhirVersion' | 'createdAt' | 'lastAccessedAt';
 export type SandboxAccessFilter = 'all' | 'secured' | 'open';
@@ -28,12 +28,12 @@ export class SandboxesListComponent implements OnInit {
   public readonly auth = inject(AuthService);
   public readonly fhirReleases = inject(FhirReleasesService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly toastr = inject(ToastrService);
+  private readonly toast = inject(ToastService);
 
   public readonly sandboxes = this.sandboxService.sandboxes;
   public readonly loading = signal<boolean>(false);
   public readonly errorMessage = signal<string | null>(null);
-  public readonly successMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   // Search, filter & sort
   public readonly search = signal<string>('');
@@ -218,6 +218,7 @@ export class SandboxesListComponent implements OnInit {
     this.loading.set(true);
     this.sandboxService.getSandboxes().subscribe({
       next: () => {
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -284,6 +285,7 @@ export class SandboxesListComponent implements OnInit {
   }
 
   public openCreateModal(): void {
+    this.formError.set(null);
     const defaultRelease = this.fhirReleases.enabledReleases()[0] || 'R4';
     this.newSandbox = {
       name: '',
@@ -303,16 +305,17 @@ export class SandboxesListComponent implements OnInit {
   }
 
   public createSandbox(): void {
+    this.formError.set(null);
     const cleanSlug = this.slugify(this.newSandbox.sandboxId);
     this.newSandbox.sandboxId = cleanSlug;
 
     if (!this.newSandbox.name.trim() || !cleanSlug) {
-      this.errorMessage.set('Name and Sandbox ID slug are required.');
+      this.formError.set('Name and Sandbox ID slug are required.');
       return;
     }
 
     if (this.slugAvailable() === false) {
-      this.errorMessage.set(this.slugValidationMessage() || 'Sandbox ID is not available.');
+      this.formError.set(this.slugValidationMessage() || 'Sandbox ID is not available.');
       return;
     }
 
@@ -326,7 +329,7 @@ export class SandboxesListComponent implements OnInit {
         next: () => {
           this.showCreateModal.set(false);
           const seeded = this.newSandbox.seedData;
-          this.successMessage.set(
+          this.toast.success(
             seeded
               ? `Sandbox '${this.newSandbox.name}' created. Synthetic seed data is loading asynchronously and may take a few minutes to appear.`
               : `Sandbox '${this.newSandbox.name}' created.`,
@@ -334,7 +337,7 @@ export class SandboxesListComponent implements OnInit {
           this.loadSandboxes();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to create sandbox.');
+          this.toast.error(err?.error?.error || 'Failed to create sandbox.');
           this.loading.set(false);
         },
       });
@@ -342,6 +345,7 @@ export class SandboxesListComponent implements OnInit {
 
   // Sandbox Settings Methods
   public openSettingsModal(sandbox: Sandbox): void {
+    this.formError.set(null);
     this.selectedSandboxForSettings.set(sandbox);
     this.settingsForm = {
       name: sandbox.name,
@@ -354,11 +358,12 @@ export class SandboxesListComponent implements OnInit {
   }
 
   public saveSandboxSettings(): void {
+    this.formError.set(null);
     const selected = this.selectedSandboxForSettings();
     if (!selected) return;
 
     if (!this.settingsForm.name.trim()) {
-      this.errorMessage.set('Sandbox name cannot be empty.');
+      this.formError.set('Sandbox name cannot be empty.');
       return;
     }
 
@@ -375,12 +380,12 @@ export class SandboxesListComponent implements OnInit {
         next: (res) => {
           this.savingSettings.set(false);
           this.showSettingsModal.set(false);
-          this.successMessage.set(`Settings for '${res.sandbox.name}' updated successfully.`);
+          this.toast.success(`Settings for '${res.sandbox.name}' updated successfully.`);
           this.loadSandboxes();
         },
         error: (err) => {
           this.savingSettings.set(false);
-          this.errorMessage.set(err?.error?.error || 'Failed to update sandbox settings.');
+          this.toast.error(err?.error?.error || 'Failed to update sandbox settings.');
         },
       });
   }
@@ -389,10 +394,10 @@ export class SandboxesListComponent implements OnInit {
     if (confirm(`Are you sure you want to reset all FHIR data in sandbox '${sandbox.name}'?`)) {
       this.sandboxService.resetSandbox(sandbox.sandboxId).subscribe({
         next: (res) => {
-          this.successMessage.set(res.message);
+          this.toast.success(res.message);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to reset partition.');
+          this.toast.error(err?.error?.error || 'Failed to reset partition.');
         },
       });
     }
@@ -402,18 +407,18 @@ export class SandboxesListComponent implements OnInit {
     if (confirm(`Are you sure you want to permanently delete sandbox '${sandbox.name}'?`)) {
       this.sandboxService.deleteSandbox(sandbox.sandboxId).subscribe({
         next: (res) => {
-          this.toastr.info(
+          this.toast.info(
             res.message ||
               `Sandbox '${sandbox.name}' will be deleted asynchronously and may not disappear immediately.`,
             'Sandbox deletion queued',
-            { timeOut: 8000 },
+            { durationMs: 8000 },
           );
           if (this.showSettingsModal()) {
             this.showSettingsModal.set(false);
           }
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete sandbox.');
+          this.toast.error(err?.error?.error || 'Failed to delete sandbox.');
         },
       });
     }
@@ -436,13 +441,13 @@ export class SandboxesListComponent implements OnInit {
       )
       .subscribe({
         next: () => {
-          this.successMessage.set(`Collaborator ${this.newCollaboratorEmail} added.`);
+          this.toast.success(`Collaborator ${this.newCollaboratorEmail} added.`);
           this.newCollaboratorEmail = '';
           this.loadSandboxes();
           this.showCollaboratorModal.set(false);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to add collaborator.');
+          this.toast.error(err?.error?.error || 'Failed to add collaborator.');
         },
       });
   }
@@ -450,6 +455,7 @@ export class SandboxesListComponent implements OnInit {
   public removeCollaborator(sandbox: Sandbox, userId: string): void {
     this.sandboxService.removeCollaborator(sandbox.sandboxId, userId).subscribe({
       next: () => {
+        this.toast.success(`Collaborator removed from '${sandbox.name}'.`);
         this.loadSandboxes();
         if (this.selectedSandboxForCollab()?.id === sandbox.id) {
           const updated = this.sandboxes().find((s) => s.id === sandbox.id);
@@ -457,7 +463,7 @@ export class SandboxesListComponent implements OnInit {
         }
       },
       error: (err) => {
-        this.errorMessage.set(err?.error?.error || 'Failed to remove collaborator.');
+        this.toast.error(err?.error?.error || 'Failed to remove collaborator.');
       },
     });
   }

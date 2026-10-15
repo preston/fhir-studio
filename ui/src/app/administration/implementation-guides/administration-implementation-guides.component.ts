@@ -8,6 +8,7 @@ import { form, FormField, required, submit } from '@angular/forms/signals';
 import type { ImplementationGuideSummary, CreateImplementationGuidePayload } from '@fhir-studio/core';
 import { AdministrationService } from '../../core/services/administration.service.js';
 import { FhirReleasesService, type FhirReleaseId } from '../../core/services/fhir-releases.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 export type IgSortField = 'packageId' | 'title' | 'fhirVersion' | 'category';
 
@@ -60,13 +61,14 @@ function toIgPayload(model: IgFormModel): CreateImplementationGuidePayload {
   templateUrl: './administration-implementation-guides.component.html',
 })
 export class AdministrationImplementationGuidesComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly administrationService = inject(AdministrationService);
   public readonly fhirReleases = inject(FhirReleasesService);
 
   public readonly implementationGuides = signal<ImplementationGuideSummary[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   // Filters, Sort & Pagination State
   public readonly search = signal<string>('');
@@ -174,6 +176,7 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.implementationGuides.set(res.implementationGuides);
+          this.errorMessage.set(null);
           this.loading.set(false);
         },
         error: (err) => {
@@ -228,6 +231,7 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   }
 
   public openNewIgModal(): void {
+    this.formError.set(null);
     this.isEditing.set(false);
     this.currentIgId = null;
     this.igModel.set({ ...EMPTY_IG_FORM });
@@ -235,6 +239,7 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   }
 
   public openEditIgModal(ig: ImplementationGuideSummary): void {
+    this.formError.set(null);
     this.isEditing.set(true);
     this.currentIgId = ig.id;
     this.igModel.set({
@@ -253,6 +258,7 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   }
 
   public openInstallModal(ig: ImplementationGuideSummary): void {
+    this.formError.set(null);
     this.installTarget.set(ig);
     this.installExcludeExamples.set(true);
     this.showInstallModal.set(true);
@@ -288,15 +294,15 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
   }
 
   public confirmInstall(): void {
+    this.formError.set(null);
     const ig = this.installTarget();
     const fhirVersions = this.installReleases();
     if (!ig || fhirVersions.length === 0) {
-      this.errorMessage.set('Select at least one enabled FHIR release to install into.');
+      this.formError.set('Select at least one enabled FHIR release to install into.');
       return;
     }
 
     this.installing.set(true);
-    this.errorMessage.set(null);
 
     this.administrationService
       .installImplementationGuide(ig.id, {
@@ -308,26 +314,28 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
           this.installing.set(false);
           this.showInstallModal.set(false);
           this.installTarget.set(null);
-          this.successMessage.set(
+          this.toast.info(
             `${res.message} Track progress under Administration → Jobs.`,
+            'Implementation Guide install queued',
+            { durationMs: 8000 },
           );
         },
         error: (err) => {
           this.installing.set(false);
-          this.errorMessage.set(err?.error?.error || 'Failed to queue Implementation Guide install.');
+          this.toast.error(err?.error?.error || 'Failed to queue Implementation Guide install.');
         },
       });
   }
 
   public fetchRegistryMetadata(): void {
+    this.formError.set(null);
     const current = this.igModel();
     if (!current.packageId.trim()) {
-      this.errorMessage.set('Enter a Package ID first to fetch metadata from registry.');
+      this.formError.set('Enter a Package ID first to fetch metadata from registry.');
       return;
     }
 
     this.fetchingRegistry.set(true);
-    this.errorMessage.set(null);
 
     this.administrationService
       .fetchRegistryPackageMetadata(current.packageId.trim(), current.version.trim() || undefined)
@@ -345,18 +353,19 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
               ...(meta.url ? { url: meta.url } : {}),
               ...(meta.author ? { author: meta.author } : {}),
             }));
-            this.successMessage.set(`Fetched metadata for '${current.packageId}' from packages.fhir.org.`);
+            this.toast.success(`Fetched metadata for '${current.packageId}' from packages.fhir.org.`);
           }
           this.fetchingRegistry.set(false);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to fetch metadata from packages.fhir.org.');
+          this.toast.error(err?.error?.error || 'Failed to fetch metadata from packages.fhir.org.');
           this.fetchingRegistry.set(false);
         },
       });
   }
 
   public async saveImplementationGuide(): Promise<void> {
+    this.formError.set(null);
     try {
       const ok = await submit(this.igForm, async () => {
         const payload = toIgPayload(this.igModel());
@@ -365,14 +374,14 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
             this.administrationService.updateImplementationGuide(this.currentIgId!, payload).subscribe({
               next: () => {
                 this.showIgModal.set(false);
-                this.successMessage.set(
+                this.toast.success(
                   `Implementation Guide '${payload.packageId}@${payload.version}' updated.`,
                 );
                 this.loadImplementationGuides();
                 resolve();
               },
               error: (err) => {
-                this.errorMessage.set(err?.error?.error || 'Failed to update implementation guide.');
+                this.toast.error(err?.error?.error || 'Failed to update implementation guide.');
                 reject(err);
               },
             });
@@ -382,14 +391,14 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
             this.administrationService.createImplementationGuide(payload).subscribe({
               next: () => {
                 this.showIgModal.set(false);
-                this.successMessage.set(
+                this.toast.success(
                   `Implementation Guide '${payload.packageId}@${payload.version}' registered.`,
                 );
                 this.loadImplementationGuides();
                 resolve();
               },
               error: (err) => {
-                this.errorMessage.set(err?.error?.error || 'Failed to register implementation guide.');
+                this.toast.error(err?.error?.error || 'Failed to register implementation guide.');
                 reject(err);
               },
             });
@@ -398,10 +407,10 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
       });
 
       if (!ok) {
-        this.errorMessage.set('Package ID, version, and title are required.');
+        this.formError.set('Package ID, version, and title are required.');
       }
     } catch {
-      // Error message already set in subscribe handler.
+      // The subscribe handler already displayed the error toast.
     }
   }
 
@@ -409,11 +418,11 @@ export class AdministrationImplementationGuidesComponent implements OnInit {
     if (confirm(`Are you sure you want to delete '${ig.packageId}@${ig.version}' (${ig.title})?`)) {
       this.administrationService.deleteImplementationGuide(ig.id).subscribe({
         next: () => {
-          this.successMessage.set(`Implementation Guide '${ig.packageId}@${ig.version}' deleted.`);
+          this.toast.success(`Implementation Guide '${ig.packageId}@${ig.version}' deleted.`);
           this.loadImplementationGuides();
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete implementation guide.');
+          this.toast.error(err?.error?.error || 'Failed to delete implementation guide.');
         },
       });
     }

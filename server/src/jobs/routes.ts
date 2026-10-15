@@ -5,6 +5,8 @@ import { requirePermission } from '../authorization/requirePermission.js';
 import { JobService } from './service.js';
 import type { JobFilter, JobStatus } from '@fhir-studio/core';
 
+import { routeParam } from '../http/routeParam.js';
+
 const VALID_JOB_STATUSES = new Set<JobStatus>(['queued', 'in_progress', 'completed', 'failed', 'cancelled']);
 
 function parseStatusQuery(status: unknown): JobStatus[] {
@@ -85,7 +87,7 @@ export function createJobsRouter(): Router {
 
   // Get single job detail
   router.get('/api/administration/jobs/:id', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const job = await jobService.getJobById(id);
     if (!job) {
       res.status(404).json({ error: 'Job not found.' });
@@ -96,7 +98,7 @@ export function createJobsRouter(): Router {
 
   // Cancel an active or queued job
   router.post('/api/administration/jobs/:id/cancel', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const cancelled = await jobService.cancelJob(id);
     if (!cancelled) {
       res.status(400).json({ error: 'Job could not be cancelled or was not found.' });
@@ -108,7 +110,7 @@ export function createJobsRouter(): Router {
 
   // Retry a failed or cancelled job
   router.post('/api/administration/jobs/:id/retry', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     try {
       const userId = (req as any).user?.id;
       const job = await jobService.retryJob(id, userId);
@@ -120,7 +122,7 @@ export function createJobsRouter(): Router {
 
   // Delete a specific job record
   router.delete('/api/administration/jobs/:id', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const deleted = await jobService.deleteJob(id);
     if (!deleted) {
       res.status(404).json({ error: 'Job not found.' });
@@ -133,7 +135,7 @@ export function createJobsRouter(): Router {
   // 2. USER & CLIENT JOB POLLING ENDPOINT
   // ==========================================
   router.get('/api/jobs/:id', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     const job = await jobService.getJobById(id);
     if (!job) {
       res.status(404).json({ error: 'Job not found.' });

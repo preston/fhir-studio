@@ -12,6 +12,7 @@ import { PersonasService, type UserPersona } from '../core/services/personas.ser
 import { ScenariosService } from '../core/services/scenarios.service.js';
 import { CdsHooksService, type CdsEndpoint } from '../core/services/cds-hooks.service.js';
 import type { CdsHookCard } from '@fhir-studio/core';
+import { ToastService } from '../core/services/toast.service.js';
 
 export interface PatientSummary {
   id: string;
@@ -62,6 +63,7 @@ export class EhrSimulatorComponent implements OnInit {
   private readonly personasService = inject(PersonasService);
   private readonly scenariosService = inject(ScenariosService);
   private readonly cdsHooksService = inject(CdsHooksService);
+  private readonly toast = inject(ToastService);
 
   public readonly applications = signal<SmartApplication[]>([]);
   public readonly personas = signal<UserPersona[]>([]);
@@ -436,6 +438,7 @@ export class EhrSimulatorComponent implements OnInit {
         },
         error: (err) => {
           console.error('Launch failed:', err);
+          this.toast.error(err?.error?.error || err?.message || 'Failed to launch application.');
           this.launching.set(false);
         },
       });

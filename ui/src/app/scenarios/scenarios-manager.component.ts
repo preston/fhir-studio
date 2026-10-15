@@ -8,6 +8,7 @@ import { SandboxService } from '../core/services/sandbox.service.js';
 import { ScenariosService, type LaunchScenario } from '../core/services/scenarios.service.js';
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 @Component({
   selector: 'app-scenarios-manager',
@@ -16,6 +17,7 @@ import { PersonasService, type UserPersona } from '../core/services/personas.ser
   templateUrl: './scenarios-manager.component.html',
 })
 export class ScenariosManagerComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly sandboxService = inject(SandboxService);
   public readonly scenariosService = inject(ScenariosService);
   public readonly applicationsService = inject(ApplicationsService);
@@ -26,8 +28,8 @@ export class ScenariosManagerComponent implements OnInit {
   public readonly applications = signal<SmartApplication[]>([]);
   public readonly personas = signal<UserPersona[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   public readonly showCreateModal = signal<boolean>(false);
   public newScenario = {
@@ -67,6 +69,7 @@ export class ScenariosManagerComponent implements OnInit {
     this.scenariosService.getScenarios(targetId).subscribe({
       next: (res) => {
         this.scenarios.set(res?.scenarios || []);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -97,9 +100,10 @@ export class ScenariosManagerComponent implements OnInit {
   }
 
   public createScenario(): void {
+    this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
     if (!current || !this.newScenario.title) {
-      this.errorMessage.set('Title is required.');
+      this.formError.set('Title is required.');
       return;
     }
 
@@ -117,11 +121,11 @@ export class ScenariosManagerComponent implements OnInit {
       .subscribe({
         next: () => {
           this.showCreateModal.set(false);
-          this.successMessage.set(`Scenario '${this.newScenario.title}' created successfully.`);
+          this.toast.success(`Scenario '${this.newScenario.title}' created successfully.`);
           this.loadData(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to create scenario.');
+          this.toast.error(err?.error?.error || 'Failed to create scenario.');
         },
       });
   }
@@ -142,11 +146,11 @@ export class ScenariosManagerComponent implements OnInit {
     if (confirm(`Are you sure you want to delete scenario '${scenario.title}'?`)) {
       this.scenariosService.deleteScenario(current.sandboxId, scenario.id).subscribe({
         next: () => {
-          this.successMessage.set(`Scenario '${scenario.title}' deleted.`);
+          this.toast.success(`Scenario '${scenario.title}' deleted.`);
           this.loadData(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete scenario.');
+          this.toast.error(err?.error?.error || 'Failed to delete scenario.');
         },
       });
     }

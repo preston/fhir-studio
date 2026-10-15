@@ -6,6 +6,8 @@ import { type Prisma } from '@prisma/client';
 import { getPrisma } from '../db/prisma.js';
 import { fetchPackageTarball } from './registry.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createImplementationGuidesRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -138,7 +140,8 @@ export function createImplementationGuidesRouter(): Router {
 
   // 3. GET /api/implementation-guides/registry/download/:packageId{/:version} (Proxy/download package tarball)
   router.get('/api/implementation-guides/registry/download/:packageId{/:version}', async (req: Request, res: Response): Promise<void> => {
-    const { packageId, version } = req.params;
+    const packageId = routeParam(req.params.packageId);
+    const version = routeParam(req.params.version);
     const { tarballUrl } = req.query;
 
     if (!packageId) {
@@ -176,7 +179,8 @@ export function createImplementationGuidesRouter(): Router {
 
   // 4. GET /api/implementation-guides/registry/package/:packageId{/:version}
   router.get('/api/implementation-guides/registry/package/:packageId{/:version}', async (req: Request, res: Response): Promise<void> => {
-    const { packageId, version } = req.params;
+    const packageId = routeParam(req.params.packageId);
+    const version = routeParam(req.params.version);
 
     try {
       const url = `https://packages.fhir.org/${encodeURIComponent(packageId)}`;
@@ -221,7 +225,7 @@ export function createImplementationGuidesRouter(): Router {
 
   // 5. GET /api/implementation-guides/:id (Fetch single IG record)
   router.get('/api/implementation-guides/:id', async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.params;
+    const id = routeParam(req.params.id);
     try {
       const ig = await prisma.implementationGuide.findUnique({
         where: { id },

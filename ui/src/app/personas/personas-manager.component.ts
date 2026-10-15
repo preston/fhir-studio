@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
+import { ToastService } from '../core/services/toast.service.js';
 
 @Component({
   selector: 'app-personas-manager',
@@ -13,13 +14,14 @@ import { PersonasService, type UserPersona } from '../core/services/personas.ser
   templateUrl: './personas-manager.component.html',
 })
 export class PersonasManagerComponent implements OnInit {
+  private readonly toast = inject(ToastService);
   public readonly sandboxService = inject(SandboxService);
   public readonly personasService = inject(PersonasService);
 
   public readonly personas = signal<UserPersona[]>([]);
   public readonly loading = signal<boolean>(false);
-  public readonly successMessage = signal<string | null>(null);
   public readonly errorMessage = signal<string | null>(null);
+  public readonly formError = signal<string | null>(null);
 
   public readonly showCreateModal = signal<boolean>(false);
   public newPersona = {
@@ -55,6 +57,7 @@ export class PersonasManagerComponent implements OnInit {
     this.personasService.getPersonas(targetId).subscribe({
       next: (res) => {
         this.personas.set(res?.personas || []);
+        this.errorMessage.set(null);
         this.loading.set(false);
       },
       error: (err) => {
@@ -65,9 +68,10 @@ export class PersonasManagerComponent implements OnInit {
   }
 
   public createPersona(): void {
+    this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
     if (!current || !this.newPersona.personaUserId || !this.newPersona.personaName) {
-      this.errorMessage.set('Persona User ID and Name are required.');
+      this.formError.set('Persona User ID and Name are required.');
       return;
     }
 
@@ -82,7 +86,7 @@ export class PersonasManagerComponent implements OnInit {
       .subscribe({
         next: () => {
           this.showCreateModal.set(false);
-          this.successMessage.set(`Persona '${this.newPersona.personaName}' created successfully.`);
+          this.toast.success(`Persona '${this.newPersona.personaName}' created successfully.`);
           this.newPersona = {
             personaUserId: '',
             personaName: '',
@@ -93,7 +97,7 @@ export class PersonasManagerComponent implements OnInit {
           this.loadPersonas(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to create persona.');
+          this.toast.error(err?.error?.error || 'Failed to create persona.');
         },
       });
   }
@@ -104,11 +108,11 @@ export class PersonasManagerComponent implements OnInit {
     if (confirm(`Are you sure you want to delete persona '${persona.personaName}'?`)) {
       this.personasService.deletePersona(current.sandboxId, persona.id).subscribe({
         next: () => {
-          this.successMessage.set(`Persona '${persona.personaName}' deleted.`);
+          this.toast.success(`Persona '${persona.personaName}' deleted.`);
           this.loadPersonas(current.sandboxId);
         },
         error: (err) => {
-          this.errorMessage.set(err?.error?.error || 'Failed to delete persona.');
+          this.toast.error(err?.error?.error || 'Failed to delete persona.');
         },
       });
     }

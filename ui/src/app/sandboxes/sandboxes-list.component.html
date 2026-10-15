@@ -12,13 +12,6 @@
   </div>
 </div>
 
-@if (successMessage()) {
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
-    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
-  </div>
-}
-
 @if (errorMessage()) {
   <div class="alert alert-danger alert-dismissible fade show" role="alert">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
@@ -273,6 +266,9 @@
           <button type="button" class="btn-close" (click)="showCreateModal.set(false)"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <div class="mb-3">
             <label class="form-label fw-semibold">Sandbox Name <span class="text-danger">*</span></label>
             <input type="text" class="form-control" [(ngModel)]="newSandbox.name" (ngModelChange)="onNameChange()" placeholder="e.g. Cardiology Clinic Sandbox">
@@ -434,6 +430,9 @@
           <button type="button" class="btn-close" (click)="showSettingsModal.set(false)"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <!-- Technical Specs Banner -->
           <div class="row g-2 p-3 bg-light rounded border mb-4">
             <div class="col-sm-4">

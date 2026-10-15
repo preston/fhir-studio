@@ -96,7 +96,7 @@ export function loadHapiConfig(): HapiPartitionConfig {
     console.error(
       'No FHIR releases are enabled. Set at least one of:\n' +
         SUPPORTED_FHIR_RELEASES.map((r) => `  - ${ENABLED_ENV[r]}=true`).join('\n') +
-        '\n\nFor local development with docker/docker-compose.development.yml:\n' +
+        '\n\nFor local development with docker-compose.development.yml:\n' +
         '  cp server/.env.example server/.env\n',
     );
     process.exit(1);

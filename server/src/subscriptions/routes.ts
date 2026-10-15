@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { SubscriptionHub } from './hub.js';
 import type { SubscriptionNotificationEvent } from '@fhir-studio/core';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createSubscriptionsRouter(): Router {
   const router = express.Router();
   const hub = SubscriptionHub.getInstance();
@@ -16,13 +18,13 @@ export function createSubscriptionsRouter(): Router {
 
   // 2. GET /api/sandboxes/:sandboxId/subscriptions/events
   router.get('/api/sandboxes/:sandboxId/subscriptions/events', (req: Request, res: Response): void => {
-    const { sandboxId } = req.params;
+    const sandboxId = routeParam(req.params.sandboxId);
     res.json({ events: hub.getEvents(sandboxId) });
   });
 
   // 3. POST /api/sandboxes/:sandboxId/subscriptions/trigger (Test-trigger a topic notification)
   router.post('/api/sandboxes/:sandboxId/subscriptions/trigger', async (req: Request, res: Response): Promise<void> => {
-    const { sandboxId } = req.params;
+    const sandboxId = routeParam(req.params.sandboxId);
     const {
       topic = 'http://hl7.org/SubscriptionTopic/admission',
       resourceType = 'Encounter',

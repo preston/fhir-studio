@@ -1,10 +1,3 @@
-@if (successMessage()) {
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage() }}
-    <button type="button" class="btn-close" (click)="successMessage.set(null)"></button>
-  </div>
-}
-
 @if (errorMessage()) {
   <div class="alert alert-danger alert-dismissible fade show" role="alert">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
@@ -288,6 +281,9 @@
           <button type="button" class="btn-close" (click)="closeInstallModal()" aria-label="Close"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <p class="mb-2">
             Queue background import of
             <span class="font-monospace fw-semibold">{{ ig.packageId }}#{{ ig.version }}</span>
@@ -364,6 +360,9 @@
           <button type="button" class="btn-close" (click)="showIgModal.set(false)" aria-label="Close"></button>
         </div>
         <div class="modal-body">
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
           <div class="row g-3 mb-3">
             <div class="col-md-7">
               <div class="form-floating">

@@ -6,7 +6,7 @@ The codebase is organized as an npm monorepo with strict TypeScript typing:
 - **`core/`** (`@fhir-studio/core`) – Shared domain models, RBAC definitions, SMART, FHIR, and CDS Hook types.
 - **`server/`** (`@fhir-studio/server`) – Express and Node.js ESM backend, Prisma OR/M, FHIR Gateway proxy, and SMART on FHIR v2 Identity Provider.
 - **`ui/`** (`@fhir-studio/ui`) – Angular standalone UI with Bootstrap and ECharts.
-- **`docker/`** – Local Docker Compose stack providing PostgreSQL, Redis, Authentik (SSO/OIDC), and multi-version HAPI FHIR JPA instances (R4, R4B, R5).
+- **`docker/`** – Support files for the root-level Docker Compose stacks providing PostgreSQL, Redis, Authentik (SSO/OIDC), and multi-version HAPI FHIR JPA instances (R4, R4B, R5).
 
 
 ---
@@ -98,12 +98,12 @@ Start the local backing infrastructure services (PostgreSQL, Authentik SSO, Redi
 npm run docker:up
 
 # Or directly via docker compose:
-docker compose -f docker/docker-compose.development.yml up -d
+docker compose -f docker-compose.development.yml up -d
 ```
 
 ### 2. Configure Environment
 
-Copy the example environment file (values match `docker/docker-compose.development.yml`). Both the API server and the job worker load `server/.env`:
+Copy the example environment file (values match `docker-compose.development.yml`). Both the API server and the job worker load `server/.env`:
 
 ```bash
 cp server/.env.example server/.env
@@ -191,7 +191,7 @@ Once running, navigate to `http://localhost:4200/` and sign in.
 
 Configuration uses the `FHIR_STUDIO_SERVER_*` / `FHIR_STUDIO_HAPI_*` prefixes. Validation lives in `server/src/env.ts` and is shared by the API (`loadSsoConfig` → `SERVER_REQUIRED_ENV`) and the worker (`loadWorkerConfig` → `WORKER_REQUIRED_ENV`). Required variables have **no in-code defaults**; a missing set causes an immediate exit listing every missing name and pointing at `server/.env.example`.
 
-Local development values match `server/.env.example` and `docker/docker-compose.development.yml`. Production Compose injects the same names into `fhir-studio-server` / `fhir-studio-worker` (worker gets the database URL and HAPI enable/base URL vars; the API gets the full SSO set).
+Local development values match `server/.env.example` and `docker-compose.development.yml`. Production Compose injects the same names into `fhir-studio-server` / `fhir-studio-worker` (worker gets the database URL and HAPI enable/base URL vars; the API gets the full SSO set).
 
 | Variable | API Server | Worker | Local Development Value (`.env.example`) | Description |
 | --- | --- | --- | --- | --- |

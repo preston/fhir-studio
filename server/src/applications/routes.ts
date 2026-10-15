@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
 import { requirePermission } from '../authorization/requirePermission.js';
 
+import { routeParam } from '../http/routeParam.js';
+
 export function createApplicationsRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
@@ -20,7 +22,7 @@ export function createApplicationsRouter(): Router {
 
   // 2. GET /api/sandboxes/:sandboxId/applications (Sandbox custom applications + sample applications)
   router.get('/api/sandboxes/:sandboxId/applications', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = req.params.sandboxId;
+    const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
 
     const applications = await prisma.application.findMany({
@@ -41,7 +43,7 @@ export function createApplicationsRouter(): Router {
     '/api/sandboxes/:sandboxId/applications',
     requirePermission('applications_register'),
     async (req: Request, res: Response): Promise<void> => {
-      const sandboxId = req.params.sandboxId;
+      const sandboxId = routeParam(req.params.sandboxId);
       const {
         clientName,
         launchUri,
@@ -93,7 +95,7 @@ export function createApplicationsRouter(): Router {
 
   // 4. PUT /api/sandboxes/:sandboxId/applications/:applicationId
   router.put('/api/sandboxes/:sandboxId/applications/:applicationId', async (req: Request, res: Response): Promise<void> => {
-    const { applicationId } = req.params;
+    const applicationId = routeParam(req.params.applicationId);
     const existing = await prisma.application.findUnique({ where: { id: applicationId } });
     if (!existing) {
       res.status(404).json({ error: 'Application not found.' });
@@ -134,7 +136,7 @@ export function createApplicationsRouter(): Router {
 
   // 5. DELETE /api/sandboxes/:sandboxId/applications/:applicationId
   router.delete('/api/sandboxes/:sandboxId/applications/:applicationId', async (req: Request, res: Response): Promise<void> => {
-    const { applicationId } = req.params;
+    const applicationId = routeParam(req.params.applicationId);
     const existing = await prisma.application.findUnique({ where: { id: applicationId } });
     if (!existing) {
       res.status(404).json({ error: 'Application not found.' });
