@@ -9,7 +9,7 @@ import { hmacSign, hmacVerify } from './hmac.js';
 import { decryptTokenBundle, encryptTokenBundle, type TokenBundle } from './token-crypto.js';
 import { refreshTokenGrant } from './oidc.js';
 
-export const SESSION_COOKIE = 'fhir_studio_session';
+export const SESSION_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-fhir_studio_session' : 'fhir_studio_session';
 
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
 
@@ -175,7 +175,7 @@ export interface ResolvedSession {
 }
 
 export async function resolveSessionFromRequest(
-  req: Request,
+  req: Pick<Request, 'cookies'>,
   oidc: OidcBffConfig,
 ): Promise<ResolvedSession | null> {
   const prisma = getPrisma(oidc.databaseUrl);

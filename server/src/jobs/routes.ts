@@ -1,3 +1,4 @@
+import { validateJobInput, jobDefinitions } from './definitions.js';
 // Author: Preston Lee
 
 import express, { type Request, type Response, type Router } from 'express';
@@ -6,6 +7,8 @@ import { JobService } from './service.js';
 import type { JobFilter, JobStatus } from '@fhir-studio/core';
 
 import { routeParam } from '../http/routeParam.js';
+import { applicationAccess, HostingError } from '../hosted/access.js';
+import { getPrisma } from '../db/prisma.js';
 
 const VALID_JOB_STATUSES = new Set<JobStatus>(['queued', 'in_progress', 'completed', 'failed', 'cancelled']);
 
@@ -34,7 +37,7 @@ export function createJobsRouter(): Router {
 
   // List background jobs with filters & pagination
   router.get('/api/administration/jobs', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
-    const { status, jobType, sandboxId, createdByUserId, search, sortBy, sortOrder, page, limit } = req.query;
+    const { scheduleId, status, jobType, sandboxId, createdByUserId, search, sortBy, sortOrder, page, limit } = req.query;
 
     const statusValues = parseStatusQuery(status);
     const allowedSortBy = new Set(['name', 'jobType', 'status', 'progress', 'createdAt', 'startedAt', 'completedAt']);
@@ -44,6 +47,7 @@ export function createJobsRouter(): Router {
     const parsedSortOrder = sortOrder === 'asc' || sortOrder === 'desc' ? sortOrder : undefined;
 
     const filters: JobFilter = {
+      ...(scheduleId ? { scheduleId: String(scheduleId) } : {}),
       ...(statusValues.length === 1 ? { status: statusValues[0] } : {}),
       ...(statusValues.length > 1 ? { statuses: statusValues } : {}),
       ...(jobType ? { jobType: String(jobType) } : {}),
@@ -80,7 +84,9 @@ export function createJobsRouter(): Router {
       return;
     }
 
-    const userId = (req as any).user?.id;
+    if (jobDefinitions.some(d => d.jobType === jobType)) validateJobInput(jobType, input ?? {});
+    if (String(jobType).startsWith('HOSTED_') && !jobDefinitions.some(d => d.jobType === jobType)) throw new HostingError(400, 'Use the hosting administration action or build endpoints.');
+    const userId = req.sessionAuth?.userId;
     const job = await jobService.enqueueJob({ name, jobType, input, sandboxId }, userId);
     res.status(201).json({ job });
   });
@@ -112,7 +118,7 @@ export function createJobsRouter(): Router {
   router.post('/api/administration/jobs/:id/retry', requirePermission('global_manage'), async (req: Request, res: Response): Promise<void> => {
     const id = routeParam(req.params.id);
     try {
-      const userId = (req as any).user?.id;
+      const userId = req.sessionAuth?.userId;
       const job = await jobService.retryJob(id, userId);
       res.status(201).json({ message: 'Job re-enqueued successfully.', job });
     } catch (err: any) {
@@ -141,6 +147,13 @@ export function createJobsRouter(): Router {
       res.status(404).json({ error: 'Job not found.' });
       return;
     }
+    if (job.jobType === 'HOSTED_IMPORT' || job.jobType === 'HOSTED_RECONCILE') {
+      const input = job.input as { buildId?: string; applicationId?: string };
+      const applicationId = input.applicationId || (input.buildId ? (await getPrisma().hostedBuild.findUnique({ where: { id: input.buildId } }))?.applicationId : null);
+      if (!applicationId) throw new HostingError(404, 'Application job not found.');
+      await applicationAccess(req, applicationId);
+    }
+    if (job.jobType.startsWith('HOSTED_') && !['HOSTED_IMPORT', 'HOSTED_RECONCILE'].includes(job.jobType) && !req.effectivePermissions?.global_manage) throw new HostingError(403, 'Platform administration required.');
     res.json({ job });
   });
 

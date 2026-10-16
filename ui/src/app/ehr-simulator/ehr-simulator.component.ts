@@ -369,7 +369,7 @@ export class EhrSimulatorComponent implements OnInit {
         patientName: patient.name,
         encounterFhirId: encounter.id,
         locationFhirId: location.id,
-        userPersonaId: persona?.personaUserId || 'practitioner-1',
+        userPersonaId: persona?.id || null,
         applicationId: application.id,
         clientId: application.clientId,
         scope: application.scope,

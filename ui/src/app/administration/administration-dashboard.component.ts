@@ -1,8 +1,9 @@
 // Author: Preston Lee
 
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { AuthService } from '../core/services/auth.service.js';
 
 @Component({
   selector: 'app-administration-dashboard',
@@ -11,4 +12,6 @@ import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
   templateUrl: './administration-dashboard.component.html',
   styleUrls: ['./administration-dashboard.component.scss'],
 })
-export class AdministrationDashboardComponent {}
+export class AdministrationDashboardComponent {
+  readonly auth = inject(AuthService);
+}

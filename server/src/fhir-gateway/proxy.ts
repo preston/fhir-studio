@@ -17,6 +17,7 @@ import { postFhirBatchBundle, type FhirBatchBundle } from '../hapi/batch.js';
 import { verifySandboxAccess } from './security.js';
 import { rewriteFhirPayload, rewriteHeaderUrl } from './url_rewriter.js';
 import { hasPermission } from '../authorization/permissions.js';
+import { loadStudioOrigin } from '../hosted/config.js';
 
 import { routeParam } from '../http/routeParam.js';
 
@@ -63,9 +64,13 @@ export function createFhirGatewayRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
   const hapiClient = new HapiPartitionClient();
+  const studioOrigin = loadStudioOrigin();
 
   // Handler for /api/sandboxes/:sandboxId/fhir/:version and all subpaths
   const proxyHandler = async (req: Request, res: Response): Promise<void> => {
+    // FHIR Binary and narrative content must never become executable Studio-origin documents.
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     const sandboxId = routeParam(req.params.sandboxId);
     const versionParam = (routeParam(req.params.version) || 'r4').toUpperCase();
 
@@ -119,11 +124,14 @@ export function createFhirGatewayRouter(): Router {
 
     // Determine subpath within FHIR endpoint (`*path` is string[] under Express 5 types)
     const pathParam = req.params.path;
-    const subpath = Array.isArray(pathParam)
+    let subpath = Array.isArray(pathParam)
       ? (pathParam.length > 0 ? `/${pathParam.join('/')}` : '')
       : pathParam
         ? `/${pathParam}`
         : '';
+    if (subpath.includes('\\') || subpath.split('/').some(segment => segment === '..' || segment === '.')) { res.sendStatus(400); return; }
+    const forwardedQuery = { ...req.query };
+    let forwardedBody: unknown = req.body;
 
     // Extract potential resourceType from subpath
     const pathSegments = subpath.split('/').filter(Boolean);
@@ -131,6 +139,7 @@ export function createFhirGatewayRouter(): Router {
     if (pathSegments.length > 0 && /^[A-Z][A-Za-z0-9]+$/.test(pathSegments[0])) {
       resourceType = pathSegments[0];
     }
+    if (resourceType === 'Binary') res.setHeader('Content-Disposition', 'attachment');
 
     // Access control verification
     const authHeader = req.get('authorization');
@@ -162,6 +171,50 @@ export function createFhirGatewayRouter(): Router {
       return;
     }
 
+    const hapiBaseUrl = hapiClient.getHapiBaseUrl(versionParam);
+    const postSearch = req.method === 'POST' && pathSegments.length === 2 && pathSegments[1] === '_search';
+    const searchBody: Record<string, unknown> = postSearch && req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
+    if (accessResult.isSmartClient && [req.query, searchBody].some(params =>
+      Object.keys(params).some(key => key.startsWith('_include') || key.startsWith('_revinclude')),
+    )) {
+      res.status(403).json({ error: 'SMART include and revinclude searches are not supported; request each resource type using its granted scopes.' });
+      return;
+    }
+    if (postSearch && !req.is('application/x-www-form-urlencoded')) {
+      res.status(415).json({ error: 'FHIR POST searches require application/x-www-form-urlencoded parameters.' });
+      return;
+    }
+    if (accessResult.patientRestricted && accessResult.smartSession?.patientFhirId && resourceType) {
+      const patientId = accessResult.smartSession.patientFhirId;
+      const parts = subpath.split('/').filter(Boolean);
+      const search = postSearch || (parts.length === 1 && ['GET', 'HEAD'].includes(req.method));
+      if (!search && !['GET', 'HEAD'].includes(req.method) && (Object.keys(forwardedQuery).length || (req.method !== 'POST' && !parts[1]))) { res.status(403).json({ error: 'Conditional patient-scoped writes are not supported.' }); return; }
+      if ([req.query, searchBody].some(params => Object.keys(params).some(key => key === '_has' || key.startsWith('_has:'))) || parts.some(p => p.startsWith('$') || p === '_history') || parts.length > 2) {
+        res.status(403).json({ error: 'Patient-scoped operations must stay within the launch patient compartment.' }); return;
+      }
+      if (search) {
+        if (resourceType === 'Patient') {
+          forwardedQuery['_id'] = patientId;
+          if (postSearch) forwardedBody = { ...searchBody, _id: patientId };
+        } else {
+          subpath = `/Patient/${encodeURIComponent(patientId)}/${resourceType}${postSearch ? '/_search' : ''}`;
+        }
+      } else if (resourceType === 'Patient') {
+        if ((parts[1] && parts[1] !== patientId) || (!['GET', 'HEAD'].includes(req.method))) { res.sendStatus(403); return; }
+      } else {
+        if (parts[1]) {
+          const existing = await axios.get<{ entry?: Array<{ resource?: { id?: string } }> }>(`${hapiBaseUrl}/${sandbox.sandboxId}/Patient/${encodeURIComponent(patientId)}/${resourceType}`, { params: { _id: parts[1], _count: 1 }, timeout: 15_000 });
+          if (!existing.data.entry?.some(entry => entry.resource?.id === parts[1])) { res.sendStatus(403); return; }
+        }
+        if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+          const body = req.body as { subject?: { reference?: string }; patient?: { reference?: string } };
+          if (req.method === 'PATCH' || ![body.subject?.reference, body.patient?.reference].includes(`Patient/${patientId}`)) { res.sendStatus(403); return; }
+        }
+      }
+    }
+
     // Global knowledge (HAPI DEFAULT / HAPI-1318 types) is write-gated by knowledge_publish.
     // Sandbox owners, collaborators, open-access, and SMART clients must not bypass
     // POST /api/knowledge/publish by writing Library/ValueSet/… via the sandbox FHIR base.
@@ -182,10 +235,8 @@ export function createFhirGatewayRouter(): Router {
       hasPermission(req.effectivePermissions, 'knowledge_publish') ||
       hasPermission(req.effectivePermissions, 'global_manage');
 
-    const hapiBaseUrl = hapiClient.getHapiBaseUrl(versionParam);
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const proxyBaseUrl = `${protocol}://${host}/api/sandboxes/${sandboxId}/fhir/${versionParam.toLowerCase()}`;
+    const publicOrigin = studioOrigin;
+    const proxyBaseUrl = `${publicOrigin}/api/sandboxes/${sandboxId}/fhir/${versionParam.toLowerCase()}`;
 
     // Root batch/transaction Bundles may mix partitionable clinical resources with
     // HAPI non-partitionable conformance types (StructureDefinition, ValueSet, …).
@@ -253,11 +304,13 @@ export function createFhirGatewayRouter(): Router {
       const response = await axios({
         method: req.method,
         url: targetUrl,
-        params: req.query,
-        data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
+        params: forwardedQuery,
+        data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? forwardedBody : undefined,
         headers: {
           'Content-Type': req.get('Content-Type') || 'application/fhir+json',
           Accept: req.get('Accept') || 'application/fhir+json',
+          ...Object.fromEntries(['Prefer', 'If-Match', 'If-None-Match', 'If-None-Exist', 'If-Modified-Since', 'If-Unmodified-Since']
+            .flatMap(name => req.get(name) ? [[name, req.get(name)!]] : [])),
         },
         validateStatus: () => true, // Forward all status codes from HAPI
         timeout: 30_000,
@@ -272,6 +325,9 @@ export function createFhirGatewayRouter(): Router {
       }
       if (response.headers['content-type']) {
         res.setHeader('Content-Type', String(response.headers['content-type']));
+      }
+      for (const name of ['etag', 'last-modified', 'preference-applied', 'retry-after']) {
+        if (response.headers[name]) res.setHeader(name, String(response.headers[name]));
       }
 
       // Rewrite response payload URLs

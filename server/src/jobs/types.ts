@@ -12,4 +12,4 @@ export interface JobExecutionContext {
   isCancelled: () => Promise<boolean>;
 }
 
-export type JobHandler = (ctx: JobExecutionContext) => Promise<Record<string, any> | void>;
+export type JobHandler = (ctx: JobExecutionContext) => Promise<Record<string, unknown> | void>;

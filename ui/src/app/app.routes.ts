@@ -1,3 +1,4 @@
+import { AdminHostingComponent } from './administration/hosting/admin-hosting.component.js';
 // Author: Preston Lee
 
 import type { Routes } from '@angular/router';
@@ -21,6 +22,8 @@ import { ExampleApplicationComponent } from './example-application/example-appli
 import { DeveloperPersonalAccessTokensComponent } from './developer/developer-personal-access-tokens.component.js';
 import { CqlWithFhirExampleComponent } from './cql-with-fhir-example/cql-with-fhir-example.component.js';
 import { permissionGuard } from './core/guards/permission.guard.js';
+import { HostedApplicationsComponent } from './applications/hosted-applications.component.js';
+import { ConnectionsComponent } from './profile/connections.component.js';
 
 export const routes: Routes = [
   { path: '', component: SandboxesListComponent },
@@ -36,6 +39,8 @@ export const routes: Routes = [
     canActivate: [permissionGuard('data_manager')],
   },
   { path: 'applications', component: ApplicationsManagerComponent },
+  { path: 'applications/hosted', component: HostedApplicationsComponent, canActivate: [permissionGuard('applications_deployment')] },
+  { path: 'profile/connections', component: ConnectionsComponent, canActivate: [permissionGuard('applications_deployment')] },
   { path: 'apps', redirectTo: 'applications', pathMatch: 'full' },
   { path: 'example-application', component: ExampleApplicationComponent },
   { path: 'example-application/launch', component: ExampleApplicationComponent },
@@ -62,6 +67,7 @@ export const routes: Routes = [
       { path: 'roles', component: AdminRolesComponent },
       { path: 'appointments', component: AdminAppointmentsComponent },
       { path: 'jobs', component: AdminJobsComponent },
+      { path: 'hosting', component: AdminHostingComponent, canActivate: [permissionGuard('applications_deployment')] },
       { path: 'implementation-guides', component: AdministrationImplementationGuidesComponent },
       { path: 'igs', redirectTo: 'implementation-guides', pathMatch: 'full' },
       { path: 'purge', component: AdminPurgeComponent },

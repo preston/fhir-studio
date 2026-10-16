@@ -17,7 +17,7 @@ export function createAdministrationRouter(): Router {
   const hapiClient = new HapiPartitionClient();
 
   // Protect entire administration router with global_manage permission
-  router.use(requirePermission('global_manage'));
+  router.use('/api/administration', requirePermission('global_manage'));
 
   // ==========================================
   // 1. SYSTEM & REPORTING METRICS
@@ -318,6 +318,7 @@ export function createAdministrationRouter(): Router {
       permission_ehr_simulator = true,
       permission_data_manager = true,
       permission_applications_register = true,
+      permission_applications_deployment = false,
       permission_package_import = true,
       permission_knowledge_publish = false,
       permission_global_manage = false,
@@ -339,6 +340,7 @@ export function createAdministrationRouter(): Router {
         permission_ehr_simulator: Boolean(permission_ehr_simulator),
         permission_data_manager: Boolean(permission_data_manager),
         permission_applications_register: Boolean(permission_applications_register),
+        permission_applications_deployment: Boolean(permission_applications_deployment),
         permission_package_import: Boolean(permission_package_import),
         permission_knowledge_publish: Boolean(permission_knowledge_publish),
         permission_global_manage: Boolean(permission_global_manage),
@@ -360,6 +362,7 @@ export function createAdministrationRouter(): Router {
       permission_ehr_simulator,
       permission_data_manager,
       permission_applications_register,
+      permission_applications_deployment,
       permission_package_import,
       permission_knowledge_publish,
       permission_global_manage,
@@ -377,6 +380,7 @@ export function createAdministrationRouter(): Router {
         ...(permission_ehr_simulator !== undefined ? { permission_ehr_simulator: Boolean(permission_ehr_simulator) } : {}),
         ...(permission_data_manager !== undefined ? { permission_data_manager: Boolean(permission_data_manager) } : {}),
         ...(permission_applications_register !== undefined ? { permission_applications_register: Boolean(permission_applications_register) } : {}),
+        ...(permission_applications_deployment !== undefined ? { permission_applications_deployment: Boolean(permission_applications_deployment) } : {}),
         ...(permission_package_import !== undefined ? { permission_package_import: Boolean(permission_package_import) } : {}),
         ...(permission_knowledge_publish !== undefined ? { permission_knowledge_publish: Boolean(permission_knowledge_publish) } : {}),
         ...(permission_global_manage !== undefined ? { permission_global_manage: Boolean(permission_global_manage) } : {}),

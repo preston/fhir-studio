@@ -22,6 +22,7 @@ interface RoleFormModel {
   permission_ehr_simulator: boolean;
   permission_data_manager: boolean;
   permission_applications_register: boolean;
+  permission_applications_deployment: boolean;
   permission_package_import: boolean;
   permission_knowledge_publish: boolean;
   permission_global_manage: boolean;
@@ -37,6 +38,7 @@ const EMPTY_ROLE_FORM: RoleFormModel = {
   permission_ehr_simulator: true,
   permission_data_manager: true,
   permission_applications_register: true,
+  permission_applications_deployment: false,
   permission_package_import: true,
   permission_knowledge_publish: false,
   permission_global_manage: false,
@@ -213,6 +215,7 @@ export class AdminRolesComponent implements OnInit {
       permission_ehr_simulator: role.permission_ehr_simulator,
       permission_data_manager: role.permission_data_manager,
       permission_applications_register: role.permission_applications_register,
+      permission_applications_deployment: role.permission_applications_deployment,
       permission_package_import: role.permission_package_import,
       permission_knowledge_publish: role.permission_knowledge_publish,
       permission_global_manage: role.permission_global_manage,

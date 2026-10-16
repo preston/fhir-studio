@@ -1,0 +1,848 @@
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h2>Application Studio</h2>
+    <p class="text-muted">
+      GitHub-backed SMART applications, templates, and static hosting.
+    </p>
+  </div>
+  <a routerLink="/profile/connections" class="btn btn-outline-secondary"
+    ><i class="bi bi-github me-2"></i
+    >{{ connection()?.login || "Connect GitHub" }}</a
+  >
+</div>
+@if (error()) {
+  <div class="alert alert-danger" role="alert">
+    {{ error() }}
+    <a routerLink="/profile/connections">Manage GitHub connection</a>
+  </div>
+}
+@if (notice()) {
+  <div class="alert alert-info" role="status">{{ notice() }}</div>
+}
+<div class="row g-3">
+  <aside class="col-lg-3">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="btn-group mb-3" role="group">
+          @for (view of ["Owned", "Shared"]; track view) {
+            <button
+              class="btn btn-sm btn-outline-primary"
+              [class.active]="filter() === view"
+              (click)="filter.set(view)"
+            >
+              {{ view }}
+            </button>
+          }
+        </div>
+        <div class="list-group">
+          @for (project of visibleApps(); track project.id) {
+            <button
+              class="list-group-item list-group-item-action"
+              [class.active]="app()?.id === project.id"
+              (click)="selectProject(project.id)"
+            >
+              {{ project.name
+              }}<small class="d-block">{{ project.repository }}</small>
+            </button>
+          } @empty {
+            <p class="text-muted">No applications in this view.</p>
+          }
+        </div>
+      </div>
+    </div>
+    <details class="card" [open]="!app()">
+      <summary class="card-header">Create application</summary>
+      <div class="card-body">
+        <p class="small text-muted">
+          Connect an existing repository or populate a new, empty repository
+          from a starter.
+        </p>
+        @if (!connection()?.login) {
+          <a
+            href="/api/github/connect?returnTo=/applications/hosted"
+            (click)="rememberWizard()"
+            class="btn btn-primary"
+            >Connect GitHub</a
+          >
+        }
+        <a
+          href="/api/github/install?returnTo=/applications/hosted"
+          class="btn btn-sm btn-outline-primary mb-2"
+          (click)="rememberWizard()"
+          >Install / manage repository access</a
+        >
+        <label class="form-label">Template</label
+        ><select
+          class="form-select mb-2"
+          [(ngModel)]="form.starter"
+          (ngModelChange)="starterChanged()"
+        >
+          <option value="">Existing repository</option>
+          @for (template of templates(); track template.id) {
+            <option [value]="template.id">{{ template.name }}</option>
+          }
+        </select>
+        <label class="form-label">GitHub installation</label
+        ><select
+          class="form-select mb-2"
+          [(ngModel)]="form.installationId"
+          (ngModelChange)="repositories()"
+        >
+          <option value="">Select installation</option>
+          @for (
+            installation of connection()?.installations || [];
+            track installation.id
+          ) {
+            <option [value]="installation.id">
+              {{ installation.account.login }}
+            </option>
+          }
+        </select>
+        <button
+          class="btn btn-sm btn-outline-secondary mb-2"
+          (click)="repositories()"
+          [disabled]="busy() || !form.installationId"
+        >
+          Refresh repositories
+        </button>
+        <label class="form-label">Repository</label
+        ><select
+          class="form-select mb-2"
+          [(ngModel)]="form.repositoryId"
+          (ngModelChange)="repositoryChanged()"
+        >
+          <option value="">Select repository</option>
+          @for (repo of repos(); track repo.id) {
+            <option [value]="repo.id">
+              {{ repo.full_name }}
+              {{ repo.private ? "(private)" : "(public)" }}
+            </option>
+          }
+        </select>
+        <details class="mb-3">
+          <summary>Create a GitHub repository</summary>
+          <label class="form-label mt-2">Owner / organization</label
+          ><input
+            class="form-control mb-2"
+            [(ngModel)]="newRepo.owner"
+            placeholder="Defaults to your GitHub account"
+          />
+          <label class="form-label">Repository name</label
+          ><input class="form-control mb-2" [(ngModel)]="newRepo.name" />
+          <label class="form-check mb-2"
+            ><input
+              type="checkbox"
+              class="form-check-input"
+              [(ngModel)]="newRepo.private"
+            />Private repository</label
+          >
+          <button
+            class="btn btn-sm btn-outline-primary"
+            (click)="createRepository()"
+            [disabled]="busy() || !newRepo.name"
+          >
+            Create repository
+          </button>
+        </details>
+        <label class="form-label">Application name</label
+        ><input
+          class="form-control mb-2"
+          [(ngModel)]="form.name"
+          (ngModelChange)="rememberWizard()"
+        />
+        <label class="form-label">Branch</label
+        ><input
+          class="form-control mb-2"
+          [(ngModel)]="form.branch"
+          (ngModelChange)="rememberWizard()"
+        />
+        <label class="form-label">Project subdirectory</label
+        ><input
+          class="form-control mb-2"
+          [(ngModel)]="form.projectDirectory"
+          (ngModelChange)="rememberWizard()"
+          placeholder="Repository root"
+        />
+        <button
+          class="btn btn-sm btn-outline-secondary mb-2"
+          (click)="detectDefaults()"
+          [disabled]="busy() || !form.repositoryId || !!form.starter"
+        >
+          Detect build settings
+        </button>
+        <label class="form-label">Build command</label
+        ><input
+          class="form-control font-monospace mb-2"
+          [(ngModel)]="form.buildCommand"
+          (ngModelChange)="rememberWizard()"
+        />
+        <label class="form-label">Output directory, relative to project</label
+        ><input
+          class="form-control mb-2"
+          [(ngModel)]="form.outputDirectory"
+          (ngModelChange)="rememberWizard()"
+        />
+        <label class="form-label">Node version</label
+        ><input
+          class="form-control mb-2"
+          [(ngModel)]="form.nodeVersion"
+          (ngModelChange)="rememberWizard()"
+        />
+        <div class="alert alert-warning small">
+          Preview and published files are public, including source maps. A
+          private repository does not make hosted assets private. Do not include
+          credentials or real patient data.
+        </div>
+        <label class="form-check mb-2"
+          ><input
+            class="form-check-input"
+            type="checkbox"
+            [(ngModel)]="publicAcknowledged"
+          />I understand that hosted files are public.</label
+        >
+        <button
+          class="btn btn-primary"
+          (click)="create()"
+          [disabled]="
+            busy() || !form.repositoryId || !form.name || !publicAcknowledged
+          "
+        >
+          Create application
+        </button>
+      </div>
+    </details>
+  </aside>
+  <section class="col-lg-9">
+    @if (app(); as project) {
+      <div class="d-flex justify-content-between align-items-start mb-2">
+        <div>
+          <h3>{{ project.name }}</h3>
+          <a
+            [href]="'https://github.com/' + project.repository"
+            target="_blank"
+            rel="noopener"
+            >{{ project.repository }}</a
+          >
+        </div>
+        <span class="badge bg-secondary">{{
+          project.capabilities.own
+            ? "Owner"
+            : project.capabilities.manageCollaborators
+              ? "Administrator"
+              : project.capabilities.develop
+                ? "Developer"
+                : "Viewer"
+        }}</span>
+      </div>
+      @if (project.suspended) {
+        <div class="alert alert-danger">
+          Application suspended by the operator.
+        </div>
+      }
+      @if (project.transferToUserId === auth.currentUser()?.id) {
+        <button
+          class="btn btn-warning mb-2"
+          (click)="operation('accept-transfer')"
+        >
+          Accept application ownership
+        </button>
+      }
+      <div class="small text-body-secondary mb-3">
+        Requested build: {{ buildLabel(project.desiredBuildId) }}<br />
+        Successful preview: {{ buildLabel(project.previewBuildId) }}<br />
+        Published: {{ buildLabel(project.publishedBuildId) }}
+      </div>
+      <ul class="nav nav-tabs mb-3">
+        @for (
+          view of ["Code", "Preview", "Build", "Usage", "Collaborators", "Settings"];
+          track view
+        ) {
+          <li class="nav-item">
+            <button
+              class="nav-link"
+              [class.active]="tab() === view"
+              (click)="tab.set(view)"
+            >
+              {{ view }}
+            </button>
+          </li>
+        }
+      </ul>
+      @switch (tab()) {
+        @case ("Code") {
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <input
+              class="form-control w-auto"
+              [(ngModel)]="branch"
+              aria-label="Source branch"
+            /><button
+              class="btn btn-outline-primary"
+              (click)="loadSource()"
+              [disabled]="busy()"
+            >
+              Load branch</button
+            ><a
+              [href]="'https://github.com/' + project.repository + '/compare'"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-outline-secondary"
+              >Pull requests on GitHub</a
+            >
+          </div>
+          <p class="small text-muted">
+            Loaded source commit: {{ snapshot()?.commit || "Not loaded" }}.
+            Drafts stay in this tab until saved or discarded.
+          </p>
+          @if (project.capabilities.develop) {
+            <div class="d-flex gap-2 mb-2">
+              <input
+                class="form-control w-auto"
+                [(ngModel)]="newBranch"
+                placeholder="New writable branch"
+              /><button
+                class="btn btn-sm btn-outline-secondary"
+                (click)="createBranch()"
+                [disabled]="busy() || !snapshot() || !newBranch"
+              >
+                Create branch
+              </button>
+            </div>
+          }
+          <div class="row g-2">
+            <div class="col-md-4">
+              <div class="list-group overflow-auto" style="max-height: 520px">
+                @for (file of snapshot()?.files || []; track file.path) {
+                  <button
+                    class="list-group-item list-group-item-action small text-break"
+                    [class.active]="selectedFile() === file.path"
+                    (click)="this.file(file.path)"
+                    [disabled]="busy()"
+                  >
+                    {{ file.path }}
+                  </button>
+                }
+              </div>
+              @if (project.capabilities.develop) {
+                <input
+                  class="form-control mt-2"
+                  [(ngModel)]="newFile"
+                  placeholder="New file path"
+                /><button
+                  class="btn btn-sm btn-outline-secondary mt-1"
+                  (click)="addFile()"
+                  [disabled]="!snapshot() || !newFile"
+                >
+                  Add file
+                </button>
+              }
+            </div>
+            <div class="col-md-8">
+              <label class="form-label font-monospace">{{
+                selectedFile() || "Select a source file"
+              }}</label
+              ><app-code-editor
+                [value]="editor()"
+                [language]="language()"
+                (valueChange)="edit($event)"
+                [readonly]="!selectedFile() || !project.capabilities.develop"
+              />
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            @if (project.capabilities.develop) {
+              <button
+                class="btn btn-primary"
+                (click)="save()"
+                [disabled]="busy() || !snapshot()"
+              >
+                Save to GitHub</button
+              ><button
+                class="btn btn-success"
+                (click)="save(true)"
+                [disabled]="busy() || !snapshot()"
+              >
+                Save and build preview</button
+              ><button class="btn btn-outline-secondary" (click)="recovery()">
+                Download recovery patch</button
+              ><button class="btn btn-outline-danger" (click)="discard()">
+                Discard draft
+              </button>
+            }
+          </div>
+        }
+        @case ("Preview") {
+          <div class="alert alert-secondary small">
+            This is a public, shared preview. Another collaborator’s successful
+            build can replace it. SMART authorization controls access to sandbox
+            data.
+          </div>
+          <p>
+            Preview:
+            <a
+              [href]="project.previewUrl"
+              (click)="reviewedPreviewId.set(project.previewBuildId)"
+              target="_blank"
+              rel="noopener"
+              >{{ project.previewUrl }}</a
+            ><br />Published:
+            <a [href]="project.publishedUrl" target="_blank" rel="noopener">{{
+              project.publishedUrl
+            }}</a>
+          </p>
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label">Sandbox</label
+              ><select
+                class="form-select"
+                [(ngModel)]="test.sandbox"
+                (ngModelChange)="launchChoices()"
+              >
+                <option value="">Choose sandbox</option>
+                @for (item of sandbox.sandboxes(); track item.id) {
+                  <option [value]="item.sandboxId">
+                    {{ item.name }} ({{ item.fhirVersion }})
+                  </option>
+                }
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Patient</label>
+              <div class="input-group mb-1">
+                <input
+                  class="form-control"
+                  placeholder="Search patients"
+                  [(ngModel)]="patientSearch"
+                /><button
+                  class="btn btn-outline-secondary"
+                  (click)="action(searchPatients.bind(this))"
+                  [disabled]="busy() || !test.sandbox"
+                >
+                  Search
+                </button>
+              </div>
+              <select
+                class="form-select"
+                [(ngModel)]="test.patient"
+                (ngModelChange)="patientChanged()"
+              >
+                <option value="">No patient context</option>
+                @for (patient of patients(); track patient.id) {
+                  <option [value]="patient.id">
+                    {{ patientLabel(patient) }}
+                  </option>
+                }
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Encounter</label>
+              <select class="form-select" [(ngModel)]="test.encounter">
+                <option value="">No encounter context</option>
+                @for (encounter of encounters(); track encounter.id) {
+                  <option [value]="encounter.id">
+                    {{ encounter.id }} · {{ encounter.status }}
+                  </option>
+                }
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Persona</label>
+              <select class="form-select" [(ngModel)]="test.persona">
+                <option value="">Default persona</option>
+                @for (persona of personas(); track persona.id) {
+                  <option [value]="persona.id">
+                    {{ persona.personaName }}
+                  </option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="d-flex gap-2 my-3">
+            <button
+              class="btn btn-primary"
+              (click)="launch()"
+              [disabled]="busy() || !project.previewBuildId"
+            >
+              Test preview in sandbox</button
+            ><button
+              class="btn btn-outline-primary"
+              (click)="launch('published')"
+              [disabled]="busy() || !project.publishedBuildId"
+            >
+              Test published app</button
+            ><button
+              class="btn btn-outline-secondary"
+              (click)="operation('sandboxes/' + test.sandbox)"
+              [disabled]="!test.sandbox || !project.publishedBuildId"
+            >
+              Enable for sandbox
+            </button>
+            <button
+              class="btn btn-outline-secondary"
+              (click)="launchChoices()"
+              [disabled]="busy() || !test.sandbox"
+            >
+              Load launch choices
+            </button>
+          </div>
+          @if (previewSrc()) {
+            <iframe
+              [src]="previewSrc()!"
+              title="SMART application preview"
+              sandbox="allow-scripts allow-same-origin allow-forms"
+              referrerpolicy="no-referrer"
+              class="w-100 border rounded"
+              style="height: 650px"
+            ></iframe>
+          }
+        }
+        @case ("Build") {
+          <button
+            class="btn btn-sm btn-outline-secondary mb-2"
+            (click)="checkSetup()"
+            [disabled]="busy()"
+          >
+            Check GitHub / workflow setup
+          </button>
+          <p class="small">
+            <a
+              [href]="project.previewUrl"
+              target="_blank"
+              rel="noopener"
+              (click)="reviewedPreviewId.set(project.previewBuildId)"
+              >Review current preview</a
+            >
+            before publishing.
+            @if (
+              reviewedPreviewId() &&
+              reviewedPreviewId() !== project.previewBuildId
+            ) {
+              The preview changed; review the new build before publishing.
+            }
+          </p>
+          <p>
+            Current preview:
+            <code>{{ project.previewBuildId || "None" }}</code
+            ><br />Published build:
+            <code>{{ project.publishedBuildId || "None" }}</code>
+          </p>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            @if (project.capabilities.develop) {
+              <button
+                class="btn btn-primary"
+                (click)="
+                  operation('builds', { branch: branch || project.branch })
+                "
+                [disabled]="busy()"
+              >
+                Build selected branch</button
+              ><button
+                class="btn btn-outline-secondary"
+                (click)="operation('sync')"
+                [disabled]="busy()"
+              >
+                Synchronize GitHub status
+              </button>
+            }
+            @if (project.capabilities.publish) {
+              <button
+                class="btn btn-outline-primary"
+                (click)="
+                  operation('workflow', { branch: branch || project.branch })
+                "
+                [disabled]="busy()"
+              >
+                Install / repair workflow</button
+              ><button
+                class="btn btn-success"
+                (click)="operation('publish', { buildId: reviewedPreviewId() })"
+                [disabled]="
+                  busy() ||
+                  !reviewedPreviewId() ||
+                  reviewedPreviewId() !== project.previewBuildId
+                "
+              >
+                Publish reviewed preview
+              </button>
+            }
+            @if (project.capabilities.publish || auth.isGlobalAdmin()) {
+              <button
+                class="btn btn-outline-danger"
+                (click)="operation('unpublish')"
+                [disabled]="busy() || !project.publishedBuildId"
+              >
+                Unpublish and pause auto-promotion
+              </button>
+            }
+          </div>
+          <p class="small text-muted">
+            The workflow must be merged into the default branch before manual
+            builds are available. Build logs and full workflow history remain on
+            GitHub; Studio does not retain old build files.
+          </p>
+          @for (build of project.builds; track build.id) {
+            <div class="card mb-2">
+              <div class="card-body">
+                <div class="d-flex justify-content-between">
+                  <strong>{{ build.status }}</strong
+                  ><span
+                    >{{ build.branch }} ·
+                    <code>{{ build.commit.slice(0, 8) }}</code> · attempt
+                    {{ build.runAttempt }}</span
+                  >
+                </div>
+                @if (build.error) {
+                  <p class="text-danger mt-2">{{ build.error }}</p>
+                }
+                @if (build.githubUrl) {
+                  <a [href]="build.githubUrl" target="_blank" rel="noopener"
+                    >Open GitHub run and logs</a
+                  >
+                }
+                @if (project.capabilities.develop) {
+                  <button
+                    class="btn btn-sm btn-outline-secondary ms-2"
+                    (click)="operation('builds/' + build.id + '/retry')"
+                    [disabled]="busy() || build.status !== 'FAILED'"
+                  >
+                    Retry import</button
+                  ><button
+                    class="btn btn-sm btn-outline-danger ms-2"
+                    (click)="operation('builds/' + build.id + '/cancel')"
+                    [disabled]="
+                      busy() ||
+                      !['WAITING', 'BUILDING', 'IMPORTING'].includes(
+                        build.status
+                      )
+                    "
+                  >
+                    Cancel
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        }
+        @case ("Collaborators") {
+          <p class="text-muted">
+            Studio roles do not grant GitHub repository access. Collaborators
+            need their own GitHub permissions to read source, edit, and build.
+          </p>
+          @if (project.capabilities.manageCollaborators) {
+            <div class="d-flex gap-2 mb-3">
+              <input
+                class="form-control"
+                [(ngModel)]="memberEmail"
+                placeholder="Existing Studio account email"
+              /><select class="form-select w-auto" [(ngModel)]="memberRole">
+                <option value="READ_ONLY">Viewer</option>
+                <option value="READ_WRITE">Developer</option>
+                @if (project.capabilities.own) {
+                  <option value="MANAGE">Administrator</option>
+                }</select
+              ><button
+                class="btn btn-primary"
+                (click)="collaborator()"
+                [disabled]="busy() || !memberEmail"
+              >
+                Add / update
+              </button>
+            </div>
+          }
+          <ul class="list-group">
+            @for (member of project.collaborators; track member.userId) {
+              <li class="list-group-item d-flex justify-content-between">
+                <span
+                  >{{ member.user.displayName || member.user.email }} ·
+                  {{ member.role }}</span
+                >
+                @if (
+                  project.capabilities.manageCollaborators &&
+                  (project.capabilities.own || member.role !== "MANAGE")
+                ) {
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    (click)="removeCollaborator(member.userId)"
+                    [disabled]="busy()"
+                  >
+                    Remove
+                  </button>
+                }
+              </li>
+            }
+          </ul>
+          @if (project.capabilities.own) {
+            <h5 class="mt-4">Transfer ownership</h5>
+            <p class="small text-muted">
+              The recipient must accept and have GitHub write access. Repository
+              ownership does not change.
+            </p>
+            <div class="d-flex gap-2">
+              <input
+                class="form-control"
+                [(ngModel)]="transferEmail"
+                placeholder="Recipient Studio email"
+              /><button
+                class="btn btn-outline-warning"
+                (click)="operation('transfer', { email: transferEmail })"
+                [disabled]="busy() || !transferEmail"
+              >
+                Request transfer
+              </button>
+            </div>
+          }
+        }
+        @case ("Usage") { <app-hosting-usage [applicationId]="app()!.id" /> }
+        @case ("Settings") {
+          @if (auth.isGlobalAdmin()) {
+            <button
+              class="btn btn-warning mb-3"
+              routerLink="/administration/hosting"
+              [disabled]="busy()"
+            >
+              Manage hosting administration
+            </button>
+            @if (!project.capabilities.own) {
+              <div class="input-group mb-3">
+                <input
+                  class="form-control"
+                  placeholder="New owner email for recovery"
+                  [(ngModel)]="transferEmail"
+                /><button
+                  class="btn btn-outline-warning"
+                  (click)="operation('transfer', { email: transferEmail })"
+                  [disabled]="busy() || !transferEmail"
+                >
+                  Request ownership recovery
+                </button>
+              </div>
+            }
+          }
+          <div class="row g-3">
+            @for (
+              field of [
+                "name",
+                "description",
+                "branch",
+                "projectDirectory",
+                "buildCommand",
+                "outputDirectory",
+                "nodeVersion",
+                "launchPath",
+                "callbackPath",
+                "scope",
+              ];
+              track field
+            ) {
+              <div class="col-md-6">
+                <label class="form-label">{{ field }}</label
+                ><input
+                  class="form-control"
+                  [ngModel]="setting(field)"
+                  (ngModelChange)="changeSetting(field, $event)"
+                  [disabled]="!project.capabilities.publish"
+                />
+              </div>
+            }
+          </div>
+          <label class="form-check mt-3"
+            ><input
+              class="form-check-input"
+              type="checkbox"
+              [(ngModel)]="settings.autoPublish"
+              [disabled]="!project.capabilities.publish"
+            />Automatically publish eligible Owner / Administrator builds from
+            the configured branch</label
+          >
+          @if (project.publishingPaused) {
+            <div class="alert alert-warning mt-2">
+              Automatic promotion is paused.
+              <button
+                class="btn btn-sm btn-outline-primary"
+                (click)="resume()"
+                [disabled]="!project.capabilities.publish || busy()"
+              >
+                Resume automatic promotion
+              </button>
+            </div>
+          }
+          <label class="form-check mt-3"
+            ><input
+              class="form-check-input"
+              type="checkbox"
+              [(ngModel)]="settings.isTemplate"
+              [disabled]="!project.capabilities.publish"
+            />Offer this application as a reusable community template</label
+          >
+          <select
+            class="form-select w-auto my-2"
+            [(ngModel)]="settings.templateVisibility"
+            [disabled]="!project.capabilities.publish"
+          >
+            <option value="PRIVATE">Owner and collaborators</option>
+            <option value="PUBLIC">
+              Public listing (public repository required)
+            </option>
+          </select>
+          <button
+            class="btn btn-primary mt-2"
+            (click)="saveSettings()"
+            [disabled]="busy() || !project.capabilities.publish"
+          >
+            Save settings
+          </button>
+          @if (project.capabilities.own) {
+            <hr />
+            <h5>Relink repository</h5>
+            <p class="small text-muted">
+              Relinking keeps published files available, clears the preview, and
+              pauses automatic publication. Install the workflow in the new
+              repository.
+            </p>
+            <div class="d-flex gap-2">
+              <input
+                class="form-control"
+                [(ngModel)]="relinkRepositoryId"
+                placeholder="New repository numeric ID"
+              /><input
+                class="form-control"
+                [(ngModel)]="relinkInstallationId"
+                placeholder="Installation ID"
+              /><button
+                class="btn btn-outline-warning"
+                (click)="
+                  operation('repository', {
+                    repositoryId: relinkRepositoryId,
+                    installationId: relinkInstallationId,
+                  })
+                "
+                [disabled]="
+                  busy() || !relinkRepositoryId || !relinkInstallationId
+                "
+              >
+                Relink
+              </button>
+            </div>
+            <button
+              class="btn btn-outline-danger mt-4"
+              (click)="remove()"
+              [disabled]="busy()"
+            >
+              Delete application
+            </button>
+          }
+        }
+      }
+    } @else {
+      <div class="card">
+        <div class="card-body py-5 text-center">
+          <i class="bi bi-code-square display-4"></i>
+          <h3 class="mt-3">Build a SMART application</h3>
+          <p class="text-muted">
+            Choose a project or create one from a template. GitHub builds it;
+            Studio hosts and launches it against your sandbox.
+          </p>
+        </div>
+      </div>
+    }
+  </section>
+</div>

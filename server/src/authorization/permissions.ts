@@ -8,6 +8,7 @@ export type PermissionKey =
   | 'ehr_simulator'
   | 'data_manager'
   | 'applications_register'
+  | 'applications_deployment'
   | 'package_import'
   | 'knowledge_publish'
   | 'global_manage';
@@ -19,6 +20,7 @@ export function mergeBooleanPermissions(sources: Array<Partial<BooleanPermission
     ehr_simulator: false,
     data_manager: false,
     applications_register: false,
+    applications_deployment: false,
     package_import: false,
     knowledge_publish: false,
     global_manage: false,
@@ -30,6 +32,7 @@ export function mergeBooleanPermissions(sources: Array<Partial<BooleanPermission
     if (src.ehr_simulator) result.ehr_simulator = true;
     if (src.data_manager) result.data_manager = true;
     if (src.applications_register) result.applications_register = true;
+    if (src.applications_deployment) result.applications_deployment = true;
     if (src.package_import) result.package_import = true;
     if (src.knowledge_publish) result.knowledge_publish = true;
     if (src.global_manage) result.global_manage = true;

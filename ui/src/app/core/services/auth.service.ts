@@ -17,6 +17,7 @@ export interface SessionResponse {
   authenticated: boolean;
   user: UserProfile | null;
   permissions: EffectivePermissions | null;
+  features?: { applicationHosting: boolean };
 }
 
 @Injectable({
@@ -29,6 +30,7 @@ export class AuthService {
   private readonly permissionsState = signal<EffectivePermissions | null>(null);
   private readonly isAuthenticatedState = signal<boolean>(false);
   private readonly isInitializedState = signal<boolean>(false);
+  private readonly hostingEnabled = signal(true);
 
   public readonly currentUser = this.userState.asReadonly();
   public readonly effectivePermissions = this.permissionsState.asReadonly();
@@ -46,6 +48,7 @@ export class AuthService {
         this.userState.set(res.user);
         this.permissionsState.set(res.permissions);
         this.isInitializedState.set(true);
+        this.hostingEnabled.set(res.features?.applicationHosting ?? true);
       }),
       catchError(() => {
         this.isAuthenticatedState.set(false);
@@ -58,6 +61,7 @@ export class AuthService {
   }
 
   public hasPermission(permissionKey: keyof EffectivePermissions): boolean {
+    if (permissionKey === 'applications_deployment' && !this.hostingEnabled()) return false;
     const perms = this.permissionsState();
     if (!perms) return false;
     if (perms.global_manage) return true;

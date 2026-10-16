@@ -56,6 +56,7 @@ export class JobService {
     summary: JobSummary;
   }> {
     const {
+      scheduleId,
       status,
       statuses,
       jobType,
@@ -70,6 +71,7 @@ export class JobService {
     const skip = Math.max(0, (page - 1) * limit);
 
     const where: Record<string, unknown> = {};
+    if (scheduleId) where['scheduleId'] = scheduleId;
 
     const statusList = [
       ...(statuses ?? []),

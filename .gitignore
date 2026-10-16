@@ -49,3 +49,5 @@ Desktop.ini
 
 # Rendered at container start from configuration.template.js
 ui/public/configuration.js
+# Host-mounted application files are runtime data.
+.data/hosted-apps/

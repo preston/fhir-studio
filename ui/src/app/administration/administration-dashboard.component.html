@@ -41,6 +41,9 @@
       <i class="bi bi-journal-medical me-1"></i> Implementation Guides
     </a>
   </li>
+  @if (auth.hasPermission('applications_deployment')) {
+    <li class="nav-item"><a class="nav-link" routerLink="hosting" routerLinkActive="active"><i class="bi bi-cloud me-1"></i> Application Hosting</a></li>
+  }
   <li class="nav-item">
     <a class="nav-link text-danger" routerLink="purge" routerLinkActive="active">
       <i class="bi bi-trash3 me-1"></i> Purge Sandboxes

@@ -6,10 +6,15 @@ import { SubscriptionHub } from './hub.js';
 import type { SubscriptionNotificationEvent } from '@fhir-studio/core';
 
 import { routeParam } from '../http/routeParam.js';
+import { sandboxAccess } from '../hosted/access.js';
 
 export function createSubscriptionsRouter(): Router {
   const router = express.Router();
   const hub = SubscriptionHub.getInstance();
+  router.use('/api/sandboxes/:sandboxId/subscriptions', async (req, _res, next) => {
+    await sandboxAccess(req.sessionAuth?.userId, routeParam(req.params.sandboxId), !['GET', 'HEAD'].includes(req.method), req.effectivePermissions?.global_manage);
+    next();
+  });
 
   // 1. GET /api/sandboxes/:sandboxId/subscriptions/topics
   router.get('/api/sandboxes/:sandboxId/subscriptions/topics', (req: Request, res: Response): void => {

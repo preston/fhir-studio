@@ -146,6 +146,9 @@ export function isSmartScopePermitted(
   }
 
   for (const scope of parsedScopes) {
+    // Filtered grants must never be interpreted as unrestricted grants.
+    // Until filtering is enforced by the gateway, fail closed for these scopes.
+    if (Object.keys(scope.filterParams ?? {}).length) continue;
     if (!['patient', 'user', 'system'].includes(scope.context)) {
       continue;
     }

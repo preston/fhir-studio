@@ -1,5 +1,8 @@
 # FHIR Studio
 
+[GitHub-backed application hosting](doc/application-hosting.md) supports repository
+editing, SMART starters, collaborators, and filesystem-hosted previews/publication.
+
 FHIR Studio is a modern, open healthcare developer platform for FHIR sandboxes, simulated EHR application launching, SMART on FHIR v2 development, and CDS Hooks 2.0 testing. It is functionally inspired by the original Logica Sandbox architecture, but re-architected and implemented in modern TypeScript.
 
 The codebase is organized as an npm monorepo with strict TypeScript typing:
@@ -111,6 +114,13 @@ cp server/.env.example server/.env
 
 Required variables have **no in-code defaults**. If any are missing, the process exits immediately and prints the missing names plus the copy command above. See [Environment Variables](#environment-variables) for the server vs worker required sets.
 
+Local development disables application hosting with `FHIR_STUDIO_HOSTING_ENABLED=false`,
+so copying `.env.example` supports the base API and worker without external hosting setup.
+To enable hosting, set it to `true` and complete the GitHub App, hosting sub-zone, encryption
+key, and absolute storage-directory settings in [Application hosting](doc/application-hosting.md). Grant
+`permission_applications_deployment` to approved roles in Administration; it defaults to
+false, while global administrators retain their existing permission bypass.
+
 ### 3. Install Dependencies
 
 Install all dependencies across monorepo workspaces:
@@ -189,9 +199,9 @@ Once running, navigate to `http://localhost:4200/` and sign in.
 
 ## Environment Variables
 
-Configuration uses the `FHIR_STUDIO_SERVER_*` / `FHIR_STUDIO_HAPI_*` prefixes. Validation lives in `server/src/env.ts` and is shared by the API (`loadSsoConfig` → `SERVER_REQUIRED_ENV`) and the worker (`loadWorkerConfig` → `WORKER_REQUIRED_ENV`). Required variables have **no in-code defaults**; a missing set causes an immediate exit listing every missing name and pointing at `server/.env.example`.
+Configuration uses the `FHIR_STUDIO_SERVER_*` / `FHIR_STUDIO_HAPI_*` / `FHIR_STUDIO_HOSTING_*` prefixes. Validation lives in `server/src/env.ts` and is shared by the API (`loadSsoConfig` → `SERVER_REQUIRED_ENV`) and the worker (`loadWorkerConfig` → `WORKER_REQUIRED_ENV`). Required variables have **no in-code defaults**; a missing set causes an immediate exit listing every missing name and pointing at `server/.env.example`.
 
-Local development values match `server/.env.example` and `docker-compose.development.yml`. Production Compose injects the same names into `fhir-studio-server` / `fhir-studio-worker` (worker gets the database URL and HAPI enable/base URL vars; the API gets the full SSO set).
+Local development values match `server/.env.example` and `docker-compose.development.yml`. Production Compose injects the same names into `fhir-studio-server` / `fhir-studio-worker` (both processes require hosting/GitHub configuration when hosting is enabled; the API also requires the full SSO set).
 
 | Variable | API Server | Worker | Local Development Value (`.env.example`) | Description |
 | --- | --- | --- | --- | --- |

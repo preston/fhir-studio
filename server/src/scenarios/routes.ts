@@ -4,10 +4,21 @@ import express, { type Request, type Response, type Router } from 'express';
 import { getPrisma } from '../db/prisma.js';
 
 import { routeParam } from '../http/routeParam.js';
+import { sandboxAccess, HostingError } from '../hosted/access.js';
 
 export function createScenariosRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
+  router.use('/api/sandboxes/:sandboxId/scenarios', async (req, res, next) => {
+    const sandbox = await sandboxAccess(req.sessionAuth?.userId, routeParam(req.params.sandboxId), !['GET', 'HEAD'].includes(req.method), req.effectivePermissions?.global_manage);
+    res.locals.sandboxRowId = sandbox.id;
+    if (req.body?.applicationId) {
+      const app = await prisma.application.findFirst({ where: { id: String(req.body.applicationId), OR: [{ sandboxId: sandbox.id }, { isSample: true }, { hostedChannel: 'published', hostedApplication: { sandboxes: { some: { sandboxId: sandbox.id } }, deletedAt: null, suspended: false, publishedBuildId: { not: null } } }] } });
+      if (!app) throw new HostingError(400, 'Application is not enabled in this sandbox.');
+    }
+    if (req.body?.userPersonaId && !await prisma.userPersona.findFirst({ where: { id: String(req.body.userPersonaId), sandboxId: sandbox.id } })) throw new HostingError(400, 'Persona does not belong to this sandbox.');
+    next();
+  });
 
   // 1. GET /api/sandboxes/:sandboxId/scenarios
   router.get('/api/sandboxes/:sandboxId/scenarios', async (req: Request, res: Response): Promise<void> => {
@@ -28,7 +39,7 @@ export function createScenariosRouter(): Router {
       orderBy: { updatedAt: 'desc' },
     });
 
-    res.json({ scenarios });
+    res.json({ scenarios: scenarios.map(scenario => ({ ...scenario, application: scenario.application ? { ...scenario.application, clientSecret: undefined } : null })) });
   });
 
   // 2. POST /api/sandboxes/:sandboxId/scenarios
@@ -105,7 +116,7 @@ export function createScenariosRouter(): Router {
     } = req.body;
 
     const updated = await prisma.launchScenario.update({
-      where: { id: scenarioId },
+      where: { id: scenarioId, sandboxId: String(res.locals.sandboxRowId) },
       data: {
         ...(title !== undefined ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
@@ -132,7 +143,7 @@ export function createScenariosRouter(): Router {
   // 4. DELETE /api/sandboxes/:sandboxId/scenarios/:scenarioId
   router.delete('/api/sandboxes/:sandboxId/scenarios/:scenarioId', async (req: Request, res: Response): Promise<void> => {
     const scenarioId = routeParam(req.params.scenarioId);
-    await prisma.launchScenario.delete({ where: { id: scenarioId } });
+    await prisma.launchScenario.delete({ where: { id: scenarioId, sandboxId: String(res.locals.sandboxRowId) } });
     res.json({ message: 'Launch scenario deleted successfully.' });
   });
 

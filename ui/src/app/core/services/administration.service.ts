@@ -88,6 +88,7 @@ export interface AdministrationRole {
   permission_ehr_simulator: boolean;
   permission_data_manager: boolean;
   permission_applications_register: boolean;
+  permission_applications_deployment: boolean;
   permission_package_import: boolean;
   permission_knowledge_publish: boolean;
   permission_global_manage: boolean;
@@ -237,6 +238,7 @@ export class AdministrationService {
     if (statusValues.length > 0) {
       params = params.set('status', statusValues.join(','));
     }
+    if (filters.scheduleId) params = params.set('scheduleId', filters.scheduleId);
     if (filters.jobType) params = params.set('jobType', filters.jobType);
     if (filters.sandboxId) params = params.set('sandboxId', filters.sandboxId);
     if (filters.search) params = params.set('search', filters.search);

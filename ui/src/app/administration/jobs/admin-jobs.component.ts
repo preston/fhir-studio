@@ -1,3 +1,5 @@
+import { JobSchedulesComponent } from './job-schedules.component.js';
+import { ActivatedRoute } from '@angular/router';
 // Author: Preston Lee
 
 import { Component, OnInit, OnDestroy, HostListener, inject, signal, computed } from '@angular/core';
@@ -18,11 +20,13 @@ export type JobSortField = NonNullable<JobFilter['sortBy']>;
 @Component({
   selector: 'app-admin-jobs',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, JobSchedulesComponent],
   templateUrl: './admin-jobs.component.html',
 })
 export class AdminJobsComponent implements OnInit, OnDestroy {
   private readonly toast = inject(ToastService);
+  readonly activeTab = signal<'runs' | 'schedules'>('runs');
+  private readonly route = inject(ActivatedRoute);
   public readonly administrationService = inject(AdministrationService);
   public readonly sandboxService = inject(SandboxService);
 
@@ -87,6 +91,8 @@ export class AdminJobsComponent implements OnInit, OnDestroy {
   };
 
   ngOnInit(): void {
+    const scheduleId = this.route.snapshot.queryParamMap.get('scheduleId');
+    if (scheduleId) this.jobFilters.update(f => ({ ...f, scheduleId }));
     this.loadJobs();
     this.sandboxService.getSandboxes().subscribe({
       next: (res) => this.allSandboxes.set(res.sandboxes),

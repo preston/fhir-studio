@@ -1,3 +1,6 @@
+<ul class="nav nav-pills mb-3"><li class="nav-item"><button class="nav-link" [class.active]="activeTab() === 'runs'" (click)="activeTab.set('runs')">Runs</button></li><li class="nav-item"><button class="nav-link" [class.active]="activeTab() === 'schedules'" (click)="activeTab.set('schedules')">Schedules</button></li></ul>
+@if (activeTab() === 'schedules') { <app-job-schedules /> }
+@if (activeTab() === 'runs') {
 @if (errorMessage()) {
   <div class="alert alert-danger alert-dismissible fade show" role="alert">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage() }}
@@ -497,4 +500,6 @@
       </div>
     </div>
   </div>
+}
+
 }

@@ -1,3 +1,4 @@
+import { seedHostingSchedules } from '../jobs/scheduler.js';
 // Author: Preston Lee
 
 import 'dotenv/config';
@@ -14,6 +15,7 @@ export async function seed(): Promise<void> {
   const prisma = getPrisma();
 
   console.log('Seeding FHIR Studio database...');
+  await seedHostingSchedules(prisma);
 
   // 1. Roles
   const adminRole = await prisma.role.upsert({
@@ -28,6 +30,7 @@ export async function seed(): Promise<void> {
       permission_ehr_simulator: true,
       permission_data_manager: true,
       permission_applications_register: true,
+      permission_applications_deployment: false,
       permission_package_import: true,
       permission_knowledge_publish: true,
       permission_global_manage: true,
@@ -57,6 +60,7 @@ export async function seed(): Promise<void> {
       permission_ehr_simulator: true,
       permission_data_manager: true,
       permission_applications_register: true,
+      permission_applications_deployment: false,
       permission_package_import: true,
       permission_knowledge_publish: false,
       permission_global_manage: false,

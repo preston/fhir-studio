@@ -4,6 +4,7 @@
 .git
 .github
 .gitignore
+.data/
 .cursor
 **/.vscode
 .DS_Store

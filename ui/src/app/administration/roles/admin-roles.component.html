@@ -120,6 +120,9 @@
                   @if (role.permission_applications_register) {
                     <span class="badge bg-secondary">applications.register</span>
                   }
+                  @if (role.permission_applications_deployment) {
+                    <span class="badge bg-secondary">applications.deployment</span>
+                  }
                   @if (role.permission_package_import) {
                     <span class="badge bg-dark">package.import</span>
                   }
@@ -305,6 +308,10 @@
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="permApps" [formField]="roleForm.permission_applications_register">
                 <label class="form-check-label" for="permApps">permission_applications_register</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="permDeploy" [formField]="roleForm.permission_applications_deployment">
+                <label class="form-check-label" for="permDeploy">permission_applications_deployment (hosting and GitHub linking)</label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="permPkg" [formField]="roleForm.permission_package_import">

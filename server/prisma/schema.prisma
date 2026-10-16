@@ -33,6 +33,11 @@ model User {
   personas          UserPersona[]         @relation("PersonaCreator")
   applicationsCreated Application[]       @relation("ApplicationCreator")
   jobsCreated       Job[]                 @relation("JobCreator")
+  githubConnection GitHubConnection?
+  hostedApplications HostedApplication[] @relation("HostedOwner")
+  hostedCollaborations HostedCollaborator[]
+  hostedQuota HostedOwnerQuota?
+  jobSchedules JobSchedule[]
 
 
 
@@ -103,6 +108,7 @@ model Role {
   permission_ehr_simulator   Boolean  @default(true) @map("permission_ehr_simulator")
   permission_data_manager    Boolean  @default(true) @map("permission_data_manager")
   permission_applications_register Boolean  @default(true) @map("permission_applications_register")
+  permission_applications_deployment Boolean @default(false) @map("permission_applications_deployment")
   permission_package_import  Boolean  @default(true) @map("permission_package_import")
   permission_knowledge_publish Boolean @default(false) @map("permission_knowledge_publish")
   permission_global_manage   Boolean  @default(false) @map("permission_global_manage")
@@ -171,6 +177,7 @@ model Sandbox {
   bulkExports     BulkExportJob[]
   jobs            Job[]
   applications    Application[]
+  hostedApplications HostedSandbox[]
 
 
   @@index([createdByUserId])
@@ -221,6 +228,9 @@ model Application {
   createdByUserId         String?  @map("created_by_user_id") @db.Uuid
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
+  hostedApplicationId     String? @map("hosted_application_id") @db.Uuid
+  hostedChannel           String? @map("hosted_channel")
+  hostedApplication       HostedApplication? @relation(fields: [hostedApplicationId], references: [id], onDelete: Cascade)
 
   sandbox         Sandbox?         @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
   createdByUser   User?            @relation("ApplicationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -228,6 +238,132 @@ model Application {
 
   @@index([sandboxId])
   @@map("applications")
+}
+
+model GitHubConnection {
+  userId String @id @map("user_id") @db.Uuid
+  githubUserId String @unique @map("github_user_id")
+  login String
+  encryptedTokens String @map("encrypted_tokens")
+  expiresAt DateTime @map("expires_at")
+  refreshExpiresAt DateTime @map("refresh_expires_at")
+  status String @default("CONNECTED")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("github_connections")
+}
+
+model HostedApplication {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String
+  description String @default("")
+  ownerUserId String @map("owner_user_id") @db.Uuid
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+  repositoryId String @map("repository_id")
+  repository String
+  installationId String @map("installation_id")
+  branch String @default("main")
+  projectDirectory String @default("") @map("project_directory")
+  buildCommand String @default("npm ci && npm run build") @map("build_command")
+  outputDirectory String @default("dist") @map("output_directory")
+  nodeVersion String @default("26") @map("node_version")
+  launchPath String @default("index.html") @map("launch_path")
+  callbackPath String @default("index.html") @map("callback_path")
+  scope String @default("launch launch/patient openid fhirUser patient/*.rs")
+  autoPublish Boolean @default(false) @map("auto_publish")
+  publishingPaused Boolean @default(false) @map("publishing_paused")
+  suspended Boolean @default(false)
+  deletedAt DateTime? @map("deleted_at")
+  generation Int @default(0)
+  policyUpdatedAt DateTime @default(now()) @map("policy_updated_at")
+  lastDeveloperActivityAt DateTime @default(now()) @map("last_developer_activity_at")
+  lastServedAt DateTime? @map("last_served_at")
+  lastLaunchAt DateTime? @map("last_launch_at")
+  lastReconciledAt DateTime? @map("last_reconciled_at")
+  reconciliationError String? @map("reconciliation_error")
+  suspendedAt DateTime? @map("suspended_at")
+  deleteAfter DateTime? @map("delete_after")
+  cleanupProtected Boolean @default(false) @map("cleanup_protected")
+  previewBuildId String? @map("preview_build_id") @db.Uuid
+  publishedBuildId String? @map("published_build_id") @db.Uuid
+  desiredBuildId String? @map("desired_build_id") @db.Uuid
+  isTemplate Boolean @default(false) @map("is_template")
+  templateVisibility String @default("PRIVATE") @map("template_visibility")
+  templateCommit String? @map("template_commit")
+  originatingCommit String? @map("originating_commit")
+  transferToUserId String? @map("transfer_to_user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  owner User @relation("HostedOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  collaborators HostedCollaborator[]
+  builds HostedBuild[]
+  registrations Application[]
+  sandboxes HostedSandbox[]
+  @@index([ownerUserId])
+  @@index([repositoryId])
+  @@index([deletedAt, deleteAfter])
+  @@index([lastReconciledAt])
+  @@map("hosted_applications")
+}
+
+model HostedCollaborator {
+  applicationId String @map("application_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  role String
+  application HostedApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([applicationId, userId])
+  @@map("hosted_collaborators")
+}
+
+model HostedBuild {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  requestedByUserId String? @map("requested_by_user_id") @db.Uuid
+  githubActor String? @map("github_actor")
+  branch String
+  commit String
+  generation Int
+  runId String? @map("run_id")
+  requestEvent String? @map("request_event")
+  runAttempt Int @default(1) @map("run_attempt")
+  artifactId String? @map("artifact_id")
+  launchPath String @default("index.html") @map("launch_path")
+  callbackPath String @default("index.html") @map("callback_path")
+  scope String @default("launch launch/patient openid fhirUser patient/*.rs")
+  status String @default("WAITING")
+  error String?
+  githubUrl String? @map("github_url")
+  directory String?
+  byteSize BigInt @default(0) @map("byte_size")
+  jobId String? @map("job_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  application HostedApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  @@unique([applicationId, runId, runAttempt])
+  @@index([applicationId, createdAt])
+  @@map("hosted_builds")
+}
+
+model HostedSandbox {
+  applicationId String @map("application_id") @db.Uuid
+  sandboxId String @map("sandbox_id") @db.Uuid
+  application HostedApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  sandbox Sandbox @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  @@id([applicationId, sandboxId])
+  @@map("hosted_sandboxes")
+}
+
+model HostedAudit {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String? @map("application_id") @db.Uuid
+  userId String? @map("user_id") @db.Uuid
+  action String
+  detail Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([applicationId, createdAt])
+  @@index([createdAt])
+  @@map("hosted_audit")
 }
 
 model LaunchScenario {
@@ -329,6 +465,13 @@ model SmartAuthSession {
   @@map("smart_auth_sessions")
 }
 
+model SmartClientAssertion {
+  id String @id
+  expiresAt DateTime @map("expires_at")
+  @@index([expiresAt])
+  @@map("smart_client_assertions")
+}
+
 model BulkExportJob {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sandboxId       String   @map("sandbox_id") @db.Uuid
@@ -368,6 +511,9 @@ model Job {
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  scheduleId String? @map("schedule_id") @db.Uuid
+  scheduledOccurrence String? @unique @map("scheduled_occurrence")
+  schedule JobSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   sandbox       Sandbox? @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
   createdByUser User?    @relation("JobCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -375,6 +521,7 @@ model Job {
   @@index([status])
   @@index([status, leaseExpiresAt])
   @@index([jobType])
+  @@index([scheduleId, status])
   @@index([sandboxId])
   @@index([createdByUserId])
   @@index([createdAt])
@@ -407,3 +554,82 @@ model ImplementationGuide {
 }
 
 
+
+// Deliberately independent of application FKs: historical traffic survives app purge.
+model HostedUsageHour {
+  applicationId String @map("application_id") @db.Uuid
+  channel String
+  hour DateTime @db.Timestamptz(3)
+  requests Int @default(0)
+  documents Int @default(0)
+  bots Int @default(0)
+  status2xx Int @default(0) @map("status_2xx")
+  status3xx Int @default(0) @map("status_3xx")
+  status4xx Int @default(0) @map("status_4xx")
+  status5xx Int @default(0) @map("status_5xx")
+  rateLimited Int @default(0) @map("rate_limited")
+  aborted Int @default(0)
+  bytes BigInt @default(0)
+  durationMs Float @default(0) @map("duration_ms")
+  histogram Json @default("[]")
+  visitors Bytes
+  launches Int @default(0)
+  @@id([applicationId, channel, hour])
+  @@index([hour])
+  @@map("hosted_usage_hours")
+}
+
+model HostedUsageCollector {
+  id String @id @db.Uuid
+  kind String
+  sequence Int @default(0)
+  dropped Int @default(0)
+  startedAt DateTime @default(now()) @map("started_at")
+  lastFlushedAt DateTime @default(now()) @map("last_flushed_at")
+  @@index([kind, lastFlushedAt])
+  @@map("hosted_usage_collectors")
+}
+
+model HostedOwnerQuota {
+  userId String @id @map("user_id") @db.Uuid
+  applicationLimit Int? @map("application_limit")
+  storageBytesLimit BigInt? @map("storage_bytes_limit")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("hosted_owner_quotas")
+}
+
+enum JobScheduleFrequency {
+  EVERY_MINUTE
+  HOURLY
+  DAILY
+}
+
+model JobSchedule {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  systemKey String? @unique @map("system_key")
+  name String
+  description String @default("")
+  jobType String @map("job_type")
+  input Json @default("{}")
+  frequency JobScheduleFrequency
+  minuteOfHour Int @default(0) @map("minute_of_hour")
+  hourOfDay Int @default(0) @map("hour_of_day")
+  enabled Boolean @default(true)
+  nextRunAt DateTime @map("next_run_at") @db.Timestamptz(3)
+  lastRunAt DateTime? @map("last_run_at") @db.Timestamptz(3)
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdByUser User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  jobs Job[]
+  @@index([enabled, nextRunAt])
+  @@map("job_schedules")
+}
+
+// An explicit history purge is a durable cutoff, including for delayed collector retries.
+model HostedUsagePolicy {
+  id String @id
+  purgedBefore DateTime @map("purged_before") @db.Timestamptz(3)
+  @@map("hosted_usage_policy")
+}

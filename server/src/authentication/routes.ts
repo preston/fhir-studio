@@ -26,8 +26,9 @@ import {
 } from './session.js';
 import { encryptTokenBundle, type TokenBundle } from './token-crypto.js';
 import { hmacSign, hmacVerify } from './hmac.js';
+import { isHostingEnabled } from '../env.js';
 
-const OIDC_STATE_COOKIE = 'fhir_studio_oidc_state';
+const OIDC_STATE_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-fhir_studio_oidc_state' : 'fhir_studio_oidc_state';
 
 interface OidcTransientState {
   state: string;
@@ -239,12 +240,14 @@ export function createAuthRouter(oidc: OidcBffConfig): Router {
         authenticated: false,
         user: null,
         permissions: null,
+        features: { applicationHosting: isHostingEnabled() },
       });
       return;
     }
 
     res.status(200).json({
       authenticated: true,
+      features: { applicationHosting: isHostingEnabled() },
       user: {
         id: req.sessionAuth.userId,
         email: req.sessionAuth.email,

@@ -10,6 +10,8 @@ export interface BooleanPermissions {
   ehr_simulator: boolean;
   data_manager: boolean;
   applications_register: boolean;
+  /** Use hosted application workspaces and link a personal GitHub account. Default false. */
+  applications_deployment: boolean;
   package_import: boolean;
   /** Publish Libraries/terminology into HAPI DEFAULT (global knowledge). Default false. */
   knowledge_publish: boolean;
@@ -22,6 +24,7 @@ export const DEFAULT_BOOLEAN_PERMISSIONS: Readonly<BooleanPermissions> = {
   ehr_simulator: true,
   data_manager: true,
   applications_register: true,
+  applications_deployment: false,
   package_import: true,
   knowledge_publish: false,
   global_manage: false,

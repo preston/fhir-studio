@@ -1,6 +1,6 @@
 // Author: Preston Lee
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { AppointmentEntityType } from '@prisma/client';
 import type { EffectivePermissions } from '@fhir-studio/core';
 import { mergeBooleanPermissions } from './permissions.js';
@@ -10,7 +10,7 @@ import { mergeBooleanPermissions } from './permissions.js';
  * appointments on groups the user belongs to.
  */
 export async function loadEffectivePermissions(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   userId: string,
 ): Promise<EffectivePermissions> {
   const [userAppointments, memberships] = await Promise.all([
@@ -48,6 +48,7 @@ export async function loadEffectivePermissions(
       ehr_simulator: r.permission_ehr_simulator,
       data_manager: r.permission_data_manager,
       applications_register: r.permission_applications_register,
+      applications_deployment: r.permission_applications_deployment,
       package_import: r.permission_package_import,
       knowledge_publish: r.permission_knowledge_publish,
       global_manage: r.permission_global_manage,

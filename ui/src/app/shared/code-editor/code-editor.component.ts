@@ -15,8 +15,11 @@ import { basicSetup } from 'codemirror';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { json } from '@codemirror/lang-json';
+import { javascript } from '@codemirror/lang-javascript';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
 
-export type CodeEditorLanguage = 'json';
+export type CodeEditorLanguage = 'json' | 'javascript' | 'typescript' | 'html' | 'css' | 'text';
 
 @Component({
   selector: 'app-code-editor',
@@ -81,7 +84,7 @@ export class CodeEditorComponent implements OnDestroy {
         return;
       }
       this.view?.dispatch({
-        effects: this.editableCompartment.reconfigure(EditorView.editable.of(!readonly)),
+        effects: this.editableCompartment.reconfigure([EditorView.editable.of(!readonly), EditorState.readOnly.of(readonly)]),
       });
     });
   }
@@ -103,7 +106,7 @@ export class CodeEditorComponent implements OnDestroy {
       extensions: [
         basicSetup,
         this.languageCompartment.of(this.languageExtension(this.language())),
-        this.editableCompartment.of(EditorView.editable.of(!this.readonly())),
+        this.editableCompartment.of([EditorView.editable.of(!this.readonly()), EditorState.readOnly.of(this.readonly())]),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged || this.updatingFromParent) {
             return;
@@ -144,6 +147,11 @@ export class CodeEditorComponent implements OnDestroy {
 
   private languageExtension(language: CodeEditorLanguage): Extension {
     switch (language) {
+      case 'javascript': return javascript({ jsx: true });
+      case 'typescript': return javascript({ typescript: true, jsx: true });
+      case 'html': return html();
+      case 'css': return css();
+      case 'text': return [];
       case 'json':
         return json();
       default: {

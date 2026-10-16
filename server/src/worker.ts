@@ -2,11 +2,13 @@
 
 import 'dotenv/config';
 import { hostname } from 'node:os';
-import { loadWorkerConfig } from './env.js';
+import { loadWorkerConfig, isHostingEnabled } from './env.js';
 import { loadHapiConfig } from './hapi/partition_client.js';
 import { disconnectPrisma, getPrisma } from './db/prisma.js';
 import { claimNextJob, failJob, releaseRunningJob, requeueStaleJobs } from './jobs/queue.js';
 import { executeClaimedJob } from './jobs/executor.js';
+import { startSchedulerLoop } from './jobs/scheduler.js';
+import { loadHostingConfig } from './hosted/config.js';
 import { initializeJobs } from './jobs/registry.js';
 import { isWorkerShuttingDown, markWorkerShuttingDown } from './jobs/workerLifecycle.js';
 
@@ -119,6 +121,7 @@ function registerShutdownHandlers(): void {
 async function main(): Promise<void> {
   // Same fail-fast env validation path as the API server (`requireEnvAll`).
   const config = loadWorkerConfig();
+  if (isHostingEnabled()) loadHostingConfig('worker');
   loadHapiConfig();
   getPrisma(config.databaseUrl);
 
@@ -136,8 +139,11 @@ async function main(): Promise<void> {
   }
 
   reaperTimer = startReaperLoop();
+  reaperTimer.unref();
+  const schedulerTimer = startSchedulerLoop();
   try {
     await consumerLoop(id);
+    clearInterval(schedulerTimer);
   } catch (err) {
     console.error('[JobWorker] Consumer loop crashed:', err);
     markWorkerShuttingDown();

@@ -9,7 +9,6 @@ export function generateSmartConfiguration(baseUrl: string): SmartConfiguration 
     token_endpoint: `${root}/oauth/token`,
     introspection_endpoint: `${root}/oauth/introspect`,
     revocation_endpoint: `${root}/oauth/revoke`,
-    management_endpoint: `${root}/oauth/manage`,
     registration_endpoint: `${root}/oauth/register`,
     jwks_uri: `${root}/oauth/jwks.json`,
     capabilities: [
@@ -59,6 +58,6 @@ export function generateSmartConfiguration(baseUrl: string): SmartConfiguration 
       'private_key_jwt',
       'none',
     ],
-    token_endpoint_auth_signing_alg_values_supported: ['RS256', 'ES256', 'HS256'],
+    token_endpoint_auth_signing_alg_values_supported: ['RS384', 'ES384', 'RS256'],
   };
 }

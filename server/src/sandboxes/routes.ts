@@ -14,6 +14,7 @@ import { hasPermission } from '../authorization/permissions.js';
 import { JobService } from '../jobs/service.js';
 
 import { routeParam } from '../http/routeParam.js';
+import { sandboxAccess, HostingError } from '../hosted/access.js';
 
 const RESERVED_SLUGS = new Set([
   'check-availability',
@@ -169,6 +170,7 @@ export function createSandboxesRouter(): Router {
   // 2. GET /api/sandboxes/:sandboxId (Sandbox details)
   router.get('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
+    await sandboxAccess(req.sessionAuth?.userId, sandboxId, false, req.effectivePermissions?.global_manage);
     const sandbox = await prisma.sandbox.findUnique({
       where: { sandboxId },
       include: {
@@ -202,7 +204,7 @@ export function createSandboxesRouter(): Router {
       })
       .catch(() => {});
 
-    res.json({ sandbox });
+    res.json({ sandbox: { ...sandbox, applications: sandbox.applications.map(({ clientSecret: _secret, ...app }) => app) } });
   });
 
   // 2b. POST /api/sandboxes/:sandboxId/access (Explicit UI access tracking)
@@ -478,7 +480,12 @@ export function createSandboxesRouter(): Router {
   // 7. Collaborators: POST /api/sandboxes/:sandboxId/collaborators
   router.post('/api/sandboxes/:sandboxId/collaborators', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
+    const parent = await sandboxAccess(req.sessionAuth?.userId, sandboxId, true, req.effectivePermissions?.global_manage);
     const { email, role = 'READ_WRITE' } = req.body;
+    if (!['MANAGE', 'READ_WRITE', 'READ_ONLY'].includes(role)) throw new HostingError(400, 'Invalid collaborator role.');
+    const existingMember = typeof email === 'string' ? await prisma.user.findFirst({ where: { email: { equals: email.trim(), mode: 'insensitive' } } }) : null;
+    const prior = existingMember ? parent.collaborators.find(member => member.userId === existingMember.id)?.role : null;
+    if ((role === 'MANAGE' || prior === 'MANAGE' || prior === 'OWNER') && parent.createdByUserId !== req.sessionAuth?.userId && !req.effectivePermissions?.global_manage) throw new HostingError(403, 'Only the owner can manage sandbox administrators.');
 
     if (!email) {
       res.status(400).json({ error: 'email is required.' });
@@ -527,6 +534,9 @@ export function createSandboxesRouter(): Router {
   router.delete('/api/sandboxes/:sandboxId/collaborators/:userId', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
     const userId = routeParam(req.params.userId);
+    const parent = await sandboxAccess(req.sessionAuth?.userId, sandboxId, true, req.effectivePermissions?.global_manage);
+    const prior = parent.collaborators.find(member => member.userId === userId)?.role;
+    if (['MANAGE', 'OWNER'].includes(prior || '') && parent.createdByUserId !== req.sessionAuth?.userId && !req.effectivePermissions?.global_manage) throw new HostingError(403, 'Only the owner can remove sandbox administrators.');
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: 'Sandbox not found.' });

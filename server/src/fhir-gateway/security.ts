@@ -1,105 +1,128 @@
-// Author: Preston Lee
-
-import type { PrismaClient, Sandbox } from '@prisma/client';
+import type { PrismaClient, Sandbox, SmartAuthSession } from '@prisma/client';
+import type { EffectivePermissions } from '@fhir-studio/core';
+import type { SessionAuthContext } from '../authentication/requireAuthentication.js';
 import { extractBearerToken } from '../authentication/apiToken.js';
 import { hasPermission } from '../authorization/permissions.js';
-import { isSmartScopePermitted, mapHttpMethodToAction, parseSmartV2Scopes } from '../smart-idp/scopes.js';
+import {
+  isSmartScopePermitted,
+  mapHttpMethodToAction,
+  parseSmartV2Scopes,
+} from '../smart-idp/scopes.js';
 
 export interface SandboxAuthResult {
   authorized: boolean;
   reason?: string;
   isSmartClient?: boolean;
-  smartSession?: any;
+  smartSession?: SmartAuthSession;
+  patientRestricted?: boolean;
 }
-
 export async function verifySandboxAccess(
   prisma: PrismaClient,
   sandbox: Sandbox,
   authHeader: string | undefined,
-  sessionAuth: any | undefined,
-  effectivePermissions: any | undefined,
-  requestDetails?: {
-    method: string;
-    path: string;
-    resourceType?: string;
-  },
+  sessionAuth: SessionAuthContext | undefined,
+  effectivePermissions: EffectivePermissions | undefined,
+  request?: { method: string; path: string; resourceType?: string },
 ): Promise<SandboxAuthResult> {
-  // 1. Open Access Mode allows anonymous read/write
-  if (sandbox.allowOpenAccess) {
-    return { authorized: true };
-  }
-
-  // 2. Global management permission allows access to all sandboxes
-  if (hasPermission(effectivePermissions, 'global_manage')) {
-    return { authorized: true };
-  }
-
-  // 3. Authenticated User Session (Owner or Collaborator)
-  if (sessionAuth && sessionAuth.userId) {
-    if (sandbox.createdByUserId === sessionAuth.userId) {
-      return { authorized: true };
-    }
-    const collaborator = await prisma.sandboxCollaborator.findUnique({
+  const bearer = extractBearerToken(authHeader);
+  // Explicit SMART credentials never inherit a browser session or open-access authority.
+  if (bearer && sessionAuth?.sessionId !== '') {
+    const session = await prisma.smartAuthSession.findFirst({
       where: {
-        sandboxId_userId: {
-          sandboxId: sandbox.id,
-          userId: sessionAuth.userId,
-        },
-      },
-    });
-    if (collaborator) {
-      return { authorized: true };
-    }
-  }
-
-  // 4. SMART OAuth Bearer Token Verification & Scope Evaluation
-  const bearerToken = extractBearerToken(authHeader);
-  if (bearerToken) {
-    const smartSession = await prisma.smartAuthSession.findFirst({
-      where: {
-        accessToken: bearerToken,
+        accessToken: bearer,
         isRevoked: false,
-        OR: [{ sandboxId: sandbox.sandboxId }, { sandboxId: 'default' }],
+        sandboxId: sandbox.sandboxId,
       },
     });
-
-    if (smartSession) {
-      if (smartSession.tokenExpiresAt && smartSession.tokenExpiresAt < new Date()) {
-        return { authorized: false, reason: 'SMART access token has expired' };
-      }
-
-      // Check SMART granular scopes if request details are supplied
-      if (requestDetails) {
-        const parsedScopes = parseSmartV2Scopes(smartSession.scope);
-        const action = mapHttpMethodToAction(requestDetails.method, requestDetails.path);
-        const resourceType = requestDetails.resourceType;
-
-        // Skip metadata / .well-known / capability statement checks
-        if (requestDetails.path.includes('metadata') || requestDetails.path.includes('.well-known')) {
-          return { authorized: true, isSmartClient: true, smartSession };
-        }
-
-        const isAllowed = isSmartScopePermitted(parsedScopes, {
-          resourceType,
+    if (
+      !session ||
+      !session.tokenExpiresAt ||
+      session.tokenExpiresAt < new Date()
+    )
+      return { authorized: false, reason: 'Invalid or expired sandbox token' };
+    const client = await prisma.application.findUnique({
+      where: { clientId: session.clientId },
+      include: { hostedApplication: true },
+    });
+    if (!client)
+      return { authorized: false, reason: 'Unregistered SMART client' };
+    const app = client.hostedApplication;
+    if (app && request?.path.split('/').some(segment => segment.startsWith('$'))) return { authorized: false, reason: 'Forbidden: hosted applications require an explicitly supported FHIR resource operation' };
+    if (
+      app &&
+      (app.deletedAt ||
+        app.suspended ||
+        (client.hostedChannel === 'preview'
+          ? !app.previewBuildId
+          : !app.publishedBuildId))
+    )
+      return { authorized: false, reason: 'Hosted application is unavailable' };
+    const scopes = parseSmartV2Scopes(session.scope);
+    if (
+      request &&
+      !['/metadata', '/.well-known/smart-configuration'].includes(request.path)
+    ) {
+      if (!request.resourceType)
+        return {
+          authorized: false,
+          reason:
+            'Forbidden: SMART batch and untyped operations are not permitted',
+        };
+      const action = mapHttpMethodToAction(request.method, request.path);
+      if (
+        !isSmartScopePermitted(scopes, {
+          resourceType: request.resourceType,
           action,
-          patientId: smartSession.patientFhirId || undefined,
-        });
-
-        if (!isAllowed) {
-          return {
-            authorized: false,
-            reason: `Forbidden: Granted SMART scopes ('${smartSession.scope}') do not permit action '${action}' on resource '${resourceType || 'unknown'}'.`,
-          };
-        }
-      }
-
+        })
+      )
+        return {
+          authorized: false,
+          reason: 'Forbidden: granted scopes do not permit this operation',
+        };
+      const unrestricted = isSmartScopePermitted(
+        scopes.filter((s) => s.context === 'user' || s.context === 'system'),
+        { resourceType: request.resourceType, action },
+      );
+      if (!unrestricted && !session.patientFhirId)
+        return {
+          authorized: false,
+          reason: 'Forbidden: patient launch context is required',
+        };
       return {
         authorized: true,
         isSmartClient: true,
-        smartSession,
+        smartSession: session,
+        patientRestricted: !unrestricted,
       };
     }
+    return { authorized: true, isSmartClient: true, smartSession: session };
   }
-
-  return { authorized: false, reason: 'Unauthorized: Sandbox is secured and requires valid authentication' };
+  if (
+    hasPermission(effectivePermissions, 'global_manage') ||
+    sandbox.createdByUserId === sessionAuth?.userId
+  )
+    return { authorized: true };
+  if (sessionAuth) {
+    const member = await prisma.sandboxCollaborator.findUnique({
+      where: {
+        sandboxId_userId: { sandboxId: sandbox.id, userId: sessionAuth.userId },
+      },
+    });
+    if (member) {
+      if (
+        member.role === 'READ_ONLY' &&
+        request &&
+        !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
+        !(request.method === 'POST' && request.path.endsWith('/_search'))
+      )
+        return {
+          authorized: false,
+          reason: 'Forbidden: read-only sandbox collaborator',
+        };
+      return { authorized: true };
+    }
+  }
+  return sandbox.allowOpenAccess
+    ? { authorized: true }
+    : { authorized: false, reason: 'Sandbox authorization required' };
 }

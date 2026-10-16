@@ -1,8 +1,10 @@
+import { createJobSchedulesRouter } from './jobs/schedule-routes.js';
+import { createHostingAdministrationRouter } from './hosted/admin-routes.js';
+import { apiUsage } from './hosted/usage.js';
 // Author: Preston Lee
 
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { loadSsoConfig } from './auth/sso_config.js';
 import { loadHapiConfig } from './hapi/partition_client.js';
@@ -24,26 +26,20 @@ import { createJobsRouter } from './jobs/routes.js';
 import { createApiTokensRouter } from './authentication/apiTokenRoutes.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
 import { disconnectPrisma } from './db/prisma.js';
+import { browserSecurity, controlPlaneAuthentication } from './authentication/browser-security.js';
+import { createHostingRouter, hostingErrorHandler } from './hosted/routes.js';
+import { createGitHubWebhookRouter } from './hosted/webhooks.js';
+import { isHostingEnabled } from './env.js';
 
 const oidcConfig = loadSsoConfig();
 const hapiConfig = loadHapiConfig();
 const app = express();
 const port = process.env.PORT || 3000;
+if (isHostingEnabled()) apiUsage.start();
 
 // CORS setup supporting Angular UI
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or matching CORS origins
-      if (!origin || oidcConfig.corsOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
-        callback(null, true);
-      } else {
-        callback(null, true); // Permissive in dev mode for SMART iframes
-      }
-    },
-    credentials: true,
-  }),
-);
+app.use(createGitHubWebhookRouter());
+app.use(browserSecurity(oidcConfig));
 
 app.use(cookieParser());
 app.use(express.json({ limit: '50mb' }));
@@ -51,7 +47,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Global optional authentication to populate session & permissions
 const sessionAuth = createSessionAuth(oidcConfig);
-app.use(sessionAuth.optionalAuthentication);
+app.use(controlPlaneAuthentication(sessionAuth.optionalAuthentication));
 
 // Health Check
 app.get('/api/health', (req, res) => {
@@ -72,6 +68,7 @@ app.get('/api/fhir-releases', (_req, res) => {
 
 // Mount Routes
 app.use(createAuthRouter(oidcConfig));
+app.use(createHostingRouter());
 app.use(createSmartIdpRouter());
 app.use(createFhirGatewayRouter());
 app.use(createSandboxesRouter());
@@ -84,8 +81,11 @@ app.use(createSubscriptionsRouter());
 app.use(createAdministrationRouter());
 app.use(createImplementationGuidesRouter());
 app.use(createJobsRouter());
+app.use(createJobSchedulesRouter());
+app.use(createHostingAdministrationRouter());
 app.use(createApiTokensRouter());
 app.use(createKnowledgeRouter());
+app.use(hostingErrorHandler);
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -101,7 +101,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 export const server = app.listen(port, () => {
   console.log(`FHIR Studio Server listening on http://localhost:${port}`);
-  SubscriptionHub.getInstance().init(server);
+  SubscriptionHub.getInstance().init(server, oidcConfig);
 });
 
 let isShuttingDown = false;
@@ -116,6 +116,7 @@ export async function shutdown(signal?: string): Promise<void> {
     server.close(() => resolve());
     setTimeout(resolve, 500).unref();
   });
+  if (isHostingEnabled()) await apiUsage.stop().catch(() => console.error('Hosting usage shutdown flush failed'));
   await disconnectPrisma();
   process.exit(0);
 }

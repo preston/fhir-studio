@@ -55,6 +55,7 @@ COPY --from=builder /app/server/prisma ./server/prisma
 COPY --from=builder /app/server/prisma.config.ts ./server/
 
 WORKDIR /app/server
+USER node
 EXPOSE 3000
 
 # Default CMD runs migrations + API. Override with `node build/worker.js` for job workers.

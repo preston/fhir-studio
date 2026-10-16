@@ -12,6 +12,8 @@ export type JobType =
   | (string & {});
 
 export interface BackgroundJob {
+  scheduleId?: string | null;
+  scheduledOccurrence?: string | null;
   id: string;
   name: string;
   jobType: string;
@@ -52,6 +54,7 @@ export interface JobSummary {
 }
 
 export interface JobFilter {
+  scheduleId?: string;
   /** @deprecated Prefer `statuses` for multi-select filtering. */
   status?: JobStatus;
   statuses?: JobStatus[];

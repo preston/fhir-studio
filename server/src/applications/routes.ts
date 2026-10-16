@@ -4,6 +4,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
 import { requirePermission } from '../authorization/requirePermission.js';
+import { sandboxAccess, HostingError } from '../hosted/access.js';
 
 import { routeParam } from '../http/routeParam.js';
 
@@ -14,28 +15,32 @@ export function createApplicationsRouter(): Router {
   // 1. GET /api/applications (Global & sample applications)
   router.get('/api/applications', async (req: Request, res: Response): Promise<void> => {
     const applications = await prisma.application.findMany({
-      where: { sandboxId: null },
+      where: { sandboxId: null, hostedApplicationId: null },
       orderBy: { clientName: 'asc' },
     });
-    res.json({ applications });
+    res.json({ applications: applications.map(({ clientSecret: _secret, ...app }) => app) });
   });
 
   // 2. GET /api/sandboxes/:sandboxId/applications (Sandbox custom applications + sample applications)
   router.get('/api/sandboxes/:sandboxId/applications', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
     const sandbox = await prisma.sandbox.findUnique({ where: { sandboxId } });
+    await sandboxAccess(req.sessionAuth?.userId, sandboxId, false, req.effectivePermissions?.global_manage);
+    if (!sandbox) throw new HostingError(404, 'Sandbox not found.');
+    const enabled = await prisma.hostedSandbox.findMany({ where: { sandboxId: sandbox.id }, include: { application: true } });
 
     const applications = await prisma.application.findMany({
       where: {
         OR: [
-          { sandboxId: sandbox ? sandbox.id : undefined },
+          { sandboxId: sandbox.id },
           { isSample: true },
+          { hostedApplicationId: { in: enabled.filter(e => e.application.publishedBuildId && !e.application.suspended && !e.application.deletedAt).map(e => e.applicationId) }, hostedChannel: 'published' },
         ],
       },
       orderBy: { clientName: 'asc' },
     });
 
-    res.json({ applications });
+    res.json({ applications: applications.map(({ clientSecret: _secret, ...app }) => app) });
   });
 
   // 3. POST /api/sandboxes/:sandboxId/applications (Register new SMART Application)
@@ -44,6 +49,7 @@ export function createApplicationsRouter(): Router {
     requirePermission('applications_register'),
     async (req: Request, res: Response): Promise<void> => {
       const sandboxId = routeParam(req.params.sandboxId);
+      await sandboxAccess(req.sessionAuth?.userId, sandboxId, true, req.effectivePermissions?.global_manage);
       const {
         clientName,
         launchUri,
@@ -68,13 +74,15 @@ export function createApplicationsRouter(): Router {
       }
 
       const clientId = `application-${uuidv4().slice(0, 8)}`;
-      const clientSecret = uuidv4();
+      const clientSecret = null;
 
       const created = await prisma.application.create({
         data: {
           sandboxId: sandbox.id,
           clientId,
           clientSecret,
+          tokenEndpointAuthMethod: 'none',
+          pkceRequired: true,
           clientName,
           launchUri,
           redirectUris: Array.isArray(redirectUris) ? redirectUris : [redirectUris],
@@ -97,6 +105,9 @@ export function createApplicationsRouter(): Router {
   router.put('/api/sandboxes/:sandboxId/applications/:applicationId', async (req: Request, res: Response): Promise<void> => {
     const applicationId = routeParam(req.params.applicationId);
     const existing = await prisma.application.findUnique({ where: { id: applicationId } });
+    if (!req.sessionAuth) throw new HostingError(401, 'Authentication required.');
+    const parent = await sandboxAccess(req.sessionAuth.userId, routeParam(req.params.sandboxId), true, req.effectivePermissions?.global_manage);
+    if (existing && (existing.sandboxId !== parent.id || existing.hostedApplicationId)) throw new HostingError(403, 'Application does not belong to this sandbox.');
     if (!existing) {
       res.status(404).json({ error: 'Application not found.' });
       return;
@@ -138,6 +149,9 @@ export function createApplicationsRouter(): Router {
   router.delete('/api/sandboxes/:sandboxId/applications/:applicationId', async (req: Request, res: Response): Promise<void> => {
     const applicationId = routeParam(req.params.applicationId);
     const existing = await prisma.application.findUnique({ where: { id: applicationId } });
+    if (!req.sessionAuth) throw new HostingError(401, 'Authentication required.');
+    const parent = await sandboxAccess(req.sessionAuth.userId, routeParam(req.params.sandboxId), true, req.effectivePermissions?.global_manage);
+    if (existing && (existing.sandboxId !== parent.id || existing.hostedApplicationId)) throw new HostingError(403, 'Application does not belong to this sandbox.');
     if (!existing) {
       res.status(404).json({ error: 'Application not found.' });
       return;

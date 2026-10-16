@@ -4,6 +4,9 @@
     <p class="text-muted mb-0">Register custom SMART applications, manage OAuth credentials, and explore sample clinical applications.</p>
   </div>
   <div class="d-flex gap-2">
+    @if (auth.hasPermission('applications_deployment')) {
+      <a routerLink="/applications/hosted" class="btn btn-outline-primary"><i class="bi bi-github me-2"></i>Application Studio</a>
+    }
     @if (auth.hasPermission('applications_register')) {
       <button class="btn btn-primary d-flex align-items-center gap-1" (click)="formError.set(null); showRegisterModal.set(true)">
         <i class="bi bi-plus-circle-fill"></i>

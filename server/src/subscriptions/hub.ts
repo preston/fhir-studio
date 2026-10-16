@@ -2,8 +2,16 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server as HttpServer } from 'node:http';
-import type { SubscriptionNotificationEvent, SubscriptionTopicDefinition } from '@fhir-studio/core';
+import type {
+  SubscriptionNotificationEvent,
+  SubscriptionTopicDefinition,
+} from '@fhir-studio/core';
 import axios from 'axios';
+import type { OidcBffConfig } from '../auth/sso_config.js';
+import { resolveSessionFromRequest } from '../authentication/session.js';
+import { sandboxAccess } from '../hosted/access.js';
+import { getPrisma } from '../db/prisma.js';
+import { loadEffectivePermissions } from '../authorization/effectivePermissions.js';
 
 interface ClientConnection {
   ws: WebSocket;
@@ -19,7 +27,8 @@ const standardTopics: SubscriptionTopicDefinition[] = [
     title: 'Patient Admission Event',
     status: 'active',
     resourceTrigger: {
-      description: 'Triggered whenever an inpatient encounter starts or updates to active status',
+      description:
+        'Triggered whenever an inpatient encounter starts or updates to active status',
       resource: 'Encounter',
       supportedInteraction: ['create', 'update'],
     },
@@ -41,7 +50,8 @@ const standardTopics: SubscriptionTopicDefinition[] = [
     title: 'Medication Order Dispatched',
     status: 'active',
     resourceTrigger: {
-      description: 'Triggered when a MedicationRequest is created in draft or active status',
+      description:
+        'Triggered when a MedicationRequest is created in draft or active status',
       resource: 'MedicationRequest',
       supportedInteraction: ['create', 'update'],
     },
@@ -76,7 +86,7 @@ export class SubscriptionHub {
     return SubscriptionHub.instance;
   }
 
-  public init(httpServer: HttpServer): void {
+  public init(httpServer: HttpServer, oidc: OidcBffConfig): void {
     if (this.wss) {
       this.close();
     }
@@ -84,6 +94,44 @@ export class SubscriptionHub {
     this.wss = new WebSocketServer({
       server: httpServer,
       path: '/subscriptions/ws',
+      verifyClient: (info, done) => {
+        void (async () => {
+          const trustedOrigins = new Set([
+            ...oidc.corsOrigins,
+            new URL(oidc.redirectUrl).origin,
+            new URL(oidc.uiBaseUrl).origin,
+          ]);
+          if (!trustedOrigins.has(info.origin)) return false;
+          const cookies: Record<string, string> = {};
+          for (const item of (info.req.headers.cookie || '').split(';')) {
+            const separator = item.indexOf('=');
+            if (separator > 0)
+              cookies[item.slice(0, separator).trim()] = decodeURIComponent(
+                item.slice(separator + 1),
+              );
+          }
+          const session = await resolveSessionFromRequest({ cookies }, oidc);
+          const sandboxId = new URL(
+            info.req.url || '',
+            'http://localhost',
+          ).searchParams.get('sandboxId');
+          if (!session || !sandboxId) return false;
+          const permissions = await loadEffectivePermissions(
+            getPrisma(),
+            session.user.id,
+          );
+          await sandboxAccess(
+            session.user.id,
+            sandboxId,
+            false,
+            permissions.global_manage,
+          );
+          return true;
+        })().then(
+          (allowed) => done(allowed, allowed ? undefined : 403),
+          () => done(false, 403),
+        );
+      },
     });
 
     this.wss.on('connection', (ws: WebSocket, req) => {
@@ -118,8 +166,14 @@ export class SubscriptionHub {
       ws.on('message', (data) => {
         try {
           const parsed = JSON.parse(data.toString());
-          if (parsed.type === 'bind-with-token' || parsed.type === 'subscribe') {
-            if (parsed.sandboxId) conn.sandboxId = parsed.sandboxId;
+          if (
+            parsed.type === 'bind-with-token' ||
+            parsed.type === 'subscribe'
+          ) {
+            if (parsed.sandboxId && parsed.sandboxId !== conn.sandboxId) {
+              ws.close(1008, 'Sandbox binding cannot change.');
+              return;
+            }
             if (parsed.topic) conn.topic = parsed.topic;
           }
         } catch {
@@ -194,7 +248,11 @@ export class SubscriptionHub {
     for (const client of this.clients) {
       if (client.ws.readyState === WebSocket.OPEN) {
         if (!client.sandboxId || client.sandboxId === sandboxId) {
-          if (!client.topic || client.topic === 'all' || client.topic === event.topic) {
+          if (
+            !client.topic ||
+            client.topic === 'all' ||
+            client.topic === event.topic
+          ) {
             client.ws.send(payload);
           }
         }

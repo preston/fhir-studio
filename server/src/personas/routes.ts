@@ -4,10 +4,16 @@ import express, { type Request, type Response, type Router } from 'express';
 import { getPrisma } from '../db/prisma.js';
 
 import { routeParam } from '../http/routeParam.js';
+import { sandboxAccess } from '../hosted/access.js';
 
 export function createPersonasRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
+  router.use('/api/sandboxes/:sandboxId/personas', async (req, res, next) => {
+    const sandbox = await sandboxAccess(req.sessionAuth?.userId, routeParam(req.params.sandboxId), !['GET', 'HEAD'].includes(req.method), req.effectivePermissions?.global_manage);
+    res.locals.sandboxRowId = sandbox.id;
+    next();
+  });
 
   // 1. GET /api/sandboxes/:sandboxId/personas
   router.get('/api/sandboxes/:sandboxId/personas', async (req: Request, res: Response): Promise<void> => {
@@ -70,7 +76,7 @@ export function createPersonasRouter(): Router {
     const { personaName, fhirResourceType, fhirResourceId, fhirResourceName } = req.body;
 
     const updated = await prisma.userPersona.update({
-      where: { id: personaId },
+      where: { id: personaId, sandboxId: String(res.locals.sandboxRowId) },
       data: {
         ...(personaName !== undefined ? { personaName } : {}),
         ...(fhirResourceType !== undefined ? { fhirResourceType } : {}),
@@ -85,7 +91,7 @@ export function createPersonasRouter(): Router {
   // 4. DELETE /api/sandboxes/:sandboxId/personas/:personaId
   router.delete('/api/sandboxes/:sandboxId/personas/:personaId', async (req: Request, res: Response): Promise<void> => {
     const personaId = routeParam(req.params.personaId);
-    await prisma.userPersona.delete({ where: { id: personaId } });
+    await prisma.userPersona.delete({ where: { id: personaId, sandboxId: String(res.locals.sandboxRowId) } });
     res.json({ message: 'User persona deleted successfully.' });
   });
 
