@@ -1,240 +1,56 @@
-# FHIR Studio Production Stack
-# Services:
-#   - PostgreSQL (port 5432) for FHIR Studio BFF Server, Authentik, and HAPI FHIR instances
-#   - Redis (port 6379) for Authentik
-#   - Authentik Server & Worker (port 9000) for SSO
-#   - HAPI FHIR JPA v8.10.0-3 (R4, port 8083) with Partitioning enabled & Postgres DB (hapi_r4)
-#   - HAPI FHIR JPA v8.10.0-3 (R4B, port 8084) with Partitioning enabled & Postgres DB (hapi_r4b)
-#   - HAPI FHIR JPA v8.10.0-3 (R5, port 8085) with Partitioning enabled & Postgres DB (hapi_r5)
-#   - FHIR Studio Server (port 3000) REST API, SMART IdP, and FHIR Gateway
-#   - FHIR Studio UI (port 4200) Angular Developer Web Console
+# Full local stack: infra from docker-compose.development.yml plus prebuilt FHIR Studio images.
+#
+# Prerequisites:
+#   cp server/.env.example server/.env
+#   docker build -f server/Dockerfile -t fhir-studio-server:latest .
+#   docker build -f ui/Dockerfile -t fhir-studio-ui:latest .
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml up -d
+#   open http://localhost:4200/
+#
+# server/.env supplies optional hosting, bootstrap, and signing settings.
+# Compose overrides database and HAPI URLs to container DNS, and pins the
+# development Authentik client. extra_hosts maps localhost to the host so the
+# issuer URL http://localhost:9000 still reaches Authentik.
+#
+# Application hosting (after enabling it in server/.env and creating the content
+# directory; see doc/application-hosting.md):
+#   docker compose -f docker-compose.full.yml --profile hosting up -d
 
-# Preserve the existing Compose project and named volumes after moving this file.
+# Same project name as docker-compose.development.yml so named volumes are shared.
 name: docker
 
+include:
+  - path: docker-compose.development.yml
+
+x-fhir-studio-server-environment: &fhir-studio-server-environment
+  NODE_ENV: development
+  PORT: 3000
+  FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+  DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+  FHIR_STUDIO_SERVER_SSO_ISSUER_URL: http://localhost:9000/application/o/fhir-studio/
+  FHIR_STUDIO_SERVER_SSO_CLIENT_ID: fhir-studio-development
+  FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET: fhir-studio-development-secret
+  FHIR_STUDIO_SERVER_SSO_REDIRECT_URL: http://localhost:3000/sso/callback
+  FHIR_STUDIO_SERVER_SSO_SCOPES: openid profile email offline_access
+  FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL: http://localhost:4200
+  FHIR_STUDIO_SERVER_UI_BASE_URL: http://localhost:4200
+  FHIR_STUDIO_SERVER_CORS_ORIGINS: http://localhost:4200
+  FHIR_STUDIO_SERVER_SESSION_SECRET: fhir-studio-development-session-secret-32b
+  FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: fhir-studio-development-api-token-pepper-32b
+  FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
+  FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
+  FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+  FHIR_STUDIO_HOSTING_ROOT: /var/lib/fhir-studio/hosted-apps
+
 services:
-  fhir-studio-postgres:
-    image: docker.io/library/postgres:18
-    container_name: fhir-studio-postgres
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD to a generated hex secret}
-    healthcheck:
-      interval: 10s
-      retries: 5
-      start_period: 10s
-      timeout: 5s
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-    volumes:
-      - fhir-studio-postgres-data:/var/lib/postgresql
-      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
-    ports:
-      - "127.0.0.1:5433:5432"
-    restart: unless-stopped
-
-  fhir-studio-redis:
-    image: docker.io/library/redis:8-alpine
-    container_name: fhir-studio-redis
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      start_period: 10s
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  fhir-studio-authentik-server:
-    image: ghcr.io/goauthentik/server:2026.5.6
-    container_name: fhir-studio-authentik-server
-    command: server
-    depends_on:
-      fhir-studio-postgres:
-        condition: service_healthy
-      fhir-studio-redis:
-        condition: service_healthy
-    environment:
-      AUTHENTIK_REDIS__HOST: fhir-studio-redis
-      AUTHENTIK_POSTGRESQL__HOST: fhir-studio-postgres
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__USER: postgres
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
-      AUTHENTIK_SECRET_KEY: ${FHIR_STUDIO_AUTHENTIK_SECRET_KEY:?Set FHIR_STUDIO_AUTHENTIK_SECRET_KEY}
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL}
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD}
-    ports:
-      - "9000:9000"
-      - "9443:9443"
-    volumes:
-      - fhir-studio-authentik-data:/data
-    shm_size: 512mb
-    restart: unless-stopped
-
-  fhir-studio-authentik-worker:
-    image: ghcr.io/goauthentik/server:2026.5.6
-    container_name: fhir-studio-authentik-worker
-    command: worker
-    depends_on:
-      fhir-studio-postgres:
-        condition: service_healthy
-      fhir-studio-redis:
-        condition: service_healthy
-    environment:
-      AUTHENTIK_REDIS__HOST: fhir-studio-redis
-      AUTHENTIK_POSTGRESQL__HOST: fhir-studio-postgres
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__USER: postgres
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
-      AUTHENTIK_SECRET_KEY: ${FHIR_STUDIO_AUTHENTIK_SECRET_KEY:?Set FHIR_STUDIO_AUTHENTIK_SECRET_KEY}
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL}
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD}
-    volumes:
-      - fhir-studio-authentik-data:/data
-    shm_size: 512mb
-    restart: unless-stopped
-
-  fhir-studio-hapi-r4:
-    image: hapiproject/hapi:v8.10.0-3
-    container_name: fhir-studio-hapi-r4
-    depends_on:
-      fhir-studio-postgres:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:8083:8080"
-    environment:
-      hapi.fhir.fhir_version: R4
-      spring.main.allow-bean-definition-overriding: "true"
-      spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r4
-      spring.datasource.username: postgres
-      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
-      spring.datasource.driverClassName: org.postgresql.Driver
-      spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.allow_references_across_partitions: "true"
-      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
-      hapi.fhir.expunge_enabled: "true"
-      hapi.fhir.delete_expunge_enabled: "true"
-      hapi.fhir.allow_multiple_delete: "true"
-      hapi.fhir.allow_cascading_deletes: "true"
-      hapi.fhir.bulk_export_enabled: "true"
-      hapi.fhir.bulk_import_enabled: "true"
-      hapi.fhir.enable_index_missing_fields: "true"
-      hapi.fhir.cdshooks.enabled: "true"
-      hapi.fhir.cr.enabled: "true"
-      spring.jpa.properties.hibernate.search.enabled: "true"
-      spring.jpa.properties.hibernate.search.backend.type: lucene
-      spring.jpa.properties.hibernate.search.backend.analysis.configurer: ca.uhn.fhir.jpa.search.HapiHSearchAnalysisConfigurers$$HapiLuceneAnalysisConfigurer
-      hapi.fhir.allow_external_references: "true"
-      hapi.fhir.cr.cql.terminology.valueset_preexpansion_mode: USE_IF_PRESENT
-      hapi.fhir.cr.cql.terminology.valueset_expansion_mode: PERFORM_NAIVE_EXPANSION
-      hapi.fhir.cr.cql.terminology.valueset_membership_mode: USE_EXPANSION
-      hapi.fhir.cr.cql.terminology.code_lookup_mode: USE_VALIDATE_CODE_OPERATION
-      hapi.fhir.cr.cql.data.search_parameter_mode: USE_SEARCH_PARAMETERS
-      hapi.fhir.cr.cql.data.terminology_parameter_mode: FILTER_IN_MEMORY
-      hapi.fhir.cr.cql.data.profile_mode: DECLARED
-      hapi.fhir.pre_expand_value_sets: "true"
-      hapi.fhir.enable_task_pre_expand_value_sets: "true"
-      hapi.fhir.maximum_expansion_size: "20000"
-      hapi.fhir.pre_expand_value_sets_max_count: "20000"
-      hapi.fhir.pre_expand_value_sets_default_count: "20000"
-    restart: unless-stopped
-
-  fhir-studio-hapi-r4b:
-    image: hapiproject/hapi:v8.10.0-3
-    container_name: fhir-studio-hapi-r4b
-    depends_on:
-      fhir-studio-postgres:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:8084:8080"
-    environment:
-      hapi.fhir.fhir_version: R4B
-      spring.main.allow-bean-definition-overriding: "true"
-      spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r4b
-      spring.datasource.username: postgres
-      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
-      spring.datasource.driverClassName: org.postgresql.Driver
-      spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.allow_references_across_partitions: "true"
-      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
-      hapi.fhir.expunge_enabled: "true"
-      hapi.fhir.delete_expunge_enabled: "true"
-      hapi.fhir.allow_multiple_delete: "true"
-      hapi.fhir.allow_cascading_deletes: "true"
-      hapi.fhir.bulk_export_enabled: "true"
-      hapi.fhir.bulk_import_enabled: "true"
-      hapi.fhir.enable_index_missing_fields: "true"
-      hapi.fhir.cdshooks.enabled: "true"
-      hapi.fhir.cr.enabled: "true"
-      spring.jpa.properties.hibernate.search.enabled: "true"
-      spring.jpa.properties.hibernate.search.backend.type: lucene
-      spring.jpa.properties.hibernate.search.backend.analysis.configurer: ca.uhn.fhir.jpa.search.HapiHSearchAnalysisConfigurers$$HapiLuceneAnalysisConfigurer
-      hapi.fhir.allow_external_references: "true"
-      hapi.fhir.cr.cql.terminology.valueset_preexpansion_mode: USE_IF_PRESENT
-      hapi.fhir.cr.cql.terminology.valueset_expansion_mode: PERFORM_NAIVE_EXPANSION
-      hapi.fhir.cr.cql.terminology.valueset_membership_mode: USE_EXPANSION
-      hapi.fhir.cr.cql.terminology.code_lookup_mode: USE_VALIDATE_CODE_OPERATION
-      hapi.fhir.cr.cql.data.search_parameter_mode: USE_SEARCH_PARAMETERS
-      hapi.fhir.cr.cql.data.terminology_parameter_mode: FILTER_IN_MEMORY
-      hapi.fhir.cr.cql.data.profile_mode: DECLARED
-      hapi.fhir.pre_expand_value_sets: "true"
-      hapi.fhir.enable_task_pre_expand_value_sets: "true"
-      hapi.fhir.maximum_expansion_size: "20000"
-      hapi.fhir.pre_expand_value_sets_max_count: "20000"
-      hapi.fhir.pre_expand_value_sets_default_count: "20000"
-    restart: unless-stopped
-
-  fhir-studio-hapi-r5:
-    image: hapiproject/hapi:v8.10.0-3
-    container_name: fhir-studio-hapi-r5
-    depends_on:
-      fhir-studio-postgres:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:8085:8080"
-    environment:
-      hapi.fhir.fhir_version: R5
-      spring.main.allow-bean-definition-overriding: "true"
-      spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r5
-      spring.datasource.username: postgres
-      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
-      spring.datasource.driverClassName: org.postgresql.Driver
-      spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
-      hapi.fhir.partitioning.allow_references_across_partitions: "true"
-      hapi.fhir.partitioning.partitioning_include_in_search_hashes: "false"
-      hapi.fhir.expunge_enabled: "true"
-      hapi.fhir.delete_expunge_enabled: "true"
-      hapi.fhir.allow_multiple_delete: "true"
-      hapi.fhir.allow_cascading_deletes: "true"
-      hapi.fhir.bulk_export_enabled: "true"
-      hapi.fhir.bulk_import_enabled: "true"
-      hapi.fhir.enable_index_missing_fields: "true"
-      hapi.fhir.cdshooks.enabled: "true"
-      hapi.fhir.cr.enabled: "true"
-      spring.jpa.properties.hibernate.search.enabled: "true"
-      spring.jpa.properties.hibernate.search.backend.type: lucene
-      spring.jpa.properties.hibernate.search.backend.analysis.configurer: ca.uhn.fhir.jpa.search.HapiHSearchAnalysisConfigurers$$HapiLuceneAnalysisConfigurer
-      hapi.fhir.allow_external_references: "true"
-      hapi.fhir.cr.cql.terminology.valueset_preexpansion_mode: USE_IF_PRESENT
-      hapi.fhir.cr.cql.terminology.valueset_expansion_mode: PERFORM_NAIVE_EXPANSION
-      hapi.fhir.cr.cql.terminology.valueset_membership_mode: USE_EXPANSION
-      hapi.fhir.cr.cql.terminology.code_lookup_mode: USE_VALIDATE_CODE_OPERATION
-      hapi.fhir.cr.cql.data.search_parameter_mode: USE_SEARCH_PARAMETERS
-      hapi.fhir.cr.cql.data.terminology_parameter_mode: FILTER_IN_MEMORY
-      hapi.fhir.cr.cql.data.profile_mode: DECLARED
-      hapi.fhir.pre_expand_value_sets: "true"
-      hapi.fhir.enable_task_pre_expand_value_sets: "true"
-      hapi.fhir.maximum_expansion_size: "20000"
-      hapi.fhir.pre_expand_value_sets_max_count: "20000"
-      hapi.fhir.pre_expand_value_sets_default_count: "20000"
-    restart: unless-stopped
-
   fhir-studio-server:
-    image: preston/fhir-studio-server:latest
+    image: fhir-studio-server:latest
+    pull_policy: missing
     container_name: fhir-studio-server
     depends_on:
       fhir-studio-postgres:
-        condition: service_healthy
-      fhir-studio-redis:
         condition: service_healthy
       fhir-studio-authentik-server:
         condition: service_started
@@ -244,54 +60,25 @@ services:
         condition: service_started
       fhir-studio-hapi-r5:
         condition: service_started
+    # So OIDC calls to http://localhost:9000 reach Authentik published on the host.
+    extra_hosts:
+      - "localhost:host-gateway"
+    env_file:
+      - ./server/.env
     environment:
-      NODE_ENV: production
-      PORT: "3000"
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
-      FHIR_STUDIO_SERVER_SSO_ISSUER_URL: ${FHIR_STUDIO_SERVER_SSO_ISSUER_URL:-http://localhost:9000/application/o/fhir-studio/}
-      FHIR_STUDIO_SERVER_SSO_CLIENT_ID: ${FHIR_STUDIO_SERVER_SSO_CLIENT_ID:-fhir-studio-development}
-      FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET: ${FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET:?Set FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET}
-      FHIR_STUDIO_SERVER_SSO_REDIRECT_URL: ${FHIR_STUDIO_SERVER_SSO_REDIRECT_URL:-http://localhost:3000/sso/callback}
-      FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL: ${FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL:-http://localhost:4200}
-      FHIR_STUDIO_SERVER_UI_BASE_URL: ${FHIR_STUDIO_SERVER_UI_BASE_URL:-http://localhost:4200}
-      FHIR_STUDIO_SERVER_CORS_ORIGINS: ${FHIR_STUDIO_SERVER_CORS_ORIGINS:-http://localhost:4200}
-      FHIR_STUDIO_SERVER_SESSION_SECRET: ${FHIR_STUDIO_SERVER_SESSION_SECRET:?Set FHIR_STUDIO_SERVER_SESSION_SECRET}
-      FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: ${FHIR_STUDIO_SERVER_API_TOKEN_PEPPER:?Set FHIR_STUDIO_SERVER_API_TOKEN_PEPPER}
-      FHIR_STUDIO_SERVER_SMART_SIGNING_KEY: ${FHIR_STUDIO_SERVER_SMART_SIGNING_KEY:-}
-      FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
-      FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
-      FHIR_STUDIO_HOSTING_DOMAIN: ${FHIR_STUDIO_HOSTING_DOMAIN:-}
-      FHIR_STUDIO_HOSTING_ROOT: /var/lib/fhir-studio/hosted-apps
-      FHIR_STUDIO_HOSTING_STUDIO_ORIGIN: ${FHIR_STUDIO_HOSTING_STUDIO_ORIGIN:-}
-      FHIR_STUDIO_HOSTING_ENCRYPTION_KEY: ${FHIR_STUDIO_HOSTING_ENCRYPTION_KEY:-}
-      FHIR_STUDIO_HOSTING_GITHUB_APP_ID: ${FHIR_STUDIO_HOSTING_GITHUB_APP_ID:-}
-      FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID: ${FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID:-}
-      FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET: ${FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET:-}
-      FHIR_STUDIO_HOSTING_GITHUB_PRIVATE_KEY: ${FHIR_STUDIO_HOSTING_GITHUB_PRIVATE_KEY:-}
-      FHIR_STUDIO_HOSTING_GITHUB_WEBHOOK_SECRET: ${FHIR_STUDIO_HOSTING_GITHUB_WEBHOOK_SECRET:-}
-      FHIR_STUDIO_HOSTING_GITHUB_SLUG: ${FHIR_STUDIO_HOSTING_GITHUB_SLUG:-}
-      FHIR_STUDIO_HOSTING_MAX_ARCHIVE_BYTES: ${FHIR_STUDIO_HOSTING_MAX_ARCHIVE_BYTES:-20971520}
-      FHIR_STUDIO_HOSTING_MAX_EXPANDED_BYTES: ${FHIR_STUDIO_HOSTING_MAX_EXPANDED_BYTES:-52428800}
-      FHIR_STUDIO_HOSTING_MAX_FILES: ${FHIR_STUDIO_HOSTING_MAX_FILES:-1000}
-      FHIR_STUDIO_HOSTING_MAX_APPS_PER_USER: ${FHIR_STUDIO_HOSTING_MAX_APPS_PER_USER:-10}
-      FHIR_STUDIO_HOSTING_MAX_STORAGE_BYTES: ${FHIR_STUDIO_HOSTING_MAX_STORAGE_BYTES:-10737418240}
-      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
-      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
-      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+      <<: *fhir-studio-server-environment
     ports:
       - "3000:3000"
     volumes:
       - ${FHIR_STUDIO_HOSTING_DIRECTORY:-./.data/hosted-apps}:/var/lib/fhir-studio/hosted-apps:ro
     restart: unless-stopped
 
-  # Same image as the API; overrides CMD so this process only consumes the Postgres job queue.
-  # Scale horizontally with `docker compose up --scale fhir-studio-worker=N` without changing API replicas.
-  # No fixed container_name so --scale works. stop_grace_period covers worker SHUTDOWN_GRACE_MS (25s).
+  # Same image as the API. Image CMD runs migrations and the API; this process only consumes the queue.
+  # No container_name so `docker compose up --scale fhir-studio-worker=N` works.
+  # stop_grace_period covers worker SHUTDOWN_GRACE_MS (25s).
   fhir-studio-worker:
-    image: preston/fhir-studio-server:latest
+    image: fhir-studio-server:latest
+    pull_policy: missing
     depends_on:
       fhir-studio-postgres:
         condition: service_healthy
@@ -303,68 +90,63 @@ services:
         condition: service_started
       fhir-studio-hapi-r5:
         condition: service_started
+    extra_hosts:
+      - "localhost:host-gateway"
+    env_file:
+      - ./server/.env
     environment:
-      NODE_ENV: production
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
-      FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
-      FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
-      FHIR_STUDIO_HOSTING_DOMAIN: ${FHIR_STUDIO_HOSTING_DOMAIN:-}
-      FHIR_STUDIO_HOSTING_ROOT: /var/lib/fhir-studio/hosted-apps
-      FHIR_STUDIO_HOSTING_STUDIO_ORIGIN: ${FHIR_STUDIO_HOSTING_STUDIO_ORIGIN:-}
-      FHIR_STUDIO_HOSTING_ENCRYPTION_KEY: ${FHIR_STUDIO_HOSTING_ENCRYPTION_KEY:-}
-      FHIR_STUDIO_HOSTING_GITHUB_APP_ID: ${FHIR_STUDIO_HOSTING_GITHUB_APP_ID:-}
-      FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID: ${FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID:-}
-      FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET: ${FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET:-}
-      FHIR_STUDIO_HOSTING_GITHUB_PRIVATE_KEY: ${FHIR_STUDIO_HOSTING_GITHUB_PRIVATE_KEY:-}
-      FHIR_STUDIO_HOSTING_GITHUB_WEBHOOK_SECRET: ${FHIR_STUDIO_HOSTING_GITHUB_WEBHOOK_SECRET:-}
-      FHIR_STUDIO_HOSTING_GITHUB_SLUG: ${FHIR_STUDIO_HOSTING_GITHUB_SLUG:-}
-      FHIR_STUDIO_HOSTING_MAX_ARCHIVE_BYTES: ${FHIR_STUDIO_HOSTING_MAX_ARCHIVE_BYTES:-20971520}
-      FHIR_STUDIO_HOSTING_MAX_EXPANDED_BYTES: ${FHIR_STUDIO_HOSTING_MAX_EXPANDED_BYTES:-52428800}
-      FHIR_STUDIO_HOSTING_MAX_FILES: ${FHIR_STUDIO_HOSTING_MAX_FILES:-1000}
-      FHIR_STUDIO_HOSTING_MAX_APPS_PER_USER: ${FHIR_STUDIO_HOSTING_MAX_APPS_PER_USER:-10}
-      FHIR_STUDIO_HOSTING_MAX_STORAGE_BYTES: ${FHIR_STUDIO_HOSTING_MAX_STORAGE_BYTES:-10737418240}
-      FHIR_STUDIO_HAPI_R4_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R4_BASE_URL: http://fhir-studio-hapi-r4:8080/fhir
-      FHIR_STUDIO_HAPI_R4B_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R4B_BASE_URL: http://fhir-studio-hapi-r4b:8080/fhir
-      FHIR_STUDIO_HAPI_R5_ENABLED: "true"
-      FHIR_STUDIO_HAPI_R5_BASE_URL: http://fhir-studio-hapi-r5:8080/fhir
+      <<: *fhir-studio-server-environment
     command: ["node", "build/worker.js"]
     volumes:
       - ${FHIR_STUDIO_HOSTING_DIRECTORY:-./.data/hosted-apps}:/var/lib/fhir-studio/hosted-apps
     stop_grace_period: 30s
     restart: unless-stopped
 
-  fhir-studio-app-host:
-    image: preston/fhir-studio-server:latest
-    command: ["node", "build/hosted/host.js"]
-    environment:
-      NODE_ENV: production
-      PORT: "8081"
-      FHIR_STUDIO_HOSTING_TRUST_PROXY_HOPS: ${FHIR_STUDIO_HOSTING_TRUST_PROXY_HOPS:-0}
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
-      FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
-      FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
-      FHIR_STUDIO_HOSTING_DOMAIN: ${FHIR_STUDIO_HOSTING_DOMAIN:-}
-      FHIR_STUDIO_HOSTING_ROOT: /var/lib/fhir-studio/hosted-apps
-      FHIR_STUDIO_HOSTING_STUDIO_ORIGIN: ${FHIR_STUDIO_HOSTING_STUDIO_ORIGIN:-}
-    volumes:
-      - ${FHIR_STUDIO_HOSTING_DIRECTORY:-./.data/hosted-apps}:/var/lib/fhir-studio/hosted-apps:ro
-    ports:
-      - "127.0.0.1:8086:8081"
-    depends_on:
-      - fhir-studio-server
-    restart: unless-stopped
-
   fhir-studio-ui:
-    image: preston/fhir-studio-ui:latest
+    image: fhir-studio-ui:latest
+    pull_policy: missing
     container_name: fhir-studio-ui
     depends_on:
-      - fhir-studio-server
+      fhir-studio-server:
+        condition: service_started
+    environment:
+      FHIR_STUDIO_SERVER_PUBLIC_API_BASE_URL: http://localhost:3000
     ports:
       - "4200:80"
     restart: unless-stopped
 
-volumes:
-  fhir-studio-postgres-data:
-  fhir-studio-authentik-data:
+  # Static host for deployed applications. Stays out of the default project while
+  # server/.env.example has FHIR_STUDIO_HOSTING_ENABLED=false (the process exits if hosting is off).
+  fhir-studio-app-host:
+    profiles: ["hosting"]
+    image: fhir-studio-server:latest
+    pull_policy: missing
+    # Drop GitHub and encryption material loaded from server/.env before the process starts.
+    command:
+      - sh
+      - -c
+      - |
+        unset FHIR_STUDIO_HOSTING_GITHUB_APP_ID \
+          FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID \
+          FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET \
+          FHIR_STUDIO_HOSTING_GITHUB_PRIVATE_KEY \
+          FHIR_STUDIO_HOSTING_GITHUB_WEBHOOK_SECRET \
+          FHIR_STUDIO_HOSTING_GITHUB_SLUG \
+          FHIR_STUDIO_HOSTING_ENCRYPTION_KEY \
+          FHIR_STUDIO_HOSTING_ENCRYPTION_KEY_PREVIOUS
+        exec node build/hosted/host.js
+    depends_on:
+      fhir-studio-server:
+        condition: service_started
+    extra_hosts:
+      - "localhost:host-gateway"
+    env_file:
+      - ./server/.env
+    environment:
+      <<: *fhir-studio-server-environment
+      PORT: 8081
+    volumes:
+      - ${FHIR_STUDIO_HOSTING_DIRECTORY:-./.data/hosted-apps}:/var/lib/fhir-studio/hosted-apps:ro
+    ports:
+      - "127.0.0.1:8086:8081"
+    restart: unless-stopped

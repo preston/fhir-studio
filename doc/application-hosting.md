@@ -36,7 +36,11 @@ Create a host directory owned by container UID/GID 1000, for example
 to that host directory. Containers use `/var/lib/fhir-studio/hosted-apps`. The worker
 mounts it read/write; the API and app host mount it read-only. Set DOMAIN to
 `user.studio.example.org`, STUDIO_ORIGIN to the HTTPS origin `https://studio.example.org`,
-then start with `docker compose -f docker-compose.full.yml up -d`.
+then start the app host with the prebuilt stack:
+
+```bash
+docker compose -f docker-compose.full.yml --profile hosting up -d
+```
 When hosting is enabled, the API and worker refuse startup when hosting/GitHub configuration is missing or invalid.
 All three processes validate the existing storage directory and their required access.
 DNS resolution and TLS certificate coverage must also be verified at the operator's proxy.
@@ -45,11 +49,10 @@ Route wildcard DNS and a wildcard TLS certificate for `*.user.studio.example.org
 the app-host service (loopback port 8086 in Compose), preserving Host. Never route app
 hosts to the Studio management API, and never expose the content root directly as a web
 document root. The app host receives no GitHub keys and exposes no management routes.
-Configure the real public SSO/UI URLs and trusted origins; Compose's existing SSO
-credentials/URLs remain development examples.
+The prebuilt stack pins the development Authentik client and localhost callback URLs.
+A public deployment sets its own SSO, session, and UI URLs in that environment.
 Production hosting validates that the UI and SSO callback use the configured Studio
 origin and that management CORS allows only exact HTTPS origins outside the user sub-zone.
-Use Compose environment overrides for the SSO/UI URLs, session secret, and token pepper.
 Configure edge request/bandwidth limits. If a trusted proxy supplies forwarding headers,
 set `FHIR_STUDIO_HOSTING_TRUST_PROXY_HOPS` to the exact hop count (default 0); overwrite
 client-supplied forwarding headers at that proxy. The host also limits requests per IP.

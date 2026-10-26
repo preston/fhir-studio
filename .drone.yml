@@ -1,0 +1,146 @@
+---
+kind: pipeline
+type: docker
+name: ui-amd64
+platform:
+  os: linux
+  arch: amd64
+steps:
+  - name: publish
+    image: plugins/docker
+    settings:
+      context: .
+      dockerfile: ui/Dockerfile
+      repo: preston/fhir-studio-ui
+      tags:
+        - ${DRONE_COMMIT_SHA}-linux-amd64
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+trigger:
+  event:
+    - push
+---
+kind: pipeline
+type: docker
+name: ui-arm64
+platform:
+  os: linux
+  arch: arm64
+steps:
+  - name: publish
+    image: plugins/docker
+    settings:
+      context: .
+      dockerfile: ui/Dockerfile
+      repo: preston/fhir-studio-ui
+      tags:
+        - ${DRONE_COMMIT_SHA}-linux-arm64
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+trigger:
+  event:
+    - push
+---
+kind: pipeline
+type: docker
+name: ui-manifest
+depends_on:
+  - ui-amd64
+  - ui-arm64
+steps:
+  - name: publish
+    image: plugins/manifest
+    settings:
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+      target: preston/fhir-studio-ui:latest
+      template: preston/fhir-studio-ui:${DRONE_COMMIT_SHA}-OS-ARCH
+      platforms:
+        - linux/amd64
+        - linux/arm64
+trigger:
+  branch:
+    - master
+  event:
+    - push
+  status:
+    - success
+---
+kind: pipeline
+type: docker
+name: server-amd64
+platform:
+  os: linux
+  arch: amd64
+steps:
+  - name: publish
+    image: plugins/docker
+    settings:
+      context: .
+      dockerfile: server/Dockerfile
+      repo: preston/fhir-studio-server
+      tags:
+        - ${DRONE_COMMIT_SHA}-linux-amd64
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+trigger:
+  event:
+    - push
+---
+kind: pipeline
+type: docker
+name: server-arm64
+platform:
+  os: linux
+  arch: arm64
+steps:
+  - name: publish
+    image: plugins/docker
+    settings:
+      context: .
+      dockerfile: server/Dockerfile
+      repo: preston/fhir-studio-server
+      tags:
+        - ${DRONE_COMMIT_SHA}-linux-arm64
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+trigger:
+  event:
+    - push
+---
+kind: pipeline
+type: docker
+name: server-manifest
+depends_on:
+  - server-amd64
+  - server-arm64
+steps:
+  - name: publish
+    image: plugins/manifest
+    settings:
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+      target: preston/fhir-studio-server:latest
+      template: preston/fhir-studio-server:${DRONE_COMMIT_SHA}-OS-ARCH
+      platforms:
+        - linux/amd64
+        - linux/arm64
+trigger:
+  branch:
+    - master
+  event:
+    - push
+  status:
+    - success

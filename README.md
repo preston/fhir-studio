@@ -166,9 +166,21 @@ npm run worker:watch --workspace=@fhir-studio/server
 npm run start --workspace=@fhir-studio/ui
 ```
 
-Jobs are coordinated only through PostgreSQL (no Server↔Worker HTTP). In production Compose, `fhir-studio-worker` uses the same server image with `node build/worker.js` and can be scaled without changing API container count.
+Jobs are coordinated only through PostgreSQL (no Server↔Worker HTTP). In the prebuilt stack, `fhir-studio-worker` uses the same server image with `node build/worker.js` and can be scaled without changing API container count.
 
 Once running, navigate to `http://localhost:4200/` and sign in.
+
+### Prebuilt images
+
+`docker-compose.full.yml` includes the development stack and adds the API, worker, and UI images instead of running those processes from source. Copy `server/.env.example` to `server/.env`, build the images, then start the stack:
+
+```bash
+docker build -f server/Dockerfile -t fhir-studio-server:latest .
+docker build -f ui/Dockerfile -t fhir-studio-ui:latest .
+docker compose -f docker-compose.full.yml up -d
+```
+
+The API image applies Prisma migrations on startup. Compose points the database and HAPI URLs at the compose network and keeps the development Authentik client. `localhost:9000` from inside the API and worker reaches Authentik on the host. Add `--profile hosting` after enabling application hosting; see [Application hosting](doc/application-hosting.md).
 
 ---
 
@@ -199,26 +211,15 @@ Once running, navigate to `http://localhost:4200/` and sign in.
 
 ## Environment Variables
 
-Production Compose requires independent `FHIR_STUDIO_POSTGRES_PASSWORD`,
-`FHIR_STUDIO_AUTHENTIK_SECRET_KEY`, `FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL`,
-`FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD`, `FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET`,
-`FHIR_STUDIO_SERVER_SESSION_SECRET`, and `FHIR_STUDIO_SERVER_API_TOKEN_PEPPER` values.
-Generate each secret separately (for example, `openssl rand -hex 32`); use a hex
-Postgres password so it is also safe in the database connection URL. Configure
-the production OIDC provider/client and its redirect URLs explicitly: the
-production stack does not install the development blueprint or its known user
-accounts. The Postgres and HAPI host ports are bound to loopback; expose the
-Studio gateway through the production reverse proxy, keeping these upstreams private.
-
 Apply migrations with `npm run prisma:deploy --workspace=@fhir-studio/server`
-before starting the updated API and workers. The security migrations require
+before starting an updated API and workers from source. The prebuilt API image runs `prisma migrate deploy` on startup. The security migrations require
 existing SMART applications to relaunch. On the next SSO login or token refresh,
 legacy mapped grants are reconciled with the IdP; reassert any intended independent
 manual grant through Administration to record its origin explicitly.
 
 Configuration uses the `FHIR_STUDIO_SERVER_*` / `FHIR_STUDIO_HAPI_*` / `FHIR_STUDIO_HOSTING_*` prefixes. Validation lives in `server/src/env.ts` and is shared by the API (`loadSsoConfig` → `SERVER_REQUIRED_ENV`) and the worker (`loadWorkerConfig` → `WORKER_REQUIRED_ENV`). Required variables have **no in-code defaults**; a missing set causes an immediate exit listing every missing name and pointing at `server/.env.example`.
 
-Local development values match `server/.env.example` and `docker-compose.development.yml`. Production Compose injects the same names into `fhir-studio-server` / `fhir-studio-worker` (both processes require hosting/GitHub configuration when hosting is enabled; the API also requires the full SSO set).
+Local development values match `server/.env.example` and `docker-compose.development.yml`. The prebuilt stack loads `server/.env` into the API, worker, and app host, then overrides the database URL, HAPI base URLs, and development Authentik client for the compose network.
 
 | Variable | API Server | Worker | Local Development Value (`.env.example`) | Description |
 | --- | --- | --- | --- | --- |

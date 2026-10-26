@@ -3,9 +3,9 @@
 #   - PostgreSQL (port 5432) for FHIR Studio BFF Server, Authentik, and HAPI FHIR instances
 #   - Redis (port 6379) for Authentik
 #   - Authentik Server & Worker (port 9000) for local SSO
-#   - HAPI FHIR JPA v8.10.0-3 (R4, port 8083) with Partitioning enabled & Postgres DB (hapi_r4)
-#   - HAPI FHIR JPA v8.10.0-3 (R4B, port 8084) with Partitioning enabled & Postgres DB (hapi_r4b)
-#   - HAPI FHIR JPA v8.10.0-3 (R5, port 8085) with Partitioning enabled & Postgres DB (hapi_r5)
+#   - HAPI FHIR JPA v8.12.0-2 (R4, port 8083) with Partitioning enabled & Postgres DB (hapi_r4)
+#   - HAPI FHIR JPA v8.12.0-2 (R4B, port 8084) with Partitioning enabled & Postgres DB (hapi_r4b)
+#   - HAPI FHIR JPA v8.12.0-2 (R5, port 8085) with Partitioning enabled & Postgres DB (hapi_r5)
 
 # Preserve the existing Compose project and named volumes after moving this file.
 name: docker
@@ -93,7 +93,7 @@ services:
     restart: unless-stopped
 
   fhir-studio-hapi-r4:
-    image: hapiproject/hapi:v8.10.0-3
+    image: hapiproject/hapi:v8.12.0-2
     container_name: fhir-studio-hapi-r4
     depends_on:
       fhir-studio-postgres:
@@ -138,7 +138,7 @@ services:
     restart: unless-stopped
 
   fhir-studio-hapi-r4b:
-    image: hapiproject/hapi:v8.10.0-3
+    image: hapiproject/hapi:v8.12.0-2
     container_name: fhir-studio-hapi-r4b
     depends_on:
       fhir-studio-postgres:
@@ -183,7 +183,7 @@ services:
     restart: unless-stopped
 
   fhir-studio-hapi-r5:
-    image: hapiproject/hapi:v8.10.0-3
+    image: hapiproject/hapi:v8.12.0-2
     container_name: fhir-studio-hapi-r5
     depends_on:
       fhir-studio-postgres:
