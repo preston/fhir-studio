@@ -27,9 +27,7 @@ export const HOSTING_STATIC_REQUIRED_ENV: EnvSpec[] = [
   { name: 'FHIR_STUDIO_HOSTING_STUDIO_ORIGIN' },
   { name: 'FHIR_STUDIO_HOSTING_ANALYTICS_KEY' },
 ];
-export const HOSTING_REQUIRED_ENV: EnvSpec[] = [
-  ...HOSTING_STATIC_REQUIRED_ENV,
-  { name: 'FHIR_STUDIO_HOSTING_ENCRYPTION_KEY' },
+export const HOSTING_GITHUB_REQUIRED_ENV: EnvSpec[] = [
   { name: 'FHIR_STUDIO_HOSTING_GITHUB_APP_ID' },
   { name: 'FHIR_STUDIO_HOSTING_GITHUB_CLIENT_ID' },
   { name: 'FHIR_STUDIO_HOSTING_GITHUB_CLIENT_SECRET' },
@@ -38,10 +36,17 @@ export const HOSTING_REQUIRED_ENV: EnvSpec[] = [
   { name: 'FHIR_STUDIO_HOSTING_GITHUB_SLUG' },
 ];
 
+export function isGitHubHostingEnabled(): boolean { return !!readEnv('FHIR_STUDIO_HOSTING_GITHUB_APP_ID'); }
+export const HOSTING_REQUIRED_ENV: EnvSpec[] = [
+  ...HOSTING_STATIC_REQUIRED_ENV,
+  { name: 'FHIR_STUDIO_HOSTING_ENCRYPTION_KEY' },
+  ...HOSTING_GITHUB_REQUIRED_ENV.map(spec => ({ ...spec, requiredWhen: isGitHubHostingEnabled })),
+];
+
 /** Required by the HTTP API / SMART BFF process. No in-code defaults. */
 export const SERVER_REQUIRED_ENV: EnvSpec[] = [
   DATABASE_URL_ENV,
-  ...HOSTING_REQUIRED_ENV.map(spec => ({ ...spec, requiredWhen: isHostingEnabled })),
+  ...HOSTING_REQUIRED_ENV.map(spec => ({ ...spec, requiredWhen: () => isHostingEnabled() && (!spec.requiredWhen || spec.requiredWhen()) })),
   { name: 'FHIR_STUDIO_SERVER_SSO_ISSUER_URL', aliases: ['SSO_ISSUER_URL'] },
   { name: 'FHIR_STUDIO_SERVER_SSO_CLIENT_ID', aliases: ['SSO_CLIENT_ID'] },
   { name: 'FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET', aliases: ['SSO_CLIENT_SECRET'] },
@@ -56,7 +61,7 @@ export const SERVER_REQUIRED_ENV: EnvSpec[] = [
 /** Required by the background job worker process. */
 export const WORKER_REQUIRED_ENV: EnvSpec[] = [
   DATABASE_URL_ENV,
-  ...HOSTING_REQUIRED_ENV.map(spec => ({ ...spec, requiredWhen: isHostingEnabled })),
+  ...HOSTING_REQUIRED_ENV.map(spec => ({ ...spec, requiredWhen: () => isHostingEnabled() && (!spec.requiredWhen || spec.requiredWhen()) })),
 ];
 
 export interface WorkerConfig {

@@ -2,18 +2,20 @@
   <div>
     <h2>Application Studio</h2>
     <p class="text-muted">
-      GitHub-backed SMART applications, templates, and static hosting.
+      SMART applications, catalog releases, templates, and static hosting.
     </p>
   </div>
+  @if (!artifactBacked()) {
   <a routerLink="/profile/connections" class="btn btn-outline-secondary"
     ><i class="bi bi-github me-2"></i
     >{{ connection()?.login || "Connect GitHub" }}</a
   >
+  } @else { <a id="hosted-catalog-connections" routerLink="/profile/connected-applications" class="btn btn-outline-secondary">Catalog connections</a> }
 </div>
 @if (error()) {
   <div class="alert alert-danger" role="alert">
     {{ error() }}
-    <a routerLink="/profile/connections">Manage GitHub connection</a>
+    @if (!artifactBacked()) { <a routerLink="/profile/connections">Manage GitHub connection</a> }
   </div>
 }
 @if (notice()) {
@@ -42,7 +44,7 @@
               (click)="selectProject(project.id)"
             >
               {{ project.name
-              }}<small class="d-block">{{ project.repository }}</small>
+              }}<small class="d-block">{{project.sourceKind === 'artifact' ? 'Catalog release' : project.repository}}</small>
             </button>
           } @empty {
             <p class="text-muted">No applications in this view.</p>
@@ -217,12 +219,17 @@
       <div class="d-flex justify-content-between align-items-start mb-2">
         <div>
           <h3>{{ project.name }}</h3>
+          @if (!artifactBacked()) {
           <a
             [href]="'https://github.com/' + project.repository"
             target="_blank"
             rel="noopener"
             >{{ project.repository }}</a
           >
+          } @else {
+            <p class="text-body-secondary mb-0">Installed catalog release. Manage release updates and public configuration through your catalog connection.</p>
+            @if (project.capabilities.own) { <button id="catalog-application-delete" type="button" class="btn btn-sm btn-outline-danger mt-2" [disabled]="busy()" (click)="remove()">Delete application</button> }
+          }
         </div>
         <span class="badge bg-secondary">{{
           project.capabilities.own
@@ -254,7 +261,7 @@
       </div>
       <ul class="nav nav-tabs mb-3">
         @for (
-          view of ["Code", "Preview", "Build", "Usage", "Collaborators", "Settings"];
+          view of applicationTabs();
           track view
         ) {
           <li class="nav-item">
@@ -308,6 +315,12 @@
               </button>
             </div>
           }
+          @if (integrationManaged()) {
+            @if (previewRevision(); as revision) {
+              <div id="integration-preview-revision" class="card mb-3"><div class="card-body"><h4 class="h6">Complete preview revision</h4><dl class="row mb-0"><dt class="col-sm-3">Revision</dt><dd class="col-sm-9"><code>{{revision.id}}</code></dd><dt class="col-sm-3">Launch file</dt><dd class="col-sm-9"><code>{{revision.launchPath}}</code></dd><dt class="col-sm-3">Callback files</dt><dd class="col-sm-9">@for (callback of revision.runtimeContract?.callback_paths || [revision.callbackPath]; track callback) { <code class="d-block">{{callback}}</code> }</dd><dt class="col-sm-3">SMART scopes</dt><dd class="col-sm-9"><code>{{revision.scope}}</code></dd>@if (revision.artifactSource; as artifact) { <dt class="col-sm-3">Release</dt><dd class="col-sm-9"><code>{{artifact.immutable_id}}</code></dd><dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{artifact.sha256}}</code></dd> }<dt class="col-sm-3">Public configuration</dt><dd class="col-sm-9">@for (entry of revision.publicConfiguration || {} | keyvalue; track entry.key) { <div><code>{{entry.key}}</code>: <code>{{entry.value}}</code></div> } @empty { <span class="text-body-secondary">No public application settings.</span> }</dd></dl><p class="small text-body-secondary mt-2 mb-0">These settings are public. Reviewing this preview approves the artifact, public configuration, launch/callback paths, and SMART scopes together.</p></div></div>
+            }
+          }
+          <div class="mb-3"><label for="hosted-launch-channel" class="form-label">Application channel</label><select id="hosted-launch-channel" class="form-select w-auto" [ngModel]="launchChannel()" (ngModelChange)="launchChannel.set($event)"><option value="preview">Preview</option><option value="published" [disabled]="!project.publishedBuildId">Published</option></select></div>
           <div class="row g-2">
             <div class="col-md-4">
               <div class="list-group overflow-auto" style="max-height: 520px">
@@ -349,7 +362,7 @@
             </div>
           </div>
           <div class="d-flex flex-wrap gap-2 mt-3">
-            @if (project.capabilities.develop) {
+            @if (project.capabilities.develop && !artifactBacked()) {
               <button
                 class="btn btn-primary"
                 (click)="save()"
@@ -380,7 +393,7 @@
             Preview:
             <a
               [href]="project.previewUrl"
-              (click)="reviewedPreviewId.set(project.previewBuildId)"
+              (click)="notePreviewOpened()"
               target="_blank"
               rel="noopener"
               >{{ project.previewUrl }}</a
@@ -459,10 +472,10 @@
           <div class="d-flex gap-2 my-3">
             <button
               class="btn btn-primary"
-              (click)="launch()"
-              [disabled]="busy() || !project.previewBuildId"
+              (click)="launch(launchChannel())"
+              [disabled]="busy() || (launchChannel() === 'preview' ? !project.previewBuildId : !project.publishedBuildId)"
             >
-              Test preview in sandbox</button
+              Launch {{launchChannel()}} in sandbox</button
             ><button
               class="btn btn-outline-primary"
               (click)="launch('published')"
@@ -484,6 +497,9 @@
               Load launch choices
             </button>
           </div>
+          @if (integrationManaged() && project.previewBuildId) {
+            <div class="alert alert-info"><p>After reviewing the application and launch behavior, record approval of this exact preview. A replacement preview requires a new review.</p><button id="integration-preview-reviewed" class="btn btn-success" type="button" [disabled]="busy() || reviewedPreviewId() === project.previewBuildId" (click)="markPreviewReviewed()">{{reviewedPreviewId() === project.previewBuildId ? 'Current preview reviewed' : 'Mark current preview reviewed'}}</button></div>
+          }
           @if (previewSrc()) {
             <iframe
               [src]="previewSrc()!"
@@ -496,6 +512,7 @@
           }
         }
         @case ("Build") {
+          @if (!artifactBacked()) {
           <button
             class="btn btn-sm btn-outline-secondary mb-2"
             (click)="checkSetup()"
@@ -503,12 +520,13 @@
           >
             Check GitHub / workflow setup
           </button>
+          }
           <p class="small">
             <a
               [href]="project.previewUrl"
               target="_blank"
               rel="noopener"
-              (click)="reviewedPreviewId.set(project.previewBuildId)"
+              (click)="notePreviewOpened()"
               >Review current preview</a
             >
             before publishing.
@@ -526,7 +544,7 @@
             <code>{{ project.publishedBuildId || "None" }}</code>
           </p>
           <div class="d-flex flex-wrap gap-2 mb-3">
-            @if (project.capabilities.develop) {
+            @if (project.capabilities.develop && !artifactBacked()) {
               <button
                 class="btn btn-primary"
                 (click)="
@@ -544,6 +562,7 @@
               </button>
             }
             @if (project.capabilities.publish) {
+              @if (!artifactBacked()) {
               <button
                 class="btn btn-outline-primary"
                 (click)="
@@ -551,8 +570,9 @@
                 "
                 [disabled]="busy()"
               >
-                Install / repair workflow</button
-              ><button
+                Install / repair workflow</button>
+              }
+              <button
                 class="btn btn-success"
                 (click)="operation('publish', { buildId: reviewedPreviewId() })"
                 [disabled]="
@@ -574,11 +594,13 @@
               </button>
             }
           </div>
+          @if (!artifactBacked()) {
           <p class="small text-muted">
             The workflow must be merged into the default branch before manual
             builds are available. Build logs and full workflow history remain on
             GitHub; Studio does not retain old build files.
           </p>
+          } @else { <p class="small text-body-secondary">This application uses validated catalog artifacts. Return to the catalog to import a new preview or reinstall an available older release. Historical files are not retained for rollback.</p> }
           @for (build of project.builds; track build.id) {
             <div class="card mb-2">
               <div class="card-body">
@@ -598,7 +620,7 @@
                     >Open GitHub run and logs</a
                   >
                 }
-                @if (project.capabilities.develop) {
+                @if (project.capabilities.develop && !artifactBacked()) {
                   <button
                     class="btn btn-sm btn-outline-secondary ms-2"
                     (click)="operation('builds/' + build.id + '/retry')"
@@ -623,10 +645,7 @@
           }
         }
         @case ("Collaborators") {
-          <p class="text-muted">
-            Studio roles do not grant GitHub repository access. Collaborators
-            need their own GitHub permissions to read source, edit, and build.
-          </p>
+          @if (!artifactBacked()) { <p class="text-muted">Studio roles do not grant GitHub repository access. Collaborators need their own GitHub permissions to read source, edit, and build.</p> } @else { <p class="text-body-secondary">Studio roles control access to this application. Importing a private release requires the acting user's source authorization. Manage catalog imports and updates through Skycapp.</p> }
           @if (project.capabilities.manageCollaborators) {
             <div class="d-flex gap-2 mb-3">
               <input
@@ -673,8 +692,7 @@
           @if (project.capabilities.own) {
             <h5 class="mt-4">Transfer ownership</h5>
             <p class="small text-muted">
-              The recipient must accept and have GitHub write access. Repository
-              ownership does not change.
+              @if (!artifactBacked()) { The recipient must accept and have GitHub write access. Repository ownership does not change. } @else { The recipient must accept and have application deployment permission. Catalog provenance is retained; the former owner may lose management access. }
             </p>
             <div class="d-flex gap-2">
               <input

@@ -5,6 +5,7 @@ import axios from 'axios';
 import {
   HAPI_DEFAULT_PARTITION_NAME,
   isKnowledgePublishResourceType,
+  isHapiNonPartitionableResourceType,
   resolveHapiPartitionName,
 } from '@fhir-studio/core';
 import { getPrisma } from '../db/prisma.js';
@@ -20,20 +21,21 @@ import { hasPermission } from '../authorization/permissions.js';
 import { loadStudioOrigin } from '../hosted/config.js';
 
 import { routeParam } from '../http/routeParam.js';
+import { isSafeFhirPath, isSafeFhirBundle, isUnsafeHapiOperationPath } from './path.js';
+
+const READ_ONLY_KNOWLEDGE_OPERATIONS = new Set([
+  'validate', 'validate-code', 'expand', 'lookup', 'subsumes', 'find-matches', 'meta',
+]);
 
 function isKnowledgeMutationRequest(method: string, path: string, resourceType?: string): boolean {
-  if (!isKnowledgePublishResourceType(resourceType)) {
-    return false;
-  }
-  const m = method.toUpperCase();
-  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') {
-    return false;
-  }
   const pathOnly = path.split('?')[0];
-  // Extended operations ($evaluate, $cql, …) are not knowledge mutations.
-  if (/(?:^|\/)\$[^/]+$/.test(pathOnly)) {
-    return false;
-  }
+  const operation = /(?:^|\/)\$([^/]+)$/.exec(pathOnly)?.[1].toLowerCase();
+  // CQL remote Endpoint parameters can escape the authorized tenant even on a clinical type.
+  if (operation && ['evaluate', 'cql', 'evaluate-measure'].includes(operation)) return true;
+  if (!isKnowledgePublishResourceType(resourceType) && !isHapiNonPartitionableResourceType(resourceType)) return false;
+  if (operation) return !READ_ONLY_KNOWLEDGE_OPERATIONS.has(operation);
+  const m = method.toUpperCase();
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return false;
   if (m === 'POST' && pathOnly.includes('/_search')) {
     return false;
   }
@@ -43,19 +45,10 @@ function isKnowledgeMutationRequest(method: string, path: string, resourceType?:
 function bundleMutatesDefaultKnowledge(bundle: FhirBatchBundle): boolean {
   for (const entry of bundle.entry || []) {
     const rt =
-      entry.resource?.resourceType ||
-      String(entry.request?.url || '').split('?')[0].split('/')[0];
+      String(entry.request?.url || '').split('?')[0].split('/')[0] ||
+      entry.resource?.resourceType;
     const method = String(entry.request?.method || 'GET').toUpperCase();
-    if (!isKnowledgePublishResourceType(rt)) {
-      continue;
-    }
-    if (method === 'GET' || method === 'HEAD') {
-      continue;
-    }
-    if (/(?:^|\/)\$[^/]+$/.test(String(entry.request?.url || '').split('?')[0])) {
-      continue;
-    }
-    return true;
+    if (isKnowledgeMutationRequest(method, String(entry.request?.url || ''), rt)) return true;
   }
   return false;
 }
@@ -129,7 +122,8 @@ export function createFhirGatewayRouter(): Router {
       : pathParam
         ? `/${pathParam}`
         : '';
-    if (subpath.includes('\\') || subpath.split('/').some(segment => segment === '..' || segment === '.')) { res.sendStatus(400); return; }
+    if (!isSafeFhirPath(subpath)) { res.sendStatus(400); return; }
+    if (isUnsafeHapiOperationPath(subpath) || subpath.split('/').filter(Boolean)[0]?.startsWith('$')) { res.status(403).json({ error: 'HAPI system administration is not exposed through sandbox endpoints.' }); return; }
     const forwardedQuery = { ...req.query };
     let forwardedBody: unknown = req.body;
 
@@ -251,6 +245,10 @@ export function createFhirGatewayRouter(): Router {
       ['batch', 'transaction'].includes(String((body as { type?: string }).type || ''));
 
     if (isRootBundlePost) {
+      if (!isSafeFhirBundle(body)) {
+        res.status(400).json({ error: 'Bundle entries must use relative FHIR URLs within this sandbox; partition administration is forbidden.' });
+        return;
+      }
       if (bundleMutatesDefaultKnowledge(body as FhirBatchBundle) && !canPublishKnowledge) {
         denyKnowledgeWrite();
         return;

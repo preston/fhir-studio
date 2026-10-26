@@ -85,6 +85,7 @@ export function createJobsRouter(): Router {
     }
 
     if (jobDefinitions.some(d => d.jobType === jobType)) validateJobInput(jobType, input ?? {});
+    if (String(jobType).startsWith('INTEGRATION_')) throw new HostingError(400, 'Use the integration deployment endpoints.');
     if (String(jobType).startsWith('HOSTED_') && !jobDefinitions.some(d => d.jobType === jobType)) throw new HostingError(400, 'Use the hosting administration action or build endpoints.');
     const userId = req.sessionAuth?.userId;
     const job = await jobService.enqueueJob({ name, jobType, input, sandboxId }, userId);

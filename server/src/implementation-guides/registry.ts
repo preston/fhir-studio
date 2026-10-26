@@ -1,140 +1,119 @@
 // Author: Preston Lee
 
-import axios from 'axios';
+import {
+  publicHttpUrl,
+  PublicRequestError,
+  requestPublicBuffer,
+  requestPublicJson,
+} from "../http/public-request.js";
 
 export interface PackageTarballResult {
   buffer: Buffer;
   filename: string;
 }
 
-/**
- * Extracts a filename from the Content-Disposition header, or returns a fallback.
- */
-function getFilenameFromContentDisposition(header?: string, fallback = 'package.tgz'): string {
-  if (!header) return fallback;
-  const match = header.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-  return match && match[1] ? match[1].trim() : fallback;
+const MAX_PACKAGE_BYTES = 50 * 1024 * 1024;
+
+function packageFilename(header: string | undefined, fallback: string): string {
+  const match = header?.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+  // Do not reflect response-controlled paths or control characters into HTTP headers.
+  return (
+    (match?.[1] ?? fallback).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200) ||
+    "package.tgz"
+  );
 }
 
-/**
- * Downloads a FHIR NPM package (.tgz) from upstream registries or a custom URL.
- * Handles fallbacks between packages2.fhir.org, packages.fhir.org direct, and registry metadata manifests.
- */
+async function download(
+  url: string,
+  fallback: string,
+): Promise<PackageTarballResult> {
+  const response = await requestPublicBuffer(url, {
+    maxBytes: MAX_PACKAGE_BYTES,
+    timeoutMs: 60_000,
+  });
+  if (response.body[0] !== 0x1f || response.body[1] !== 0x8b) {
+    throw new PublicRequestError(
+      502,
+      "Package source did not return a gzip archive.",
+    );
+  }
+  return {
+    buffer: response.body,
+    filename: packageFilename(
+      response.headers["content-disposition"],
+      fallback,
+    ),
+  };
+}
+
+/** All package sources, registry metadata URLs, and redirects use pinned public HTTPS. */
 export async function fetchPackageTarball(
   packageId: string,
   version?: string,
   customTarballUrl?: string | null,
 ): Promise<PackageTarballResult> {
   const cleanPkg = packageId.trim();
-  const cleanVer = version ? version.trim() : '';
+  const cleanVer = version?.trim() ?? "";
   const isSpecificVersion = Boolean(
-    cleanVer && cleanVer !== 'latest' && cleanVer !== 'current' && cleanVer !== '*',
+    cleanVer && !["latest", "current", "*"].includes(cleanVer),
   );
-  const fallbackFilename = `${cleanPkg}-${isSpecificVersion ? cleanVer : 'latest'}.tgz`;
-
-  // 1. If explicit custom URL is provided, try downloading from it first
-  if (customTarballUrl && customTarballUrl.trim()) {
+  const fallback = `${cleanPkg}-${isSpecificVersion ? cleanVer : "latest"}.tgz`;
+  if (customTarballUrl?.trim()) {
+    // Explicit user input errors must not fall through to an unrelated registry source.
+    publicHttpUrl(customTarballUrl.trim());
+    return download(customTarballUrl.trim(), fallback);
+  }
+  const sources = [
+    `https://packages2.fhir.org/packages/${encodeURIComponent(cleanPkg)}${isSpecificVersion ? "/" + encodeURIComponent(cleanVer) : ""}`,
+    `https://packages.fhir.org/${encodeURIComponent(cleanPkg)}${isSpecificVersion ? "/" + encodeURIComponent(cleanVer) : ""}`,
+  ];
+  for (const url of sources) {
     try {
-      const resp = await axios.get(customTarballUrl.trim(), {
-        responseType: 'arraybuffer',
-        timeout: 60_000,
-        maxRedirects: 10,
-      });
-      if (resp.status === 200 && resp.data?.length > 0) {
-        const filename = getFilenameFromContentDisposition(
-          resp.headers['content-disposition'],
-          fallbackFilename,
-        );
-        return { buffer: Buffer.from(resp.data), filename };
-      }
-    } catch (err: any) {
-      console.warn(`Custom tarballUrl (${customTarballUrl}) failed:`, err?.message);
+      return await download(url, fallback);
+    } catch (error) {
+      if (error instanceof PublicRequestError && error.status === 400)
+        throw error;
     }
   }
-
-  // 2. Try packages2.fhir.org
-  const p2Url = isSpecificVersion
-    ? `https://packages2.fhir.org/packages/${encodeURIComponent(cleanPkg)}/${encodeURIComponent(cleanVer)}`
-    : `https://packages2.fhir.org/packages/${encodeURIComponent(cleanPkg)}`;
-
   try {
-    const resp = await axios.get(p2Url, {
-      responseType: 'arraybuffer',
-      timeout: 60_000,
-      maxRedirects: 10,
-      headers: { Accept: 'application/tar+gzip, application/octet-stream, */*' },
-    });
-    if (resp.status === 200 && resp.data?.length > 0) {
-      const filename = getFilenameFromContentDisposition(
-        resp.headers['content-disposition'],
-        fallbackFilename,
-      );
-      return { buffer: Buffer.from(resp.data), filename };
-    }
-  } catch (err: any) {
-    console.warn(`packages2.fhir.org download failed for ${cleanPkg}#${cleanVer || 'latest'}:`, err?.message);
-  }
-
-  // 3. Try packages.fhir.org direct endpoint
-  const p1Url = isSpecificVersion
-    ? `https://packages.fhir.org/${encodeURIComponent(cleanPkg)}/${encodeURIComponent(cleanVer)}`
-    : `https://packages.fhir.org/${encodeURIComponent(cleanPkg)}`;
-
-  try {
-    const resp = await axios.get(p1Url, {
-      responseType: 'arraybuffer',
-      timeout: 60_000,
-      maxRedirects: 10,
-      headers: { Accept: 'application/tar+gzip, application/octet-stream, */*' },
-    });
-    // Check if response is actually a tarball/gzip (or at least non-empty and not an HTML/JSON error)
-    if (resp.status === 200 && resp.data?.length > 0) {
-      const contentType = String(resp.headers['content-type'] || '');
-      if (contentType.includes('gzip') || contentType.includes('octet-stream') || resp.data.length > 512) {
-        const filename = getFilenameFromContentDisposition(
-          resp.headers['content-disposition'],
-          fallbackFilename,
-        );
-        return { buffer: Buffer.from(resp.data), filename };
-      }
-    }
-  } catch (err: any) {
-    console.warn(`packages.fhir.org direct download failed for ${cleanPkg}#${cleanVer || 'latest'}:`, err?.message);
-  }
-
-  // 4. Query packages.fhir.org package metadata for tarball location
-  try {
-    const metaResp = await axios.get(`https://packages.fhir.org/${encodeURIComponent(cleanPkg)}`, {
-      timeout: 15_000,
-      headers: { Accept: 'application/json' },
-    });
-    const meta = metaResp.data;
-    if (meta && typeof meta === 'object') {
-      const targetVer = isSpecificVersion
+    const metadata = await requestPublicJson(
+      `https://packages.fhir.org/${encodeURIComponent(cleanPkg)}`,
+      { timeoutMs: 15_000 },
+    );
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+      const meta = metadata as Record<string, unknown>;
+      const versions =
+        meta.versions &&
+        typeof meta.versions === "object" &&
+        !Array.isArray(meta.versions)
+          ? (meta.versions as Record<string, unknown>)
+          : {};
+      const tags =
+        meta["dist-tags"] && typeof meta["dist-tags"] === "object"
+          ? (meta["dist-tags"] as Record<string, unknown>)
+          : {};
+      const target = isSpecificVersion
         ? cleanVer
-        : meta['dist-tags']?.latest || Object.keys(meta.versions || {}).pop();
-
-      const verObj = targetVer && meta.versions ? meta.versions[targetVer] : undefined;
-      const tarballUrl = verObj?.dist?.tarball || verObj?.url;
-
-      if (tarballUrl && tarballUrl !== p1Url && tarballUrl !== p2Url) {
-        const resp = await axios.get(tarballUrl, {
-          responseType: 'arraybuffer',
-          timeout: 60_000,
-          maxRedirects: 10,
-        });
-        if (resp.status === 200 && resp.data?.length > 0) {
-          const filename = getFilenameFromContentDisposition(
-            resp.headers['content-disposition'],
-            `${cleanPkg}-${targetVer || 'latest'}.tgz`,
-          );
-          return { buffer: Buffer.from(resp.data), filename };
-        }
+        : typeof tags.latest === "string"
+          ? tags.latest
+          : Object.keys(versions).pop();
+      const entry = target ? versions[target] : undefined;
+      if (entry && typeof entry === "object") {
+        const item = entry as Record<string, unknown>;
+        const dist =
+          item.dist && typeof item.dist === "object"
+            ? (item.dist as Record<string, unknown>)
+            : {};
+        const url = dist.tarball ?? item.url;
+        if (typeof url === "string") return await download(url, fallback);
       }
     }
-  } catch (err: any) {
-    console.warn(`packages.fhir.org metadata inspection failed for ${cleanPkg}:`, err?.message);
+  } catch (error) {
+    if (error instanceof PublicRequestError && error.status === 400)
+      throw error;
   }
-
-  throw new Error(`Unable to download FHIR package '${cleanPkg}${cleanVer ? '@' + cleanVer : ''}' from registry.`);
+  throw new PublicRequestError(
+    502,
+    `Unable to download FHIR package '${cleanPkg}${cleanVer ? "@" + cleanVer : ""}' from registry.`,
+  );
 }

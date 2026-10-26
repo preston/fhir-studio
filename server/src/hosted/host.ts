@@ -133,6 +133,9 @@ app.use(async (req, res) => {
       studioOrigin: config.studioOrigin,
       callbackPath: build.callbackPath,
       scope: build.scope,
+      callbackPaths: (build.runtimeContract as { callback_paths?: string[] } | null)?.callback_paths || [build.callbackPath],
+      configuration: build.publicConfiguration,
+      runtimeContractVersion: 1,
     });
     return;
   }
@@ -145,7 +148,7 @@ app.use(async (req, res) => {
     res.sendStatus(404);
     return;
   }
-  const root = buildDirectory(config, project.id, build.id);
+  const root = buildDirectory(config, project.id, build.contentBuildId || build.id);
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(
     path.join(root, file),

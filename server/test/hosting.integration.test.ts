@@ -845,6 +845,7 @@ test('SMART bearer scope never inherits owner session or open-access authority',
   await prisma.smartAuthSession.create({
     data: {
       sandboxId: sandbox.sandboxId,
+      sandboxRowId: sandbox.id,
       clientId: `hosted-${appId}-preview`,
       redirectUri: 'https://example.test',
       accessToken: 'smart-test-token',
@@ -1728,7 +1729,7 @@ test('filtered registrations and legacy filtered tokens cannot acquire unfiltere
   const launch = await regressionPost('/api/sandboxes/launch-test/launch-context', { clientId: client.clientId, scope: 'patient/Observation.rs', patientFhirId: 'p1' });
   assert.equal(launch.status, 400);
   const token = crypto.randomUUID();
-  await prisma.smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', redirectUri: client.launchUri, scope: client.scope, accessToken: token, patientFhirId: 'p1', tokenExpiresAt: new Date(Date.now() + 60000) } });
+  await prisma.smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', sandboxRowId: (await getPrisma().sandbox.findUniqueOrThrow({ where: { sandboxId: 'launch-test' } })).id, redirectUri: client.launchUri, scope: client.scope, accessToken: token, patientFhirId: 'p1', tokenExpiresAt: new Date(Date.now() + 60000) } });
   const response = await realFetch(`${origin}/api/sandboxes/launch-test/fhir/r4/Observation`, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(response.status, 403);
 });
@@ -1736,7 +1737,7 @@ test('filtered registrations and legacy filtered tokens cannot acquire unfiltere
 test('SMART include and revinclude are blocked for user scopes and form-based searches', async () => {
   const client = await regressionClient('user/Patient.rs');
   const token = crypto.randomUUID();
-  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', redirectUri: client.launchUri, scope: client.scope, accessToken: token, tokenExpiresAt: new Date(Date.now() + 60000) } });
+  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', sandboxRowId: (await getPrisma().sandbox.findUniqueOrThrow({ where: { sandboxId: 'launch-test' } })).id, redirectUri: client.launchUri, scope: client.scope, accessToken: token, tokenExpiresAt: new Date(Date.now() + 60000) } });
   for (const parameter of ['_include=Patient:general-practitioner', '_revinclude:iterate=Observation:patient']) {
     const before = fhirRequests.length;
     const response = await realFetch(`${origin}/api/sandboxes/launch-test/fhir/r4/Patient?${parameter}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -1793,7 +1794,7 @@ test('standalone patient selection establishes usable context and validates the 
 test('patient POST searches stay in the selected compartment and constrain body patient IDs', async () => {
   const client = await regressionClient('patient/*.rs');
   const token = crypto.randomUUID();
-  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', redirectUri: client.launchUri, scope: client.scope, accessToken: token, patientFhirId: 'p1', tokenExpiresAt: new Date(Date.now() + 60000) } });
+  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', sandboxRowId: (await getPrisma().sandbox.findUniqueOrThrow({ where: { sandboxId: 'launch-test' } })).id, redirectUri: client.launchUri, scope: client.scope, accessToken: token, patientFhirId: 'p1', tokenExpiresAt: new Date(Date.now() + 60000) } });
   const search = (type: string, body: string) => realFetch(`${origin}/api/sandboxes/launch-test/fhir/r4/${type}/_search`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   const observation = await search('Observation', 'status=final');
   assert.equal(observation.status, 200, await observation.clone().text());
@@ -1808,7 +1809,7 @@ test('patient POST searches stay in the selected compartment and constrain body 
 test('registered browser FHIR clients can preflight and forward conditional-write headers', async () => {
   const client = await regressionClient('user/Observation.u');
   const token = crypto.randomUUID();
-  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', redirectUri: client.launchUri, scope: client.scope, accessToken: token, tokenExpiresAt: new Date(Date.now() + 60000) } });
+  await getPrisma().smartAuthSession.create({ data: { clientId: client.clientId, sandboxId: 'launch-test', sandboxRowId: (await getPrisma().sandbox.findUniqueOrThrow({ where: { sandboxId: 'launch-test' } })).id, redirectUri: client.launchUri, scope: client.scope, accessToken: token, tokenExpiresAt: new Date(Date.now() + 60000) } });
   const url = `${origin}/api/sandboxes/launch-test/fhir/r4/Observation/o1`;
   const preflight = await realFetch(url, { method: 'OPTIONS', headers: { Origin: 'https://client.example.org', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'authorization,content-type,prefer,if-match' } });
   assert.equal(preflight.status, 204);

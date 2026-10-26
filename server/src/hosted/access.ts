@@ -39,6 +39,7 @@ export class HostingError extends Error {
     public status: number,
     message: string,
     public recovery?: string,
+    public upstreamStatus?: number,
   ) {
     super(message);
   }

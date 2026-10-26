@@ -4,13 +4,14 @@ import { loadHostingConfig } from './config.js';
 import { getPrisma } from '../db/prisma.js';
 import { queueReconciliation } from './builds.js';
 import { lockApplication } from './github.js';
-import { isHostingEnabled } from '../env.js';
+import { isHostingEnabled, isGitHubHostingEnabled } from '../env.js';
 
 export function webhookSignature(
   body: Buffer,
   signature: string,
   secret: string,
 ): boolean {
+  if (!secret.trim()) return false;
   const expected = Buffer.from(
     `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`,
   );
@@ -22,7 +23,7 @@ export function webhookSignature(
 }
 export function createGitHubWebhookRouter() {
   const router = express.Router();
-  if (!isHostingEnabled()) return router;
+  if (!isHostingEnabled() || !isGitHubHostingEnabled()) return router;
   const config = loadHostingConfig();
   router.post(
     '/api/github/webhook',
@@ -49,10 +50,12 @@ export function createGitHubWebhookRouter() {
       };
       const prisma = getPrisma();
       const kind = req.get('x-github-event');
+      const validId = (value: unknown): value is number =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
       if (
         kind === 'github_app_authorization' &&
         event.action === 'revoked' &&
-        event.sender
+        validId(event.sender?.id)
       )
         await prisma.$transaction(async (tx) => {
           const connection = await tx.gitHubConnection.findUnique({
@@ -66,13 +69,17 @@ export function createGitHubWebhookRouter() {
           });
         });
       if (
-        (kind === 'installation' &&
+        validId(event.installation?.id) &&
+        ((kind === 'installation' &&
           ['deleted', 'suspend'].includes(event.action || '')) ||
         (kind === 'installation_repositories' &&
-          event.repositories_removed?.length)
+          Array.isArray(event.repositories_removed) &&
+          event.repositories_removed.length > 0 &&
+          event.repositories_removed.every((repository) => validId(repository.id))))
       ) {
         const apps = await prisma.hostedApplication.findMany({
           where: {
+            sourceKind: 'repository',
             installationId: String(event.installation?.id),
             ...(kind === 'installation_repositories'
               ? {
@@ -108,9 +115,9 @@ export function createGitHubWebhookRouter() {
           });
         }
       }
-      if (kind === 'repository' && event.repository) {
+      if (kind === 'repository' && validId(event.repository?.id)) {
         const apps = await prisma.hostedApplication.findMany({
-          where: { repositoryId: String(event.repository.id) },
+          where: { sourceKind: 'repository', repositoryId: String(event.repository!.id) },
         });
         for (const app of apps)
           await prisma.$transaction(async (tx) => {
@@ -133,18 +140,24 @@ export function createGitHubWebhookRouter() {
             });
           });
       }
-      if (kind === 'workflow_run' && event.workflow_run && event.installation) {
+      if (
+        kind === 'workflow_run' &&
+        validId(event.workflow_run?.id) &&
+        validId(event.workflow_run?.repository?.id) &&
+        validId(event.installation?.id)
+      ) {
         const apps = await prisma.hostedApplication.findMany({
           where: {
-            repositoryId: String(event.workflow_run.repository.id),
-            installationId: String(event.installation.id),
+            sourceKind: 'repository',
+            repositoryId: String(event.workflow_run!.repository.id),
+            installationId: String(event.installation!.id),
             deletedAt: null,
             suspended: false,
           },
         });
         // The body is only a notification. Canonical run and artifact data come from the API.
         for (const app of apps)
-          await queueReconciliation(app.id, String(event.workflow_run.id));
+          await queueReconciliation(app.id, String(event.workflow_run!.id));
       }
       res.sendStatus(204);
     },

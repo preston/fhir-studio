@@ -172,6 +172,7 @@
                 <span>{{ auth.currentUser()?.displayName || auth.currentUser()?.email }}</span>
               </button>
               <ul class="dropdown-menu dropdown-menu-end shadow">
+                <li><a id="profile-catalog-connections" class="dropdown-item" routerLink="/profile/connected-applications"><i class="bi bi-link-45deg me-2"></i>Connected applications</a></li>
                 <li class="dropdown-header">Signed in as</li>
                 <li class="dropdown-item-text fw-bold text-truncate" style="max-width: 200px;">
                   {{ auth.currentUser()?.email }}

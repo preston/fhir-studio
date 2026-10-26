@@ -1,0 +1,66 @@
+<section id="connected-applications" class="mt-4">
+  <div class="d-flex justify-content-between align-items-center">
+    <h2 class="h4">Connected applications</h2>
+    <button
+      id="connected-applications-refresh"
+      class="btn btn-outline-secondary"
+      type="button"
+      [disabled]="busy()"
+      (click)="load()"
+    >
+      Refresh
+    </button>
+  </div>
+  <p>
+    Manage access granted to catalog platforms such as Skycapp. Revocation does
+    not delete hosted applications or their repositories.
+  </p>
+  @if (error()) {
+    <div class="alert alert-danger" role="alert">{{ error() }}</div>
+  }
+  @if (notice()) {
+    <div class="alert alert-success" role="status">{{ notice() }}</div>
+  }
+  @if (busy()) {
+    <p role="status">Loading connections…</p>
+  }
+  <div class="list-group">
+    @for (connection of connections(); track connection.id) {
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between gap-3">
+          <h3 class="h5">{{ connection.client.name }}</h3>
+          @if (!connection.revoked_at) {
+            <button
+              class="btn btn-sm btn-outline-danger"
+              type="button"
+              [id]="'connected-application-revoke-' + connection.id"
+              [disabled]="busy()"
+              (click)="revoke(connection)"
+            >
+              Revoke access
+            </button>
+          } @else {
+            <span class="badge text-bg-secondary">Revoked</span>
+          }
+        </div>
+        <p class="text-body-secondary mb-1">
+          Connected {{ connection.created_at | date: "medium" }} · Last used
+          {{
+            connection.last_used_at
+              ? (connection.last_used_at | date: "medium")
+              : "Never"
+          }}
+        </p>
+        <ul class="mb-0">
+          @for (scope of connection.scopes; track scope) {
+            <li>{{ scopeLabels[scope] || scope }}</li>
+          }
+        </ul>
+      </div>
+    } @empty {
+      @if (!busy()) {
+        <div class="list-group-item">No connected applications.</div>
+      }
+    }
+  </div>
+</section>

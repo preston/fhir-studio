@@ -62,7 +62,8 @@ test('hosting configuration is required in API/worker startup; static hosts requ
       { env, encoding: 'utf8' },
     );
     assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /FHIR_STUDIO_HOSTING_GITHUB_APP_ID/);
+    assert.match(result.stderr, /FHIR_STUDIO_HOSTING_ROOT/);
+    assert.doesNotMatch(result.stderr, /FHIR_STUDIO_HOSTING_GITHUB_APP_ID/);
     assert.match(result.stderr, /cp server\/\.env.example server\/\.env/);
   }
   const saved = { ...process.env };
@@ -76,6 +77,8 @@ test('hosting configuration is required in API/worker startup; static hosts requ
     assert.throws(() => loadHostingConfig('host'), /existing.*directory/);
     process.env.FHIR_STUDIO_HOSTING_ROOT = tmpdir();
     assert.equal(loadHostingConfig('host').root, tmpdir());
+    process.env.FHIR_STUDIO_HOSTING_ENCRYPTION_KEY = Buffer.alloc(32, 8).toString('base64');
+    assert.equal(loadHostingConfig('worker').appId, '');
     process.env.FHIR_STUDIO_HOSTING_STUDIO_ORIGIN = 'http://studio.test';
     process.env.NODE_ENV = 'production';
     assert.throws(() => loadHostingConfig('host'), /HTTPS/);

@@ -7,13 +7,31 @@ import { getPrisma } from '../db/prisma.js';
 import { HapiPartitionClient, isFhirReleaseEnabled } from '../hapi/partition_client.js';
 
 import { routeParam } from '../http/routeParam.js';
+import { HostingError, sandboxAccess } from '../hosted/access.js';
 // In-memory file cache for completed NDJSON exports
-const ndjsonFilesCache = new Map<string, { resourceType: string; ndjson: string; count: number }>();
+const ndjsonFilesCache = new Map<string, {
+  resourceType: string;
+  ndjson: string;
+  count: number;
+  sandboxId: string;
+  jobId: string;
+  expiresAt: Date;
+}>();
 
 export function createBulkExportRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
   const hapiClient = new HapiPartitionClient();
+
+  async function authorizedSandbox(req: Request, write = false) {
+    if (!req.sessionAuth) throw new HostingError(401, 'Sign in to access bulk exports.');
+    return sandboxAccess(
+      req.sessionAuth.userId,
+      routeParam(req.params.sandboxId),
+      write,
+      req.effectivePermissions?.global_manage,
+    );
+  }
 
   // Helper to kick off background export
   async function startExportJob(
@@ -75,6 +93,9 @@ export function createBulkExportRouter(): Router {
                 resourceType: type,
                 ndjson,
                 count: resources.length,
+                sandboxId: sandbox.id,
+                jobId,
+                expiresAt,
               });
 
               outputFiles.push({
@@ -112,10 +133,13 @@ export function createBulkExportRouter(): Router {
 
   // 1. Kick off $export endpoints
   const exportInitiator = async (req: Request, res: Response, exportType: 'system' | 'patient' | 'group'): Promise<void> => {
+    await authorizedSandbox(req);
     const sandboxId = routeParam(req.params.sandboxId);
     const version = (routeParam(req.params.version) || 'r4').toUpperCase();
     const groupId = routeParam(req.params.groupId);
     const typesParam = req.query._type ? String(req.query._type).split(',').map((t) => t.trim()) : undefined;
+    if (typesParam?.some((resourceType) => !/^[A-Z][A-Za-z0-9]*$/.test(resourceType)))
+      throw new HostingError(400, 'Provide FHIR resource type names in _type.');
 
     try {
       const jobId = await startExportJob(sandboxId, version, exportType, groupId, typesParam);
@@ -150,10 +174,11 @@ export function createBulkExportRouter(): Router {
 
   // 2. GET /api/sandboxes/:sandboxId/bulk-export/jobs/:jobId (Poll Status)
   router.get('/api/sandboxes/:sandboxId/bulk-export/jobs/:jobId', async (req: Request, res: Response): Promise<void> => {
+    const sandbox = await authorizedSandbox(req);
     const jobId = routeParam(req.params.jobId);
 
-    const job = await prisma.bulkExportJob.findUnique({
-      where: { id: jobId },
+    const job = await prisma.bulkExportJob.findFirst({
+      where: { id: jobId, sandboxId: sandbox.id, expiresAt: { gt: new Date() } },
     });
 
     if (!job) {
@@ -203,17 +228,28 @@ export function createBulkExportRouter(): Router {
 
   // 3. DELETE /api/sandboxes/:sandboxId/bulk-export/jobs/:jobId (Cancel Job)
   router.delete('/api/sandboxes/:sandboxId/bulk-export/jobs/:jobId', async (req: Request, res: Response): Promise<void> => {
+    const sandbox = await authorizedSandbox(req, true);
     const jobId = routeParam(req.params.jobId);
-    await prisma.bulkExportJob.deleteMany({ where: { id: jobId } });
+    await prisma.bulkExportJob.deleteMany({ where: { id: jobId, sandboxId: sandbox.id } });
+    for (const [fileId, file] of ndjsonFilesCache)
+      if (file.jobId === jobId && file.sandboxId === sandbox.id)
+        ndjsonFilesCache.delete(fileId);
     res.status(202).send();
   });
 
   // 4. GET /api/sandboxes/:sandboxId/bulk-export/files/:fileId (Download NDJSON)
-  router.get('/api/sandboxes/:sandboxId/bulk-export/files/:fileId', (req: Request, res: Response): void => {
+  router.get('/api/sandboxes/:sandboxId/bulk-export/files/:fileId', async (req: Request, res: Response): Promise<void> => {
+    const sandbox = await authorizedSandbox(req);
     const fileId = routeParam(req.params.fileId);
     const file = ndjsonFilesCache.get(fileId);
+    const available = file && file.sandboxId === sandbox.id && file.expiresAt > new Date() &&
+      await prisma.bulkExportJob.findFirst({
+        where: { id: file.jobId, sandboxId: sandbox.id, status: 'completed', expiresAt: { gt: new Date() } },
+        select: { id: true },
+      });
 
-    if (!file) {
+    if (!file || !available) {
+      if (file?.expiresAt && file.expiresAt <= new Date()) ndjsonFilesCache.delete(fileId);
       res.status(404).json({
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'not-found', diagnostics: `NDJSON File '${fileId}' not found or expired.` }],

@@ -8,6 +8,7 @@ import { getPrisma } from '../db/prisma.js';
 import { hmacSign, hmacVerify } from './hmac.js';
 import { decryptTokenBundle, encryptTokenBundle, type TokenBundle } from './token-crypto.js';
 import { refreshTokenGrant } from './oidc.js';
+import { syncIdpRoleMappings } from '../authorization/iam.js';
 
 export const SESSION_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-fhir_studio_session' : 'fhir_studio_session';
 
@@ -124,12 +125,13 @@ async function refreshSessionTokens(session: Session, oidc: OidcBffConfig): Prom
         : 3600;
     const idClaims = tokens.claims() as Record<string, unknown> | undefined;
     const ssoRoles = extractSsoRoles(tokens.access_token, idClaims, oidc.rolesClaim);
+    await syncIdpRoleMappings(prisma, session.userId, ssoRoles);
     return prisma.session.update({
       where: { id: session.id },
       data: {
         encryptedTokenBundle: encryptTokenBundle(nextBundle, oidc.sessionSecret),
         accessTokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
-        ...(ssoRoles.length > 0 ? { ssoRoles } : {}),
+        ssoRoles,
       },
     });
   } catch (err) {

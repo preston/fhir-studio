@@ -5,6 +5,7 @@ import {
   HOSTING_STATIC_REQUIRED_ENV,
   requireEnv,
   isHostingEnabled,
+  isGitHubHostingEnabled,
 } from '../env.js';
 import crypto from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
@@ -79,7 +80,7 @@ export function loadHostingConfig(
     throw new Error(
       'FHIR_STUDIO_HOSTING_ENCRYPTION_KEY must be a base64-encoded 32-byte key.',
     );
-  if (mode !== 'host') {
+  if (mode !== 'host' && isGitHubHostingEnabled()) {
     if (
       !/^\d+$/.test(get('GITHUB_APP_ID')) ||
       !/^[a-z0-9-]+$/.test(get('GITHUB_SLUG'))

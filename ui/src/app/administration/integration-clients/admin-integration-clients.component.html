@@ -1,0 +1,195 @@
+<section id="admin-integration-clients">
+  <div class="d-flex justify-content-between align-items-center">
+    <h2 class="h4">
+      Catalog integration clients
+      <span class="badge text-bg-warning">Experimental</span>
+    </h2>
+    <button
+      id="integration-client-new"
+      type="button"
+      class="btn btn-primary"
+      [disabled]="busy()"
+      (click)="select()"
+    >
+      Register client
+    </button>
+  </div>
+  <p>
+    Register Skycapp's exact callback URI and permitted catalog operations.
+    These credentials are separate from SMART application registrations.
+  </p>
+  @if (error()) {
+    <div class="alert alert-danger" role="alert">{{ error() }}</div>
+    <button
+      id="integration-clients-retry"
+      class="btn btn-outline-secondary"
+      type="button"
+      (click)="load()"
+      [disabled]="busy()"
+    >
+      Retry loading
+    </button>
+  }
+  @if (busy()) {
+    <p role="status">Working…</p>
+  }
+  @if (secret()) {
+    <div class="alert alert-warning" id="integration-client-secret">
+      <h3 class="h5">Copy the client credential now</h3>
+      <p>
+        This credential is shown only once. Save it in Skycapp's approved FHIR
+        Studio instance configuration.
+      </p>
+      <p>
+        Client ID: <code>{{ secretClientId() }}</code>
+      </p>
+      <textarea
+        id="integration-client-secret-value"
+        class="form-control font-monospace"
+        readonly
+        aria-label="New client credential"
+        [value]="secret()"
+      ></textarea>
+      <div class="d-flex gap-2 mt-2">
+        <button
+          id="integration-client-secret-copy"
+          type="button"
+          class="btn btn-outline-dark"
+          (click)="copySecret()"
+        >
+          Copy credential</button
+        ><button
+          id="integration-client-secret-dismiss"
+          type="button"
+          class="btn btn-outline-dark"
+          (click)="secret.set('')"
+        >
+          Dismiss
+        </button>
+      </div>
+      @if (notice()) {
+        <p role="status">{{ notice() }}</p>
+      }
+    </div>
+  }
+  <ul class="list-group mb-4">
+    @for (client of clients(); track client.id) {
+      <li
+        class="list-group-item d-flex align-items-center justify-content-between gap-3"
+      >
+        <button
+          type="button"
+          class="btn btn-link text-start"
+          [id]="'integration-client-edit-' + client.id"
+          (click)="select(client)"
+        >
+          {{ client.name }}
+          <span
+            class="badge"
+            [class.text-bg-success]="client.enabled"
+            [class.text-bg-secondary]="!client.enabled"
+            >{{ client.enabled ? "Enabled" : "Disabled" }}</span
+          ><small class="d-block font-monospace">{{ client.id }}</small></button
+        ><button
+          type="button"
+          class="btn btn-sm btn-outline-warning"
+          [id]="'integration-client-rotate-' + client.id"
+          [disabled]="busy()"
+          (click)="rotate(client)"
+        >
+          Rotate credential
+        </button>
+      </li>
+    } @empty {
+      @if (!busy()) {
+        <li class="list-group-item">No integration clients.</li>
+      }
+    }
+  </ul>
+  @if (editing()) {
+    <form id="integration-client-form" (ngSubmit)="save()">
+      <fieldset [disabled]="busy()">
+        <div class="mb-3">
+          <label for="integration-client-name" class="form-label">Name</label
+          ><input
+            id="integration-client-name"
+            name="name"
+            class="form-control"
+            required
+            [ngModel]="draft().name"
+            (ngModelChange)="update('name', $event)"
+          />
+        </div>
+        <div class="mb-3">
+          <label for="integration-client-callbacks" class="form-label"
+            >Exact callback URIs</label
+          ><textarea
+            id="integration-client-callbacks"
+            name="callbacks"
+            class="form-control"
+            rows="3"
+            required
+            [ngModel]="draft().redirect_uris"
+            (ngModelChange)="update('redirect_uris', $event)"
+          ></textarea>
+          <div class="form-text">
+            One URI per line. Copy the callback shown in Skycapp's FHIR Studio
+            instance settings. Wildcards are not allowed.
+          </div>
+        </div>
+        <fieldset>
+          <legend class="h6">Allowed permissions</legend>
+          @for (scope of scopes; track scope) {
+            <div class="form-check">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                [id]="'integration-client-scope-' + scope"
+                [name]="'scope-' + scope"
+                [ngModel]="draft().scopes.includes(scope)"
+                (ngModelChange)="setScope(scope, $event)"
+              /><label
+                class="form-check-label"
+                [for]="'integration-client-scope-' + scope"
+                >{{ scopeLabels[scope] }}</label
+              >
+            </div>
+          }
+        </fieldset>
+        <div class="form-check my-3">
+          <input
+            id="integration-client-enabled"
+            name="enabled"
+            class="form-check-input"
+            type="checkbox"
+            [ngModel]="draft().enabled"
+            (ngModelChange)="update('enabled', $event)"
+          /><label for="integration-client-enabled" class="form-check-label"
+            >Enable this client</label
+          >
+          <div class="form-text">
+            Disabling prevents new integration operations. Existing hosted
+            applications are retained.
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <button
+            id="integration-client-save"
+            class="btn btn-primary"
+            type="submit"
+          >
+            Save client</button
+          ><button
+            id="integration-client-revert"
+            class="btn btn-outline-secondary"
+            type="button"
+            (click)="revert()"
+            [disabled]="!dirty()"
+          >
+            Revert
+          </button>
+        </div>
+      </fieldset>
+    </form>
+  }
+</section>

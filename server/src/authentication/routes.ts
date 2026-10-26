@@ -1,5 +1,6 @@
 // Author: Preston Lee
 
+import { integrationEnabled } from '../integrations/oauth.js';
 import crypto from 'node:crypto';
 import express, { type Request, type Response, type Router } from 'express';
 import * as client from 'openid-client';
@@ -74,6 +75,7 @@ export function createAuthRouter(oidc: OidcBffConfig): Router {
         code_challenge_method: 'S256',
         state,
         nonce,
+        ...(['select_account', 'login'].includes(String(req.query.prompt)) ? { prompt: String(req.query.prompt) } : {}),
       });
 
       res.redirect(authUrl.href);
@@ -240,14 +242,14 @@ export function createAuthRouter(oidc: OidcBffConfig): Router {
         authenticated: false,
         user: null,
         permissions: null,
-        features: { applicationHosting: isHostingEnabled() },
+        features: { applicationHosting: isHostingEnabled(), catalogIntegration: integrationEnabled() },
       });
       return;
     }
 
     res.status(200).json({
       authenticated: true,
-      features: { applicationHosting: isHostingEnabled() },
+      features: { applicationHosting: isHostingEnabled(), catalogIntegration: integrationEnabled() },
       user: {
         id: req.sessionAuth.userId,
         email: req.sessionAuth.email,

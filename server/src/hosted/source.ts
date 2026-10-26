@@ -12,6 +12,7 @@ export async function commitFiles(
   expected: string,
   files: RepositoryFile[],
   message: string,
+  checkAuthority: () => Promise<void> = async () => {},
 ): Promise<string> {
   if (
     !files.length ||
@@ -37,6 +38,7 @@ export async function commitFiles(
     token,
     `${base}/git/commits/${expected}`,
   );
+  await checkAuthority();
   const tree = await github<{ sha: string }>(
     token,
     `${base}/git/trees`,
@@ -51,12 +53,14 @@ export async function commitFiles(
       })),
     },
   );
+  await checkAuthority();
   const commit = await github<{ sha: string }>(
     token,
     `${base}/git/commits`,
     'POST',
     { message, tree: tree.sha, parents: [expected] },
   );
+  await checkAuthority();
   await github(
     token,
     `${base}/git/refs/heads/${encodeURIComponent(branch)}`,
@@ -159,6 +163,7 @@ export async function copyTemplateSnapshot(
   branch: string,
   expected: string,
   config: HostingConfig,
+  checkAuthority: () => Promise<void> = async () => {},
 ): Promise<void> {
   const source = await repositoryForUser(userId, repositoryId, config);
   const tree = await github<{
@@ -205,6 +210,7 @@ export async function copyTemplateSnapshot(
           source.token,
           `${source.base}/git/blobs/${file.sha}`,
         );
+        await checkAuthority();
         const copied = await github<{ sha: string }>(
           targetToken,
           `${targetBase}/git/blobs`,
@@ -225,12 +231,14 @@ export async function copyTemplateSnapshot(
     targetToken,
     `${targetBase}/git/commits/${expected}`,
   );
+  await checkAuthority();
   const result = await github<{ sha: string }>(
     targetToken,
     `${targetBase}/git/trees`,
     'POST',
     { base_tree: parent.tree.sha, tree: blobs },
   );
+  await checkAuthority();
   const saved = await github<{ sha: string }>(
     targetToken,
     `${targetBase}/git/commits`,
@@ -241,6 +249,7 @@ export async function copyTemplateSnapshot(
       parents: [expected],
     },
   );
+  await checkAuthority();
   await github(
     targetToken,
     `${targetBase}/git/refs/heads/${encodeURIComponent(branch)}`,

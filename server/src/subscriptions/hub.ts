@@ -1,23 +1,24 @@
 // Author: Preston Lee
 
 import { WebSocketServer, WebSocket } from 'ws';
-import type { Server as HttpServer } from 'node:http';
+import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type {
   SubscriptionNotificationEvent,
   SubscriptionTopicDefinition,
 } from '@fhir-studio/core';
-import axios from 'axios';
+import { requestPublicBuffer } from '../http/public-request.js';
 import type { OidcBffConfig } from '../auth/sso_config.js';
-import { resolveSessionFromRequest } from '../authentication/session.js';
+import { isSessionExpired, resolveSessionFromRequest } from '../authentication/session.js';
 import { sandboxAccess } from '../hosted/access.js';
 import { getPrisma } from '../db/prisma.js';
 import { loadEffectivePermissions } from '../authorization/effectivePermissions.js';
 
 interface ClientConnection {
   ws: WebSocket;
-  sandboxId?: string;
+  sandboxId: string;
   topic?: string;
   isAlive: boolean;
+  authorize: () => Promise<void>;
 }
 
 const standardTopics: SubscriptionTopicDefinition[] = [
@@ -91,6 +92,7 @@ export class SubscriptionHub {
       this.close();
     }
 
+    const authorizations = new WeakMap<IncomingMessage, { sandboxId: string; check: () => Promise<void> }>();
     this.wss = new WebSocketServer({
       server: httpServer,
       path: '/subscriptions/ws',
@@ -120,12 +122,27 @@ export class SubscriptionHub {
             getPrisma(),
             session.user.id,
           );
-          await sandboxAccess(
+          const sandbox = await sandboxAccess(
             session.user.id,
             sandboxId,
             false,
             permissions.global_manage,
           );
+          authorizations.set(info.req, {
+            sandboxId: sandbox.id,
+            check: async () => {
+              const db = getPrisma();
+              const current = await db.session.findUnique({
+                where: { id: session.session.id },
+                include: { user: true },
+              });
+              if (!current || current.userId !== session.user.id || current.user.isSuspended || isSessionExpired(current))
+                throw new Error('Subscription session is no longer authorized.');
+              const permissions = await loadEffectivePermissions(db, session.user.id);
+              const currentSandbox = await sandboxAccess(session.user.id, sandboxId, false, permissions.global_manage);
+              if (currentSandbox.id !== sandbox.id) throw new Error('Subscription sandbox was replaced.');
+            },
+          });
           return true;
         })().then(
           (allowed) => done(allowed, allowed ? undefined : 403),
@@ -135,15 +152,20 @@ export class SubscriptionHub {
     });
 
     this.wss.on('connection', (ws: WebSocket, req) => {
+      const authorization = authorizations.get(req);
+      if (!authorization) {
+        ws.close(1008, 'Subscription authorization required.');
+        return;
+      }
       const url = new URL(req.url || '', 'http://localhost');
-      const sandboxId = url.searchParams.get('sandboxId') || undefined;
       const topic = url.searchParams.get('topic') || undefined;
 
       const conn: ClientConnection = {
         ws,
-        sandboxId,
+        sandboxId: authorization.sandboxId,
         topic,
         isAlive: true,
+        authorize: authorization.check,
       };
 
       this.clients.add(conn);
@@ -247,13 +269,19 @@ export class SubscriptionHub {
     const payload = JSON.stringify(event);
     for (const client of this.clients) {
       if (client.ws.readyState === WebSocket.OPEN) {
-        if (!client.sandboxId || client.sandboxId === sandboxId) {
+        if (client.sandboxId === sandboxId) {
           if (
             !client.topic ||
             client.topic === 'all' ||
             client.topic === event.topic
           ) {
-            client.ws.send(payload);
+            try { await client.authorize(); }
+            catch {
+              client.ws.close(1008, 'Subscription access was revoked.');
+              this.clients.delete(client);
+              continue;
+            }
+            if (client.ws.readyState === WebSocket.OPEN) client.ws.send(payload);
           }
         }
       }
@@ -262,15 +290,19 @@ export class SubscriptionHub {
     // Deliver REST-hook webhook if requested
     if (webhookUrl) {
       try {
-        await axios.post(webhookUrl, event, {
+        await requestPublicBuffer(webhookUrl, {
+          method: 'POST',
+          body: event,
           headers: {
             'Content-Type': 'application/fhir+json',
             'X-FHIR-Subscription-Event': event.type,
           },
-          timeout: 5000,
+          timeoutMs: 5000,
+          maxBytes: 64 * 1024,
+          followRedirects: false,
         });
-      } catch (err: any) {
-        console.warn(`Webhook delivery to ${webhookUrl} failed:`, err.message);
+      } catch (error: unknown) {
+        console.warn('Subscription webhook delivery failed:', error instanceof Error ? error.message : 'Unknown delivery error');
       }
     }
   }

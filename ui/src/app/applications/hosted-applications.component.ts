@@ -10,6 +10,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, ActivatedRoute } from '@angular/router';
+import { KeyValuePipe } from '@angular/common';
+import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import type {
@@ -39,7 +41,7 @@ import {
 @Component({
   selector: 'app-hosted-applications',
   standalone: true,
-  imports: [FormsModule, RouterLink, CodeEditorComponent, HostingUsageComponent],
+  imports: [FormsModule, RouterLink, CodeEditorComponent, HostingUsageComponent, KeyValuePipe],
   templateUrl: './hosted-applications.component.html',
 })
 export class HostedApplicationsComponent implements OnInit {
@@ -65,6 +67,10 @@ export class HostedApplicationsComponent implements OnInit {
     });
   }
   readonly apps = signal<HostedApplication[]>([]);
+  readonly artifactBacked = computed(() => this.app()?.sourceKind === 'artifact');
+  readonly previewRevision = computed(() => this.app()?.builds.find(build => build.id === this.app()?.previewBuildId));
+  readonly integrationManaged = computed(() => !!this.app()?.integrationOrigin);
+  readonly applicationTabs = computed(() => this.artifactBacked() ? ['Preview', 'Build', 'Usage', 'Collaborators'] : ['Code', 'Preview', 'Build', 'Usage', 'Collaborators', 'Settings']);
   readonly app = signal<HostedApplication | null>(null);
   readonly connection = signal<GitHubConnectionStatus | null>(null);
   readonly templates = signal<AppTemplate[]>([]);
@@ -80,6 +86,7 @@ export class HostedApplicationsComponent implements OnInit {
   readonly selectedFile = this.editorState.selectedFile;
   readonly editor = this.editorState.editor;
   readonly previewSrc = signal<SafeResourceUrl | null>(null);
+  readonly launchChannel = signal<'preview' | 'published'>('preview');
   readonly reviewedPreviewId = signal<string | null>(null);
   readonly patients = signal<LaunchResource[]>([]);
   readonly encounters = signal<LaunchResource[]>([]);
@@ -233,9 +240,29 @@ export class HostedApplicationsComponent implements OnInit {
         })),
       ]);
       const selected = this.route.snapshot.queryParamMap.get('app');
-      if (selected) await this.open(selected);
+      if (selected) {
+        await this.open(selected);
+        const channel = this.route.snapshot.queryParamMap.get('channel');
+        const targetSandbox = this.route.snapshot.queryParamMap.get('sandbox');
+        if (channel === 'preview' || channel === 'published') {
+          if (this.sandbox.sandboxes().length === 0) {
+            await firstValueFrom(this.sandbox.getSandboxes());
+          }
+          if (targetSandbox && this.sandbox.sandboxes().some(item => item.sandboxId === targetSandbox)) {
+            this.test.sandbox = targetSandbox;
+          }
+          this.launchChannel.set(channel);
+          this.tab.set('Preview');
+          this.notice.set('Choose patient, encounter, and persona context, then launch this application. Clinical context stays in Studio.');
+        }
+      }
     });
     if (this.form.installationId) await this.repositories();
+    const channel = this.route.snapshot.queryParamMap.get('channel');
+    if ((channel === 'preview' || channel === 'published') && this.app() && this.test.sandbox) {
+      await this.launchChoices();
+      this.notice.set('Choose patient, encounter, and persona context, then launch this application. Clinical context stays in Studio.');
+    }
   }
   rememberWizard(): void {
     sessionStorage.setItem('studio-app-wizard', JSON.stringify(this.form));
@@ -392,7 +419,7 @@ export class HostedApplicationsComponent implements OnInit {
       this.drafts.set({});
     }
     this.test.sandbox = this.sandbox.activeSandbox()?.sandboxId || '';
-    this.tab.set('Code');
+    this.tab.set(app.sourceKind === 'artifact' ? 'Preview' : 'Code');
   }
   async loadSource(): Promise<void> {
     await this.action(async () => {
@@ -657,6 +684,21 @@ export class HostedApplicationsComponent implements OnInit {
       this.apps.set((await this.api.list()).applications);
     });
   }
+  notePreviewOpened(): void {
+    if (!this.integrationManaged()) this.reviewedPreviewId.set(this.app()?.previewBuildId ?? null);
+  }
+  async markPreviewReviewed(): Promise<void> {
+    const app = this.app();
+    if (!app?.previewBuildId || !this.integrationManaged()) return;
+    const revision = app.previewBuildId;
+    if (!confirm('Confirm that you reviewed this exact preview, its public configuration, SMART scopes, launch, and callbacks. Publishing will use this complete revision.')) return;
+    await this.action(async () => {
+      await this.api.post(`/api/integration/applications/${encodeURIComponent(app.id)}/review`, { revision_id: revision });
+      if (this.app()?.id !== app.id || this.app()?.previewBuildId !== revision) throw new Error('The preview changed. Review the current revision before publishing.');
+      this.reviewedPreviewId.set(revision);
+      this.notice.set('Preview review recorded. Return to Skycapp to publish this revision.');
+    });
+  }
   async launch(channel: 'preview' | 'published' = 'preview'): Promise<void> {
     await this.action(async () => {
       const app = this.app()!;
@@ -692,7 +734,8 @@ export class HostedApplicationsComponent implements OnInit {
       this.previewSrc.set(
         this.sanitizer.bypassSecurityTrustResourceUrl(url.toString()),
       );
-      if (channel === 'preview') this.reviewedPreviewId.set(app.previewBuildId);
+      this.launchChannel.set(channel);
+      if (channel === 'preview' && !this.integrationManaged()) this.reviewedPreviewId.set(app.previewBuildId);
     });
   }
 }

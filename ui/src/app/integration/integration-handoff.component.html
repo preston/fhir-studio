@@ -1,0 +1,56 @@
+<main id="integration-handoff" class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-7">
+      <div class="card">
+        <div class="card-body p-4">
+          <h1 class="h3">Open catalog application</h1>
+          @if (busy() || !auth.isInitialized()) {
+            <p role="status">
+              Checking your Studio account, application, and sandbox…
+            </p>
+          }
+          @if (auth.isInitialized() && !auth.isAuthenticated()) {
+            <p>Sign in with the FHIR Studio account connected in Skycapp.</p>
+            <a
+              id="integration-handoff-login"
+              class="btn btn-primary"
+              [href]="loginUrl"
+              >Sign in</a
+            >
+          }
+          @if (error()) {
+            <div class="alert alert-danger" role="alert">{{ error() }}</div>
+            <p>
+              Current account:
+              <strong>{{
+                auth.currentUser()?.displayName || auth.currentUser()?.email
+              }}</strong>
+            </p>
+            @if (accountMismatch()) {
+              <p>
+                Use the same Studio account linked in Skycapp. Connecting a
+                different account in Skycapp requires explicitly replacing the
+                connection.
+              </p>
+              <a
+                id="integration-handoff-switch-account"
+                class="btn btn-primary me-2"
+                [href]="switchAccountUrl"
+                >Use another account</a
+              >
+            }
+            <button
+              id="integration-handoff-retry"
+              class="btn btn-outline-secondary"
+              type="button"
+              (click)="open()"
+              [disabled]="busy()"
+            >
+              Retry
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</main>

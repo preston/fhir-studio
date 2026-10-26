@@ -2,14 +2,16 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import type { GitHubConnectionStatus } from '@fhir-studio/core';
+import { ConnectedApplicationsComponent } from './connected-applications.component.js';
 import { HostingService } from '../core/services/hosting.service.js';
 
 @Component({
   selector: 'app-connections',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, ConnectedApplicationsComponent],
   template: `
     <h2>Profile connections</h2>
+    <p><a id="profile-connected-applications" routerLink="/profile/connected-applications">Manage connected catalog applications</a></p>
     <p class="text-muted">
       Manage your personal GitHub authorization and repository installations.
     </p>
@@ -97,6 +99,7 @@ import { HostingService } from '../core/services/hosting.service.js';
       Disconnecting removes your personal authorization. It does not uninstall a
       shared repository integration or remove deployed applications.
     </p>
+    <app-connected-applications />
   `,
 })
 export class ConnectionsComponent implements OnInit {

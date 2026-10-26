@@ -51,18 +51,16 @@ export function encrypt(value: unknown, config: HostingConfig): string {
 }
 export function decrypt<T>(value: string, config: HostingConfig): T {
   const data = Buffer.from(value, 'base64url');
-  const cipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    Buffer.from(config.encryptionKey, 'base64'),
-    data.subarray(0, 12),
-  );
-  cipher.setAuthTag(data.subarray(12, 28));
-  return JSON.parse(
-    Buffer.concat([
-      cipher.update(data.subarray(28)),
-      cipher.final(),
-    ]).toString(),
-  ) as T;
+  const previous = (process.env.FHIR_STUDIO_HOSTING_ENCRYPTION_KEY_PREVIOUS || '').split(',').map(value=>value.trim()).filter(Boolean);
+  for (const key of [config.encryptionKey, ...previous]) {
+    if (Buffer.from(key, 'base64').length !== 32) throw new Error('Hosting encryption keys must contain 32 bytes.');
+    try {
+      const cipher = crypto.createDecipheriv('aes-256-gcm',Buffer.from(key,'base64'),data.subarray(0,12));
+      cipher.setAuthTag(data.subarray(12,28));
+      return JSON.parse(Buffer.concat([cipher.update(data.subarray(28)),cipher.final()]).toString()) as T;
+    } catch { /* Try the previous key during operator-managed rotation. */ }
+  }
+  throw new Error('Stored GitHub authorization could not be decrypted. Reconnect GitHub or restore the configured encryption key.');
 }
 export async function github<T>(
   token: string,
@@ -112,6 +110,7 @@ export async function github<T>(
           : 409,
       `GitHub request failed (${response.status}). ${recovery === 'conflict' ? 'Refresh the branch or choose a writable branch; your changes were not overwritten.' : 'Check repository permissions, organization approval, and Actions availability.'}`,
       recovery,
+      response.status,
     );
   }
   return response.status === 204
@@ -166,6 +165,7 @@ export async function userToken(
   userId: string,
   config: HostingConfig,
 ): Promise<string> {
+  if (!config.appId) throw new HostingError(503, 'GitHub source hosting is not configured on this instance.');
   // A PostgreSQL advisory lock serializes rotation across all API and worker instances.
   try {
     return await getPrisma().$transaction(
@@ -213,6 +213,7 @@ export async function repositoryForUser(
   config: HostingConfig,
   write = false,
 ) {
+  if(!repositoryId)throw new HostingError(409,'This application hosts a catalog artifact. Use the catalog release and configuration controls.');
   const token = await userToken(userId, config);
   try {
     const repo = await github<GitHubRepo>(

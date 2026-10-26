@@ -34,12 +34,41 @@ export class HapiPartitionClient {
     return baseUrl;
   }
 
-  /** Allocates the next sequential integer partition ID (1, 2, 3...) */
+  /** Reserve a durable ID; deleted tenants must never donate their data to a new owner. */
   public static async allocateNextPartitionId(prisma: PrismaClient): Promise<number> {
-    const maxPartition = await prisma.sandbox.aggregate({
-      _max: { partitionId: true },
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('hapi-partition-allocation', 0))`;
+      const [maxPartition, allocation] = await Promise.all([
+        tx.sandbox.aggregate({ _max: { partitionId: true } }),
+        tx.hapiPartitionAllocation.findUnique({ where: { id: 'global' } }),
+      ]);
+      const partitionId = Math.max(
+        maxPartition._max.partitionId ?? 0,
+        allocation?.lastAllocatedId ?? 0,
+      ) + 1;
+      if (partitionId > 2_147_483_647) {
+        throw new Error('HAPI partition ID capacity exhausted.');
+      }
+      await tx.hapiPartitionAllocation.upsert({
+        where: { id: 'global' },
+        create: { id: 'global', lastAllocatedId: partitionId },
+        update: { lastAllocatedId: partitionId },
+      });
+      return partitionId;
     });
-    return (maxPartition._max.partitionId ?? 0) + 1;
+  }
+
+  /** Preserve legacy tenant IDs before their metadata is removed after an upgrade. */
+  public static async preservePartitionId(prisma: PrismaClient, partitionId: number): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('hapi-partition-allocation', 0))`;
+      const allocation = await tx.hapiPartitionAllocation.findUnique({ where: { id: 'global' } });
+      await tx.hapiPartitionAllocation.upsert({
+        where: { id: 'global' },
+        create: { id: 'global', lastAllocatedId: partitionId },
+        update: { lastAllocatedId: Math.max(allocation?.lastAllocatedId ?? 0, partitionId) },
+      });
+    });
   }
 
   /** Dynamic Zero-Restart Partition Creation in Stock HAPI FHIR JPA v8.10 */
@@ -84,10 +113,9 @@ export class HapiPartitionClient {
       });
       console.log(`Created HAPI partition ${partitionId} ("${partitionName}") on ${fhirVersion}`);
     } catch (err: any) {
-      // If HAPI is not currently running or returns an error, log warning so dev mode can proceed gracefully
-      console.warn(
-        `Failed to invoke $partition-management-create-partition on ${url}:`,
-        err?.response?.data || err?.message || err,
+      throw new Error(
+        `Failed to create HAPI partition '${partitionName}' (${fhirVersion}): ${err?.message || 'Upstream provisioning failed.'}`,
+        { cause: err },
       );
     }
   }

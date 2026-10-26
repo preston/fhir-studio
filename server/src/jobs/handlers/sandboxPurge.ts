@@ -2,6 +2,7 @@
 
 import type { JobHandler } from '../types.js';
 import { destroyHapiTenant } from '../../hapi/tenant_purge.js';
+import { HapiPartitionClient } from '../../hapi/partition_client.js';
 
 export const sandboxPurgeHandler: JobHandler = async (ctx) => {
   const input = (ctx.job.input as Record<string, any>) || {};
@@ -25,6 +26,9 @@ export const sandboxPurgeHandler: JobHandler = async (ctx) => {
   if (ctx.signal.aborted || (await ctx.isCancelled())) {
     throw new Error('Job was cancelled.');
   }
+
+  // Older tenants may predate the durable allocator. Retain their IDs before deletion.
+  await HapiPartitionClient.preservePartitionId(ctx.prisma, sandbox.partitionId);
 
   await ctx.updateProgress(
     15,

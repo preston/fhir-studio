@@ -46,6 +46,7 @@ export async function storageInspection(
       ),
     ),
   );
+  for (const build of builds) if (protectedIds.has(build.id) && build.contentBuildId) protectedIds.add(build.contentBuildId);
   let allocated = 0n,
     reclaimable = 0n,
     staging = 0n,
@@ -58,7 +59,7 @@ export async function storageInspection(
     try {
       await access(
         path.join(
-          buildDirectory(config, build.applicationId, build.id),
+          buildDirectory(config, build.applicationId, build.contentBuildId || build.id),
           build.launchPath,
         ),
       );

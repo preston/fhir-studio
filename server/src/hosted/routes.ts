@@ -1,3 +1,6 @@
+// Author: Preston Lee
+
+import { deploymentProfileErrors, type StaticSmartRuntimeContract } from '../integrations/catalog-contract.js';
 import { performHostingAction } from './operations.js';
 import { assertOwnerQuota, lockHostingAllocation } from './quotas.js';
 import crypto from 'node:crypto';
@@ -147,6 +150,7 @@ export function createHostingRouter() {
     maxAge: 600_000,
   };
   router.get('/api/github/connection', async (req, res) => {
+    if (!cfg.appId) {res.json({status:'DISCONNECTED'});return;}
     const row = await prisma.gitHubConnection.findUnique({
       where: { userId: req.sessionAuth!.userId },
     });
@@ -484,7 +488,10 @@ export function createHostingRouter() {
     builds: { orderBy: { createdAt: 'desc' as const }, take: 5 },
   };
   type Project = Awaited<ReturnType<typeof applicationAccess>>['app'];
-  const serialize = (app: Project, req: Request) => ({
+  const serialize = async (app: Project, req: Request) => {
+    const missingActive=[app.previewBuildId,app.publishedBuildId,app.desiredBuildId].filter((id):id is string=>!!id&&!app.builds.some(build=>build.id===id));
+    if(missingActive.length)app.builds.push(...await prisma.hostedBuild.findMany({where:{applicationId:app.id,id:{in:missingActive}}}));
+    return ({
     ...app,
     builds: app.builds.map(
       ({ directory: _dir, byteSize: _size, ...build }) => build,
@@ -498,6 +505,7 @@ export function createHostingRouter() {
       req.effectivePermissions?.global_manage,
     ),
   });
+  };
   router.get('/api/hosted-applications', async (req, res) => {
     const apps = await prisma.hostedApplication.findMany({
       where: {
@@ -517,7 +525,7 @@ export function createHostingRouter() {
       include,
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ applications: apps.map((app) => serialize(app, req)) });
+    res.json({ applications: await Promise.all(apps.map((app) => serialize(app, req))) });
   });
   router.get('/api/application-templates', async (req, res) => {
     const apps = await prisma.hostedApplication.findMany({
@@ -748,7 +756,7 @@ export function createHostingRouter() {
       });
     }
     res.status(201).json(
-      serialize(
+      await serialize(
         await prisma.hostedApplication.findUniqueOrThrow({
           where: { id: app.id },
           include,
@@ -759,10 +767,14 @@ export function createHostingRouter() {
   });
   router.get('/api/hosted-applications/:id', async (req, res) => {
     const { app } = await applicationAccess(req, String(req.params.id));
-    res.json(serialize(app, req));
+    res.json(await serialize(app, req));
   });
   router.get('/api/hosted-applications/:id/health', async (req, res) => {
     const { app, userId } = await applicationAccess(req, String(req.params.id));
+    if(app.sourceKind==='artifact'){
+      const preview=app.builds.find(build=>build.id===app.previewBuildId);
+      res.json({state:preview?.status==='READY'?'READY':'PREVIEW_REQUIRED',message:preview?.status==='READY'?'Validated catalog content is ready.':'Create or retry the catalog preview in Skycapp.'});return;
+    }
     const { token, repo, base } = await repositoryForUser(
       userId,
       app.repositoryId,
@@ -1026,6 +1038,9 @@ export function createHostingRouter() {
           branch,
           commit: head.sha,
           generation: current.generation,
+          runtimeContract: current.runtimeContract || undefined,
+          publicConfiguration: current.publicConfiguration || {},
+          integrationGrantId: null,
           requestedByUserId: userId,
           requestEvent: 'workflow_dispatch',
         },
@@ -1121,7 +1136,7 @@ export function createHostingRouter() {
         String(req.params.id),
         'develop',
       );
-      await repositoryForUser(userId, app.repositoryId, cfg, true);
+      if(app.sourceKind==='repository') await repositoryForUser(userId, app.repositoryId, cfg, true);
       const build = await prisma.hostedBuild.findFirstOrThrow({
         where: { id: String(req.params.buildId), applicationId: app.id },
       });
@@ -1173,6 +1188,7 @@ export function createHostingRouter() {
         'Only platform administrators can suspend applications.',
       );
     if (body.suspended !== undefined) throw new HostingError(400, 'Use the suspension endpoint with an administrative reason.');
+    if (app.sourceKind==='artifact') throw new HostingError(409,'Use the catalog runtime-configuration controls to update artifact applications.');
     const { repo } = await repositoryForUser(userId, app.repositoryId, cfg);
     if (body.templateVisibility === 'PUBLIC' && repo.private)
       throw new HostingError(
@@ -1199,6 +1215,17 @@ export function createHostingRouter() {
       outputDirectory: text(body, 'outputDirectory', app.outputDirectory),
       buildCommand: text(body, 'buildCommand', app.buildCommand),
     });
+    const existingContract = app.runtimeContract as unknown as StaticSmartRuntimeContract | null;
+    const nextContract = existingContract ? {
+      ...existingContract,
+      launch_path: text(body, 'launchPath', app.launchPath),
+      callback_paths: [text(body, 'callbackPath', app.callbackPath), ...existingContract.callback_paths.slice(1)].filter((path,index,all)=>all.indexOf(path)===index),
+      scopes: text(body, 'scope', app.scope).split(/\s+/).filter(Boolean),
+    } : null;
+    if(nextContract){
+      const errors=deploymentProfileErrors({name:app.name,artifact_id:'installed-content',runtime_contract:nextContract,source_project:null});
+      if(Object.keys(errors).length)throw new HostingError(400,'Catalog applications require static HTML callbacks and supported SMART scopes.');
+    }
     const templateCommit =
       body.isTemplate === true
         ? (
@@ -1239,8 +1266,9 @@ export function createHostingRouter() {
             text(body, 'callbackPath', app.callbackPath),
           ),
           scope: text(body, 'scope', app.scope),
+          ...(nextContract ? {runtimeContract:JSON.parse(JSON.stringify(nextContract)),integrationGrantId:null}:{}),
           autoPublish:
-            typeof body.autoPublish === 'boolean'
+            app.integrationClientId ? false : typeof body.autoPublish === 'boolean'
               ? body.autoPublish
               : app.autoPublish,
           publishingPaused: body.resume === true ? false : app.publishingPaused,
@@ -1305,6 +1333,10 @@ export function createHostingRouter() {
           409,
           'The preview changed or is unavailable. Review the current preview first.',
         );
+      if (current.integrationClientId) {
+        const review = await tx.integrationReview.findUnique({where:{applicationId_userId:{applicationId:app.id,userId}}});
+        if (review?.buildId !== expected || review.revisionDigest !== build.revisionDigest) throw new HostingError(409, 'Mark this exact preview reviewed before publishing.');
+      }
       const published = await tx.hostedApplication.update({
         where: { id: app.id },
         data: { publishedBuildId: expected },
@@ -1521,7 +1553,7 @@ export function createHostingRouter() {
         },
       });
       if (!app) throw new HostingError(404, 'No pending transfer.');
-      await repositoryForUser(userId, app.repositoryId, cfg, true);
+      if(app.sourceKind==='repository') await repositoryForUser(userId, app.repositoryId, cfg, true);
       await prisma.$transaction(async (tx) => {
         await lockHostingAllocation(tx, [app.ownerUserId, userId]);
         await lockApplication(tx, app.id);

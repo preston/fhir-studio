@@ -6,13 +6,18 @@ import { SubscriptionHub } from './hub.js';
 import type { SubscriptionNotificationEvent } from '@fhir-studio/core';
 
 import { routeParam } from '../http/routeParam.js';
-import { sandboxAccess } from '../hosted/access.js';
+import { HostingError, sandboxAccess } from '../hosted/access.js';
+import { PublicRequestError, publicHttpUrl } from '../http/public-request.js';
 
 export function createSubscriptionsRouter(): Router {
   const router = express.Router();
   const hub = SubscriptionHub.getInstance();
+  const sandboxBindings = new WeakMap<Request, string>();
   router.use('/api/sandboxes/:sandboxId/subscriptions', async (req, _res, next) => {
-    await sandboxAccess(req.sessionAuth?.userId, routeParam(req.params.sandboxId), !['GET', 'HEAD'].includes(req.method), req.effectivePermissions?.global_manage);
+    const write = !['GET', 'HEAD'].includes(req.method);
+    if (write && !req.sessionAuth) throw new HostingError(401, 'Sign in to trigger subscription notifications.');
+    const sandbox = await sandboxAccess(req.sessionAuth?.userId, routeParam(req.params.sandboxId), write, req.effectivePermissions?.global_manage);
+    sandboxBindings.set(req, sandbox.id);
     next();
   });
 
@@ -23,19 +28,27 @@ export function createSubscriptionsRouter(): Router {
 
   // 2. GET /api/sandboxes/:sandboxId/subscriptions/events
   router.get('/api/sandboxes/:sandboxId/subscriptions/events', (req: Request, res: Response): void => {
-    const sandboxId = routeParam(req.params.sandboxId);
+    const sandboxId = sandboxBindings.get(req)!;
     res.json({ events: hub.getEvents(sandboxId) });
   });
 
   // 3. POST /api/sandboxes/:sandboxId/subscriptions/trigger (Test-trigger a topic notification)
   router.post('/api/sandboxes/:sandboxId/subscriptions/trigger', async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = routeParam(req.params.sandboxId);
+    const sandboxId = sandboxBindings.get(req)!;
     const {
       topic = 'http://hl7.org/SubscriptionTopic/admission',
       resourceType = 'Encounter',
       resourceId = uuidv4(),
       webhookUrl,
     } = req.body;
+    if (webhookUrl !== undefined && webhookUrl !== '') {
+      if (typeof webhookUrl !== 'string') throw new HostingError(400, 'Provide a public HTTPS webhook URL.');
+      try { publicHttpUrl(webhookUrl); }
+      catch (error) {
+        if (error instanceof PublicRequestError) throw new HostingError(error.status, error.message);
+        throw error;
+      }
+    }
 
     const event: SubscriptionNotificationEvent = {
       subscriptionId: `sub-${uuidv4()}`,

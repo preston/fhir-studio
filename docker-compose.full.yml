@@ -19,7 +19,7 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD to a generated hex secret}
     healthcheck:
       interval: 10s
       retries: 5
@@ -30,7 +30,7 @@ services:
       - fhir-studio-postgres-data:/var/lib/postgresql
       - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     restart: unless-stopped
 
   fhir-studio-redis:
@@ -58,10 +58,10 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: fhir-studio-postgres
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__USER: postgres
-      AUTHENTIK_POSTGRESQL__PASSWORD: password
-      AUTHENTIK_SECRET_KEY: fhir-studio-authentik-secret-key-development-only-not-for-production
-      AUTHENTIK_BOOTSTRAP_EMAIL: akadmin@localhost
-      AUTHENTIK_BOOTSTRAP_PASSWORD: password
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
+      AUTHENTIK_SECRET_KEY: ${FHIR_STUDIO_AUTHENTIK_SECRET_KEY:?Set FHIR_STUDIO_AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD}
     ports:
       - "9000:9000"
       - "9443:9443"
@@ -84,13 +84,12 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: fhir-studio-postgres
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__USER: postgres
-      AUTHENTIK_POSTGRESQL__PASSWORD: password
-      AUTHENTIK_SECRET_KEY: fhir-studio-authentik-secret-key-development-only-not-for-production
-      AUTHENTIK_BOOTSTRAP_EMAIL: akadmin@localhost
-      AUTHENTIK_BOOTSTRAP_PASSWORD: password
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
+      AUTHENTIK_SECRET_KEY: ${FHIR_STUDIO_AUTHENTIK_SECRET_KEY:?Set FHIR_STUDIO_AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_EMAIL}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD:?Set FHIR_STUDIO_AUTHENTIK_BOOTSTRAP_PASSWORD}
     volumes:
       - fhir-studio-authentik-data:/data
-      - ./docker/authentik/blueprints:/blueprints/custom:ro
     shm_size: 512mb
     restart: unless-stopped
 
@@ -101,13 +100,13 @@ services:
       fhir-studio-postgres:
         condition: service_healthy
     ports:
-      - "8083:8080"
+      - "127.0.0.1:8083:8080"
     environment:
       hapi.fhir.fhir_version: R4
       spring.main.allow-bean-definition-overriding: "true"
       spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r4
       spring.datasource.username: postgres
-      spring.datasource.password: password
+      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
       hapi.fhir.partitioning.allow_references_across_partitions: "true"
@@ -146,13 +145,13 @@ services:
       fhir-studio-postgres:
         condition: service_healthy
     ports:
-      - "8084:8080"
+      - "127.0.0.1:8084:8080"
     environment:
       hapi.fhir.fhir_version: R4B
       spring.main.allow-bean-definition-overriding: "true"
       spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r4b
       spring.datasource.username: postgres
-      spring.datasource.password: password
+      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
       hapi.fhir.partitioning.allow_references_across_partitions: "true"
@@ -191,13 +190,13 @@ services:
       fhir-studio-postgres:
         condition: service_healthy
     ports:
-      - "8085:8080"
+      - "127.0.0.1:8085:8080"
     environment:
       hapi.fhir.fhir_version: R5
       spring.main.allow-bean-definition-overriding: "true"
       spring.datasource.url: jdbc:postgresql://fhir-studio-postgres:5432/hapi_r5
       spring.datasource.username: postgres
-      spring.datasource.password: password
+      spring.datasource.password: ${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}
       spring.datasource.driverClassName: org.postgresql.Driver
       spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
       hapi.fhir.partitioning.allow_references_across_partitions: "true"
@@ -248,16 +247,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
       FHIR_STUDIO_SERVER_SSO_ISSUER_URL: ${FHIR_STUDIO_SERVER_SSO_ISSUER_URL:-http://localhost:9000/application/o/fhir-studio/}
       FHIR_STUDIO_SERVER_SSO_CLIENT_ID: ${FHIR_STUDIO_SERVER_SSO_CLIENT_ID:-fhir-studio-development}
-      FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET: ${FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET:-fhir-studio-development-secret}
+      FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET: ${FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET:?Set FHIR_STUDIO_SERVER_SSO_CLIENT_SECRET}
       FHIR_STUDIO_SERVER_SSO_REDIRECT_URL: ${FHIR_STUDIO_SERVER_SSO_REDIRECT_URL:-http://localhost:3000/sso/callback}
       FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL: ${FHIR_STUDIO_SERVER_SSO_POST_LOGOUT_REDIRECT_URL:-http://localhost:4200}
       FHIR_STUDIO_SERVER_UI_BASE_URL: ${FHIR_STUDIO_SERVER_UI_BASE_URL:-http://localhost:4200}
       FHIR_STUDIO_SERVER_CORS_ORIGINS: ${FHIR_STUDIO_SERVER_CORS_ORIGINS:-http://localhost:4200}
-      FHIR_STUDIO_SERVER_SESSION_SECRET: ${FHIR_STUDIO_SERVER_SESSION_SECRET:-fhir-studio-development-session-secret-32b}
-      FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: ${FHIR_STUDIO_SERVER_API_TOKEN_PEPPER:-fhir-studio-development-api-token-pepper-32b}
+      FHIR_STUDIO_SERVER_SESSION_SECRET: ${FHIR_STUDIO_SERVER_SESSION_SECRET:?Set FHIR_STUDIO_SERVER_SESSION_SECRET}
+      FHIR_STUDIO_SERVER_API_TOKEN_PEPPER: ${FHIR_STUDIO_SERVER_API_TOKEN_PEPPER:?Set FHIR_STUDIO_SERVER_API_TOKEN_PEPPER}
       FHIR_STUDIO_SERVER_SMART_SIGNING_KEY: ${FHIR_STUDIO_SERVER_SMART_SIGNING_KEY:-}
       FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
       FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
@@ -306,7 +305,7 @@ services:
         condition: service_started
     environment:
       NODE_ENV: production
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
       FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
       FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
       FHIR_STUDIO_HOSTING_DOMAIN: ${FHIR_STUDIO_HOSTING_DOMAIN:-}
@@ -343,7 +342,7 @@ services:
       NODE_ENV: production
       PORT: "8081"
       FHIR_STUDIO_HOSTING_TRUST_PROXY_HOPS: ${FHIR_STUDIO_HOSTING_TRUST_PROXY_HOPS:-0}
-      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:password@fhir-studio-postgres:5432/fhir_studio_development
+      FHIR_STUDIO_SERVER_DATABASE_URL: postgresql://postgres:${FHIR_STUDIO_POSTGRES_PASSWORD:?Set FHIR_STUDIO_POSTGRES_PASSWORD}@fhir-studio-postgres:5432/fhir_studio_development
       FHIR_STUDIO_HOSTING_ENABLED: ${FHIR_STUDIO_HOSTING_ENABLED:-true}
       FHIR_STUDIO_HOSTING_ANALYTICS_KEY: ${FHIR_STUDIO_HOSTING_ANALYTICS_KEY:-}
       FHIR_STUDIO_HOSTING_DOMAIN: ${FHIR_STUDIO_HOSTING_DOMAIN:-}

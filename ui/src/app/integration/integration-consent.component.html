@@ -1,0 +1,93 @@
+<main class="container py-5" id="integration-consent">
+  <div class="row justify-content-center">
+    <div class="col-lg-7">
+      <div class="card">
+        <div class="card-body p-4">
+          <h1 class="h3">
+            Connect your FHIR Studio account
+            <span class="badge text-bg-warning fs-6">Experimental</span>
+          </h1>
+          @if (!auth.isInitialized() || busy()) {
+            <p role="status">Loading authorization…</p>
+          }
+          @if (auth.isInitialized() && !auth.isAuthenticated()) {
+            <p>
+              Sign in to FHIR Studio to review the application and permissions
+              before connecting.
+            </p>
+            <a
+              id="integration-consent-login"
+              class="btn btn-primary"
+              [href]="loginUrl"
+              >Sign in to FHIR Studio</a
+            >
+          }
+          @if (error()) {
+            <div class="alert alert-danger" role="alert">{{ error() }}</div>
+            <button
+              id="integration-consent-retry"
+              class="btn btn-outline-secondary"
+              type="button"
+              [disabled]="busy()"
+              (click)="load()"
+            >
+              Retry
+            </button>
+          }
+          @if (request(); as consent) {
+            <p>
+              <strong>{{ consent.client.name }}</strong> is requesting access to
+              <strong>{{
+                consent.account.display_name ||
+                  consent.account.email ||
+                  consent.account.subject
+              }}</strong
+              >.
+            </p>
+            <p>The connection permits these actions:</p>
+            <ul>
+              @for (scope of consent.scopes; track scope) {
+                <li>{{ scopeLabels[scope] || scope }}</li>
+              }
+            </ul>
+            <div class="alert alert-info">
+              This connection cannot read clinical FHIR data. Application
+              management is limited to applications created through this
+              integration and your current Studio permissions. You can revoke it
+              in Profile → Connected applications.
+            </div>
+            <p>
+              Hosted preview and published files are publicly accessible,
+              including files imported from private repositories. SMART
+              authorization protects sandbox data.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+              <button
+                id="integration-consent-approve"
+                class="btn btn-primary"
+                type="button"
+                [disabled]="busy()"
+                (click)="decide(true)"
+              >
+                Authorize connection</button
+              ><button
+                id="integration-consent-deny"
+                class="btn btn-outline-secondary"
+                type="button"
+                [disabled]="busy()"
+                (click)="decide(false)"
+              >
+                Cancel</button
+              ><a
+                id="integration-consent-switch-account"
+                class="btn btn-link"
+                [href]="switchAccountUrl"
+                >Use another account</a
+              >
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</main>

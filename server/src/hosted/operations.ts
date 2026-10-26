@@ -100,6 +100,7 @@ export async function performHostingAction(
   actorId: string | null,
   options: {
     job?: { id: string; lockedBy: string | null };
+    authorize?: (tx: Prisma.TransactionClient) => Promise<void>;
     eligible?: (
       app: HostedApplication,
       tx: Prisma.TransactionClient,
@@ -110,6 +111,7 @@ export async function performHostingAction(
     config = loadHostingConfig(request.action === 'purge' ? 'worker' : 'api');
   await db.$transaction(
     async (tx) => {
+      if(options.authorize)await options.authorize(tx);
       await lockHostingAllocation(tx);
       await lockApplication(tx, id);
       if (options.job) {
@@ -203,13 +205,13 @@ export async function performHostingAction(
             try {
               await access(
                 path.join(
-                  buildDirectory(config, id, buildId),
+                  buildDirectory(config, id, build.contentBuildId || buildId),
                   build.launchPath,
                 ),
               );
               await access(
                 path.join(
-                  buildDirectory(config, id, buildId),
+                  buildDirectory(config, id, build.contentBuildId || buildId),
                   build.callbackPath,
                 ),
               );

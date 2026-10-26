@@ -25,7 +25,16 @@ import { permissionGuard } from './core/guards/permission.guard.js';
 import { HostedApplicationsComponent } from './applications/hosted-applications.component.js';
 import { ConnectionsComponent } from './profile/connections.component.js';
 
+import { IntegrationConsentComponent } from './integration/integration-consent.component.js';
+import { IntegrationHandoffComponent } from './integration/integration-handoff.component.js';
+import { ConnectedApplicationsComponent } from './profile/connected-applications.component.js';
+import { AdminIntegrationClientsComponent } from './administration/integration-clients/admin-integration-clients.component.js';
+
 export const routes: Routes = [
+  { path: 'integration/authorize', component: IntegrationConsentComponent },
+  { path: 'integration/handoff', component: IntegrationHandoffComponent },
+  { path: 'handoff', component: IntegrationHandoffComponent },
+  { path: 'profile/connected-applications', component: ConnectedApplicationsComponent },
   { path: '', component: SandboxesListComponent },
   { path: 'sandboxes', component: SandboxesListComponent },
   {
@@ -67,6 +76,7 @@ export const routes: Routes = [
       { path: 'roles', component: AdminRolesComponent },
       { path: 'appointments', component: AdminAppointmentsComponent },
       { path: 'jobs', component: AdminJobsComponent },
+      { path: 'integration-clients', component: AdminIntegrationClientsComponent, canDeactivate: [(component: AdminIntegrationClientsComponent) => component.canDeactivate()] },
       { path: 'hosting', component: AdminHostingComponent, canActivate: [permissionGuard('applications_deployment')] },
       { path: 'implementation-guides', component: AdministrationImplementationGuidesComponent },
       { path: 'igs', redirectTo: 'implementation-guides', pathMatch: 'full' },

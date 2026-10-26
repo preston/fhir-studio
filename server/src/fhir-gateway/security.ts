@@ -32,10 +32,12 @@ export async function verifySandboxAccess(
         accessToken: bearer,
         isRevoked: false,
         sandboxId: sandbox.sandboxId,
+        sandboxRowId: sandbox.id,
       },
     });
     if (
       !session ||
+      session.sandboxRowId !== sandbox.id ||
       !session.tokenExpiresAt ||
       session.tokenExpiresAt < new Date()
     )
@@ -47,7 +49,10 @@ export async function verifySandboxAccess(
     if (!client)
       return { authorized: false, reason: 'Unregistered SMART client' };
     const app = client.hostedApplication;
-    if (app && request?.path.split('/').some(segment => segment.startsWith('$'))) return { authorized: false, reason: 'Forbidden: hosted applications require an explicitly supported FHIR resource operation' };
+    // Operations may read or mutate resource types beyond the URL's first type.
+    // An ordinary resource grant cannot authorize $everything, $graphql, or CQL endpoints.
+    if (request?.path.split('/').some(segment => segment.startsWith('$')))
+      return { authorized: false, reason: 'Forbidden: SMART applications require an explicitly supported FHIR resource operation' };
     if (
       app &&
       (app.deletedAt ||
@@ -68,7 +73,15 @@ export async function verifySandboxAccess(
           reason:
             'Forbidden: SMART batch and untyped operations are not permitted',
         };
-      const action = mapHttpMethodToAction(request.method, request.path);
+      const parts = request.path.split('/').filter(Boolean);
+      const ordinaryPath = parts.length === 1 ||
+        (parts.length === 2 && (!parts[1].startsWith('_') || ['_search', '_history'].includes(parts[1]))) ||
+        ([3, 4].includes(parts.length) && !parts[1].startsWith('_') && parts[2] === '_history');
+      if (!ordinaryPath)
+        return { authorized: false, reason: 'Forbidden: SMART compartment and extended paths require explicit resource authorization' };
+      const action = parts.length === 2 && parts[1] === '_history' && ['GET', 'HEAD'].includes(request.method)
+        ? 's'
+        : mapHttpMethodToAction(request.method, request.path);
       if (
         !isSmartScopePermitted(scopes, {
           resourceType: request.resourceType,

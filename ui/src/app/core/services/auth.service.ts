@@ -17,7 +17,7 @@ export interface SessionResponse {
   authenticated: boolean;
   user: UserProfile | null;
   permissions: EffectivePermissions | null;
-  features?: { applicationHosting: boolean };
+  features?: { applicationHosting: boolean; catalogIntegration?: boolean };
 }
 
 @Injectable({
@@ -31,6 +31,8 @@ export class AuthService {
   private readonly isAuthenticatedState = signal<boolean>(false);
   private readonly isInitializedState = signal<boolean>(false);
   private readonly hostingEnabled = signal(true);
+  private readonly integrationEnabled = signal(false);
+  readonly catalogIntegrationAvailable = this.integrationEnabled.asReadonly();
 
   public readonly currentUser = this.userState.asReadonly();
   public readonly effectivePermissions = this.permissionsState.asReadonly();
@@ -49,8 +51,10 @@ export class AuthService {
         this.permissionsState.set(res.permissions);
         this.isInitializedState.set(true);
         this.hostingEnabled.set(res.features?.applicationHosting ?? true);
+        this.integrationEnabled.set(res.features?.catalogIntegration ?? false);
       }),
       catchError(() => {
+        this.integrationEnabled.set(false);
         this.isAuthenticatedState.set(false);
         this.userState.set(null);
         this.permissionsState.set(null);

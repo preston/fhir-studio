@@ -38,6 +38,8 @@ model User {
   hostedCollaborations HostedCollaborator[]
   hostedQuota HostedOwnerQuota?
   jobSchedules JobSchedule[]
+  integrationGrants IntegrationGrant[]
+  integrationAuthorizations IntegrationAuthorization[]
 
 
 
@@ -127,6 +129,9 @@ model Member {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   groupId   String   @map("group_id") @db.Uuid
+  // Null identifies pre-provenance grants, reconciled conservatively on next SSO login.
+  manualGrant Boolean? @map("manual_grant")
+  ssoGrant Boolean @default(false) @map("sso_grant")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -143,6 +148,8 @@ model Appointment {
   entityType AppointmentEntityType @map("entity_type")
   entityId   String                @map("entity_id") @db.Uuid
   roleId     String                @map("role_id") @db.Uuid
+  manualGrant Boolean? @map("manual_grant")
+  ssoGrant Boolean @default(false) @map("sso_grant")
   createdAt  DateTime              @default(now()) @map("created_at")
   updatedAt  DateTime              @updatedAt @map("updated_at")
 
@@ -152,6 +159,14 @@ model Appointment {
   @@index([entityId])
   @@index([roleId])
   @@map("appointments")
+}
+
+// Kept independently of sandboxes so deleting a tenant never recycles its HAPI ID.
+model HapiPartitionAllocation {
+  id              String @id
+  lastAllocatedId Int    @map("last_allocated_id")
+
+  @@map("hapi_partition_allocations")
 }
 
 model Sandbox {
@@ -178,6 +193,7 @@ model Sandbox {
   jobs            Job[]
   applications    Application[]
   hostedApplications HostedSandbox[]
+  smartAuthSessions SmartAuthSession[]
 
 
   @@index([createdByUserId])
@@ -259,9 +275,15 @@ model HostedApplication {
   description String @default("")
   ownerUserId String @map("owner_user_id") @db.Uuid
   createdByUserId String @map("created_by_user_id") @db.Uuid
-  repositoryId String @map("repository_id")
-  repository String
-  installationId String @map("installation_id")
+  runtimeContract Json? @map("runtime_contract")
+  publicConfiguration Json @default("{}") @map("public_configuration")
+  integrationGrantId String? @map("integration_grant_id") @db.Uuid
+  sourceKind String @default("repository") @map("source_kind")
+  integrationClientId String? @map("integration_client_id") @db.Uuid
+  integrationOrigin Json? @map("integration_origin")
+  repositoryId String @default("") @map("repository_id")
+  repository String @default("")
+  installationId String @default("") @map("installation_id")
   branch String @default("main")
   projectDirectory String @default("") @map("project_directory")
   buildCommand String @default("npm ci && npm run build") @map("build_command")
@@ -336,6 +358,12 @@ model HostedBuild {
   githubUrl String? @map("github_url")
   directory String?
   byteSize BigInt @default(0) @map("byte_size")
+  artifactSource Json? @map("artifact_source")
+  runtimeContract Json? @map("runtime_contract")
+  publicConfiguration Json @default("{}") @map("public_configuration")
+  integrationGrantId String? @map("integration_grant_id") @db.Uuid
+  revisionDigest String? @map("revision_digest")
+  contentBuildId String? @map("content_build_id") @db.Uuid
   jobId String? @map("job_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -436,6 +464,7 @@ model CdsServiceEndpoint {
 model SmartAuthSession {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sandboxId             String    @map("sandbox_id")
+  sandboxRowId          String?   @map("sandbox_row_id") @db.Uuid
   clientId              String    @map("client_id")
   code                  String?   @unique
   codeChallenge         String?   @map("code_challenge")
@@ -459,6 +488,9 @@ model SmartAuthSession {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  sandbox Sandbox? @relation(fields: [sandboxRowId], references: [id], onDelete: Cascade)
+
+  @@index([sandboxRowId])
   @@index([launchId])
   @@index([accessToken])
   @@index([refreshToken])
@@ -632,4 +664,90 @@ model HostedUsagePolicy {
   id String @id
   purgedBefore DateTime @map("purged_before") @db.Timestamptz(3)
   @@map("hosted_usage_policy")
+}
+
+
+model IntegrationClient {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String
+  secretHash String @map("secret_hash")
+  redirectUris Json @map("redirect_uris")
+  scopes Json
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  grants IntegrationGrant[]
+  authorizations IntegrationAuthorization[]
+  @@map("integration_clients")
+}
+
+model IntegrationAuthorization {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+  redirectUri String @map("redirect_uri")
+  scope String
+  state String
+  codeChallenge String @map("code_challenge")
+  codeHash String? @unique @map("code_hash")
+  approvedAt DateTime? @map("approved_at")
+  usedAt DateTime? @map("used_at")
+  expiresAt DateTime @map("expires_at")
+  client IntegrationClient @relation(fields:[clientId], references:[id], onDelete:Cascade)
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  @@index([expiresAt])
+  @@map("integration_authorizations")
+}
+
+model IntegrationGrant {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  scope String
+  accessTokenHash String @unique @map("access_token_hash")
+  accessExpiresAt DateTime @map("access_expires_at")
+  refreshTokenHash String @unique @map("refresh_token_hash")
+  previousRefreshTokenHash String? @map("previous_refresh_token_hash")
+  refreshExpiresAt DateTime @map("refresh_expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  client IntegrationClient @relation(fields:[clientId], references:[id], onDelete:Cascade)
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  @@index([userId, clientId])
+  @@map("integration_grants")
+}
+
+model IntegrationOperation {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId String @map("client_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  requestId String @map("request_id")
+  requestDigest String @map("request_digest")
+  applicationId String? @map("application_id") @db.Uuid
+  jobId String? @map("job_id") @db.Uuid
+  request Json
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([clientId,userId,requestId])
+  @@index([applicationId])
+  @@map("integration_operations")
+}
+
+model IntegrationReview {
+  applicationId String @map("application_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  buildId String @map("build_id") @db.Uuid
+  revisionDigest String? @map("revision_digest")
+  reviewedAt DateTime @default(now()) @map("reviewed_at")
+  @@id([applicationId,userId])
+  @@map("integration_reviews")
+}
+
+model IntegrationRetiredToken {
+  hash String @id
+  grantId String @map("grant_id") @db.Uuid
+  expiresAt DateTime @map("expires_at")
+  @@index([expiresAt])
+  @@map("integration_retired_tokens")
 }

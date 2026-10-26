@@ -1,3 +1,6 @@
+// Author: Preston Lee
+
+import { assertActiveGrant } from '../integrations/oauth.js';
 import crypto from 'node:crypto';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -213,6 +216,10 @@ export async function reconcileRun(
                 githubUrl: run.html_url,
                 githubActor:
                   run.triggering_actor.login || `#${run.triggering_actor.id}`,
+                revisionDigest: current.runtimeContract ? crypto.createHash('sha256').update(JSON.stringify({commit:run.head_sha,contract:current.runtimeContract,configuration:current.publicConfiguration})).digest('hex') : null,
+                runtimeContract: current.runtimeContract || undefined,
+                publicConfiguration: current.publicConfiguration || {},
+                integrationGrantId: desired.integrationGrantId,
               },
             })
           : await tx.hostedBuild.upsert({
@@ -226,6 +233,10 @@ export async function reconcileRun(
               create: {
                 applicationId: app.id,
                 generation: app.generation,
+                revisionDigest: app.runtimeContract ? crypto.createHash('sha256').update(JSON.stringify({commit:run.head_sha,contract:app.runtimeContract,configuration:app.publicConfiguration})).digest('hex') : null,
+                runtimeContract: app.runtimeContract || undefined,
+                publicConfiguration: app.publicConfiguration || {},
+                integrationGrantId: app.integrationGrantId,
                 commit: run.head_sha,
                 branch: run.head_branch,
                 runId: String(run.id),
@@ -321,6 +332,7 @@ export async function publisherForRun(
   config: HostingConfig,
 ): Promise<boolean> {
   if (
+    app.integrationClientId ||
     !app.autoPublish ||
     app.publishingPaused ||
     run.head_branch !== app.branch ||
@@ -374,6 +386,7 @@ async function assertBuildAuthority(
   build: HostedBuild,
   run: GitHubRun,
 ): Promise<void> {
+  if (build.integrationGrantId) await assertActiveGrant(db, build.integrationGrantId, 'applications:write');
   const initiator = run.triggering_actor
     ? await db.gitHubConnection.findUnique({
         where: { githubUserId: String(run.triggering_actor.id) },
@@ -497,7 +510,8 @@ export async function importBuild(
     await ctx.updateProgress(50, 'Validating static content');
     const content = path.join(attemptRoot, 'content');
     const bytes = await extractArtifact(archive, content, config, importSignal);
-    for (const entry of [app.launchPath, app.callbackPath])
+    const contract = build.runtimeContract as {launch_path:string;callback_paths:string[]} | null;
+    for (const entry of [contract?.launch_path || app.launchPath, ...(contract?.callback_paths || [app.callbackPath])])
       if (!(await stat(path.join(content, entry))).isFile())
         throw new HostingError(400, `Missing static entrypoint: ${entry}`);
     const auto = await publisherForRun(app, run, config);
@@ -512,6 +526,7 @@ export async function importBuild(
       );
     await prisma.$transaction(
       async (tx) => {
+        if(build.integrationGrantId)await assertActiveGrant(tx,build.integrationGrantId,'applications:write');
         await lockApplication(tx, app.id);
         const current = await tx.hostedApplication.findUniqueOrThrow({
           where: { id: app.id },
@@ -568,7 +583,7 @@ export async function importBuild(
             'Import lease changed before activation.',
           );
         let canPublish =
-          auto && current.autoPublish && !current.publishingPaused;
+          auto && !current.integrationClientId && current.autoPublish && !current.publishingPaused;
         for (const actor of [run.actor, run.triggering_actor]) {
           const connection = await tx.gitHubConnection.findUnique({
             where: { githubUserId: String(actor.id) },
@@ -600,9 +615,9 @@ export async function importBuild(
             directory,
             byteSize: BigInt(bytes),
             artifactId: String(artifact.id),
-            launchPath: app.launchPath,
-            callbackPath: app.callbackPath,
-            scope: app.scope,
+            launchPath: contract?.launch_path || app.launchPath,
+            callbackPath: contract?.callback_paths[0] || app.callbackPath,
+            scope: (build.runtimeContract as {scopes?:string[]}|null)?.scopes?.join(' ') || app.scope,
             status: 'READY',
             error: null,
           },
@@ -612,6 +627,7 @@ export async function importBuild(
           data: {
             previewBuildId: build.id,
             ...(canPublish ? { publishedBuildId: build.id } : {}),
+            ...(current.sourceKind==='repository' ? {integrationGrantId:null}:{}),
           },
         });
         await provisionClients(activated, config, tx);
@@ -660,6 +676,8 @@ export async function provisionClients(
     const launchPath = active?.launchPath || app.launchPath;
     const callbackPath = active?.callbackPath || app.callbackPath;
     const scope = active?.scope || app.scope;
+    const callbacks = (active?.runtimeContract as {callback_paths?:string[]} | null)?.callback_paths || [callbackPath];
+    const redirectUris = callbacks.map(path => `${appOrigin(config, app.id, channel)}/${path}`);
     const clientId = `hosted-${app.id}-${channel}`;
     const origin = appOrigin(config, app.id, channel);
     const existing = await database.application.findUnique({
@@ -669,7 +687,7 @@ export async function provisionClients(
       existing &&
       (existing.scope !== scope ||
         JSON.stringify(existing.redirectUris) !==
-          JSON.stringify([`${origin}/${callbackPath}`]))
+          JSON.stringify(redirectUris))
     )
       await database.smartAuthSession.updateMany({
         where: { clientId },
@@ -682,7 +700,7 @@ export async function provisionClients(
         clientName: app.name,
         clientSecret: null,
         launchUri: `${origin}/${launchPath}`,
-        redirectUris: [`${origin}/${callbackPath}`],
+        redirectUris,
         scope,
         tokenEndpointAuthMethod: 'none',
         pkceRequired: true,
@@ -693,7 +711,7 @@ export async function provisionClients(
       update: {
         clientName: app.name,
         launchUri: `${origin}/${launchPath}`,
-        redirectUris: [`${origin}/${callbackPath}`],
+        redirectUris,
         scope,
       },
     });
@@ -702,11 +720,13 @@ export async function provisionClients(
 let sweepRunning = false;
 export async function sweepHosting(checkCancelled: () => Promise<void> = async () => {}): Promise<void> {
   const config = loadHostingConfig('worker');
+  await getPrisma().integrationAuthorization.deleteMany({where:{expiresAt:{lt:new Date()}}});
+  await getPrisma().integrationRetiredToken.deleteMany({where:{expiresAt:{lt:new Date()}}});
   if (sweepRunning) return;
   sweepRunning = true;
   try {
     const apps = await getPrisma().hostedApplication.findMany({
-      where: { deletedAt: null, suspended: false },
+      where: { deletedAt: null, suspended: false, sourceKind: 'repository' },
       orderBy: { lastReconciledAt: { sort: 'asc', nulls: 'first' } },
       take: 20,
     });

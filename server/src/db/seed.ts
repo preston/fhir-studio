@@ -117,8 +117,9 @@ export async function seed(): Promise<void> {
       entityType: AppointmentEntityType.Group,
       entityId: adminGroup.id,
       roleId: adminRole.id,
+      manualGrant: true,
     },
-    update: {},
+    update: { manualGrant: true },
   });
 
   await prisma.appointment.upsert({
@@ -133,8 +134,9 @@ export async function seed(): Promise<void> {
       entityType: AppointmentEntityType.Group,
       entityId: usersGroup.id,
       roleId: userRole.id,
+      manualGrant: true,
     },
-    update: {},
+    update: { manualGrant: true },
   });
 
   // 4. Sample Public SMART Applications (FHIR R4 & SMART on FHIR v2 compatible)

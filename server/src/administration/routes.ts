@@ -277,8 +277,8 @@ export function createAdministrationRouter(): Router {
           groupId,
         },
       },
-      create: { userId, groupId },
-      update: {},
+      create: { userId, groupId, manualGrant: true },
+      update: { manualGrant: true },
       include: { user: { select: { id: true, email: true, displayName: true } } },
     });
 
@@ -430,8 +430,9 @@ export function createAdministrationRouter(): Router {
         entityType: typeEnum,
         entityId,
         roleId,
+        manualGrant: true,
       },
-      update: {},
+      update: { manualGrant: true },
       include: { role: true },
     });
 

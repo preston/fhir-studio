@@ -41,6 +41,9 @@
       <i class="bi bi-journal-medical me-1"></i> Implementation Guides
     </a>
   </li>
+  @if (auth.catalogIntegrationAvailable()) {
+  <li class="nav-item"><a id="administration-integration-clients" class="nav-link" routerLink="integration-clients" routerLinkActive="active"><i class="bi bi-link-45deg me-1"></i> Integration clients <span class="badge text-bg-warning">Experimental</span></a></li>
+  }
   @if (auth.hasPermission('applications_deployment')) {
     <li class="nav-item"><a class="nav-link" routerLink="hosting" routerLinkActive="active"><i class="bi bi-cloud me-1"></i> Application Hosting</a></li>
   }

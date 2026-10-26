@@ -35,6 +35,11 @@ function scopesWithin(requested: string, allowed: string, backend = false): bool
   });
 }
 const studioBase = () => requireEnv('FHIR_STUDIO_SERVER_UI_BASE_URL', 'UI_BASE_URL');
+function hasBoundSandbox(session: { sandboxRowId: string | null; sandboxId: string;
+  sandbox: { id: string; sandboxId: string } | null }): boolean {
+  return !!session.sandboxRowId && session.sandbox?.id === session.sandboxRowId &&
+    session.sandbox.sandboxId === session.sandboxId;
+}
 
 export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver } = {}): Router {
   initializeSmartSigning();
@@ -158,9 +163,8 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       scope = 'launch launch/patient patient/*.rs openid profile fhirUser',
     } = req.body;
 
-    const sandbox = await prisma.sandbox.findUnique({
-      where: { sandboxId },
-    });
+    // Bind to the row that was authorized, never a new tenant reusing its slug.
+    const sandbox = access;
 
     if (!sandbox || !isFhirReleaseEnabled(sandbox.fhirVersion)) {
       res.status(404).json({ error: `Sandbox '${sandboxId}' not found.` });
@@ -188,6 +192,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
     await prisma.smartAuthSession.create({
       data: {
         sandboxId,
+        sandboxRowId: sandbox.id,
         clientId: clientId || 'default-client',
         launchId,
         patientFhirId: patientFhirId || null,
@@ -266,10 +271,10 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
           where: { launchId: launch },
         });
 
-        if (!existingSession || existingSession.isRevoked || existingSession.code || existingSession.accessToken || existingSession.clientId !== client_id || existingSession.sandboxId !== targetSandboxId || !existingSession.codeExpiresAt || existingSession.codeExpiresAt < new Date() || !scopesWithin(scope, existingSession.scope)) { res.status(400).send('Invalid, expired, or consumed launch context.'); return; }
+        if (!existingSession || existingSession.sandboxRowId !== targetSandbox.id || existingSession.isRevoked || existingSession.code || existingSession.accessToken || existingSession.clientId !== client_id || existingSession.sandboxId !== targetSandboxId || !existingSession.codeExpiresAt || existingSession.codeExpiresAt < new Date() || !scopesWithin(scope, existingSession.scope)) { res.status(400).send('Invalid, expired, or consumed launch context.'); return; }
         if (existingSession) {
           const consumed = await prisma.smartAuthSession.updateMany({
-            where: { id: existingSession.id, code: null, accessToken: null, isRevoked: false, codeExpiresAt: { gt: new Date() } },
+            where: { id: existingSession.id, sandboxRowId: targetSandbox.id, code: null, accessToken: null, isRevoked: false, codeExpiresAt: { gt: new Date() } },
             data: {
               clientId: client_id,
               redirectUri: redirect_uri,
@@ -286,6 +291,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       } else {
         if (hosted) { res.status(400).send('Launch this hosted application from Studio to grant sandbox context.'); return; }
         const access = await sandboxAccess(req.sessionAuth?.userId, targetSandboxId, false, req.effectivePermissions?.global_manage);
+        if (access.id !== targetSandbox.id) throw new HostingError(403, 'Sandbox changed during authorization. Relaunch the application.');
         if (access.createdByUserId !== req.sessionAuth?.userId && !req.effectivePermissions?.global_manage && access.collaborators.some(member => member.userId === req.sessionAuth?.userId && member.role === 'READ_ONLY') && parseSmartV2Scopes(scope).some(item => item.actions?.some(action => ['c', 'u', 'd'].includes(action)))) { res.status(403).send('Read-only sandbox access cannot grant SMART write scopes.'); return; }
         if (!application.isSample && application.createdByUserId !== req.sessionAuth?.userId) { res.status(403).send('Launch context or application ownership required.'); return; }
         const needsPatient = parseSmartV2Scopes(scope).some(item => item.context === 'patient') || scope.split(/\s+/).includes('launch/patient');
@@ -295,6 +301,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
         await prisma.smartAuthSession.create({
           data: {
             sandboxId: targetSandboxId,
+            sandboxRowId: targetSandbox.id,
             clientId: client_id,
             patientFhirId,
             redirectUri: redirect_uri,
@@ -396,6 +403,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
         await prisma.smartAuthSession.create({
           data: {
             sandboxId: backendSandbox.sandboxId,
+            sandboxRowId: backendSandbox.id,
             clientId: clientId || 'system-backend-client',
             redirectUri: '',
             scope: requestedScope,
@@ -425,9 +433,10 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
 
         const session = await prisma.smartAuthSession.findFirst({
           where: { refreshToken: refresh_token, isRevoked: false },
+          include: { sandbox: { select: { id: true, sandboxId: true } } },
         });
 
-        if (!session || session.clientId !== clientId || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt < new Date())) {
+        if (!session || !hasBoundSandbox(session) || session.clientId !== clientId || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt < new Date())) {
           res.status(400).json({
             error: 'invalid_grant',
             error_description: 'Refresh token is invalid, expired, or revoked.',
@@ -442,7 +451,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
         const refreshTokenExpiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000); // 30 days
 
         const rotated = await prisma.smartAuthSession.updateMany({
-          where: { id: session.id, refreshToken: refresh_token, isRevoked: false },
+          where: { id: session.id, sandboxRowId: session.sandboxRowId, refreshToken: refresh_token, isRevoked: false },
           data: {
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
@@ -476,9 +485,10 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
 
         const session = await prisma.smartAuthSession.findUnique({
           where: { code },
+          include: { sandbox: { select: { id: true, sandboxId: true } } },
         });
 
-        if (!session || session.isRevoked || session.clientId !== clientId || session.redirectUri !== req.body.redirect_uri) {
+        if (!session || !hasBoundSandbox(session) || session.isRevoked || session.clientId !== clientId || session.redirectUri !== req.body.redirect_uri) {
           res.status(400).json({
             error: 'invalid_grant',
             error_description: 'Authorization code is invalid or already used.',
@@ -529,7 +539,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
 
         // Invalidate code and set access token
         const consumed = await prisma.smartAuthSession.updateMany({
-          where: { id: session.id, code, isRevoked: false },
+          where: { id: session.id, sandboxRowId: session.sandboxRowId, code, isRevoked: false },
           data: {
             code: null,
             accessToken,
@@ -606,9 +616,10 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
         OR: [{ accessToken: token }, { refreshToken: token }],
         isRevoked: false,
       },
+      include: { sandbox: { select: { id: true, sandboxId: true } } },
     });
 
-    if (!session || (session.tokenExpiresAt && session.tokenExpiresAt < new Date())) {
+    if (!session || !hasBoundSandbox(session) || (session.tokenExpiresAt && session.tokenExpiresAt < new Date())) {
       res.status(200).json({ active: false });
       return;
     }
@@ -642,11 +653,12 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       where: {
         OR: [{ accessToken: token }, { refreshToken: token }],
       },
+      include: { sandbox: { select: { id: true, sandboxId: true } } },
     });
 
-    if (session) {
-      await prisma.smartAuthSession.update({
-        where: { id: session.id },
+    if (session && hasBoundSandbox(session)) {
+      await prisma.smartAuthSession.updateMany({
+        where: { id: session.id, sandboxRowId: session.sandboxRowId },
         data: { isRevoked: true },
       });
     }

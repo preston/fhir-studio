@@ -1,8 +1,10 @@
+// Author: Preston Lee
+
+import { createIntegrationOAuthRouter } from './integrations/oauth.js';
+import { createIntegrationRouter } from './integrations/routes.js';
 import { createJobSchedulesRouter } from './jobs/schedule-routes.js';
 import { createHostingAdministrationRouter } from './hosted/admin-routes.js';
 import { apiUsage } from './hosted/usage.js';
-// Author: Preston Lee
-
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -30,6 +32,7 @@ import { browserSecurity, controlPlaneAuthentication } from './authentication/br
 import { createHostingRouter, hostingErrorHandler } from './hosted/routes.js';
 import { createGitHubWebhookRouter } from './hosted/webhooks.js';
 import { isHostingEnabled } from './env.js';
+import { PublicRequestError } from './http/public-request.js';
 
 const oidcConfig = loadSsoConfig();
 const hapiConfig = loadHapiConfig();
@@ -68,6 +71,8 @@ app.get('/api/fhir-releases', (_req, res) => {
 
 // Mount Routes
 app.use(createAuthRouter(oidcConfig));
+app.use(createIntegrationOAuthRouter());
+app.use(createIntegrationRouter());
 app.use(createHostingRouter());
 app.use(createSmartIdpRouter());
 app.use(createFhirGatewayRouter());
@@ -88,14 +93,15 @@ app.use(createKnowledgeRouter());
 app.use(hostingErrorHandler);
 
 // Global Error Handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled Server Error:', err);
   if (res.headersSent) {
     return next(err);
   }
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err?.message || 'An unexpected error occurred',
+  const status = err instanceof PublicRequestError ? err.status : 500;
+  res.status(status).json({
+    error: status < 500 ? 'Invalid outbound request' : 'Internal Server Error',
+    message: err instanceof Error ? err.message : 'An unexpected error occurred',
   });
 });
 

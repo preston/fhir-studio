@@ -1,7 +1,8 @@
 // Author: Preston Lee
 
 import express, { type Request, type Response, type Router } from 'express';
-import axios from 'axios';
+import { requestPublicJson, PublicRequestError } from '../http/public-request.js';
+import { requirePermission } from '../authorization/requirePermission.js';
 import { type Prisma } from '@prisma/client';
 import { getPrisma } from '../db/prisma.js';
 import { fetchPackageTarball } from './registry.js';
@@ -11,6 +12,7 @@ import { routeParam } from '../http/routeParam.js';
 export function createImplementationGuidesRouter(): Router {
   const router = express.Router();
   const prisma = getPrisma();
+  router.use('/api/implementation-guides/registry', requirePermission('package_import'));
 
   // 1. GET /api/implementation-guides (List registered Implementation Guides)
   router.get('/api/implementation-guides', async (req: Request, res: Response): Promise<void> => {
@@ -80,12 +82,9 @@ export function createImplementationGuidesRouter(): Router {
     }
 
     try {
-      const resp = await axios.get(`https://packages.fhir.org/catalog?name=${encodeURIComponent(query)}`, {
-        timeout: 10_000,
-        headers: { Accept: 'application/json' },
-      });
+      const data = await requestPublicJson(`https://packages.fhir.org/catalog?name=${encodeURIComponent(query)}`);
 
-      const raw = Array.isArray(resp.data) ? resp.data : [];
+      const raw = Array.isArray(data) ? data : [];
       // packages.fhir.org catalog uses PascalCase (Name/Description/FhirVersion).
       const results = raw
         .map((item: Record<string, unknown>) => {
@@ -170,7 +169,7 @@ export function createImplementationGuidesRouter(): Router {
       res.setHeader('Content-Length', buffer.length);
       res.send(buffer);
     } catch (err: any) {
-      res.status(502).json({
+      res.status(err instanceof PublicRequestError ? err.status : 502).json({
         error: `Failed to download package '${packageId}' from FHIR registry`,
         message: err?.message,
       });
@@ -185,14 +184,11 @@ export function createImplementationGuidesRouter(): Router {
     try {
       const url = `https://packages.fhir.org/${encodeURIComponent(packageId)}`;
 
-      const resp = await axios.get(url, {
-        timeout: 10_000,
-        headers: { Accept: 'application/json' },
-      });
-
-      const data = resp.data;
-      if (version && data?.versions?.[version]) {
-        res.json({ package: data.versions[version] });
+      const downloaded = await requestPublicJson(url);
+      const data = downloaded && typeof downloaded === 'object' ? downloaded as Record<string, unknown> : {};
+      const versions = data.versions && typeof data.versions === 'object' ? data.versions as Record<string, unknown> : {};
+      if (version && versions[version]) {
+        res.json({ package: versions[version] });
       } else {
         res.json({ package: data });
       }

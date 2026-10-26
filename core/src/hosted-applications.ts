@@ -7,6 +7,9 @@ export interface ApplicationCapabilities {
   own: boolean;
 }
 export interface HostedApplication {
+  sourceKind?: 'repository' | 'artifact';
+  integrationClientId?: string | null;
+  integrationOrigin?: unknown;
   id: string;
   name: string;
   description: string;
@@ -43,6 +46,10 @@ export interface HostedApplication {
   builds: HostedBuild[];
 }
 export interface HostedBuild {
+  revisionDigest?: string | null;
+  publicConfiguration?: Record<string, string | number | boolean>;
+  runtimeContract?: { launch_path?: string; callback_paths?: string[]; scopes?: string[]; fhir_versions?: string[] } | null;
+  artifactSource?: { immutable_id?: string; sha256?: string } | null;
   id: string;
   branch: string;
   commit: string;

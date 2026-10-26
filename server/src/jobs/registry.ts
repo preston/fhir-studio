@@ -1,7 +1,8 @@
-import { maintenanceHandler, adminActionHandler } from '../hosted/maintenance.js';
-import { jobDefinitions } from './definitions.js';
 // Author: Preston Lee
 
+import { importCatalogArtifact, createEditableProject } from '../integrations/artifacts.js';
+import { maintenanceHandler, adminActionHandler } from '../hosted/maintenance.js';
+import { jobDefinitions } from './definitions.js';
 import type { JobHandler } from './types.js';
 import { testJobHandler } from './handlers/testJob.js';
 import { sandboxPurgeHandler } from './handlers/sandboxPurge.js';
@@ -28,6 +29,8 @@ export function initializeJobs(): void {
   for (const definition of jobDefinitions) if (definition.jobType.startsWith('HOSTED_')) registerHandler(definition.jobType, maintenanceHandler);
   registerHandler('HOSTED_ADMIN_ACTION', adminActionHandler);
   registerHandler('HOSTED_IMPORT', importBuild);
+  registerHandler('INTEGRATION_ARTIFACT_IMPORT', importCatalogArtifact);
+  registerHandler('INTEGRATION_EDITABLE', createEditableProject);
   registerHandler('HOSTED_RECONCILE', reconcileJob);
   registerHandler('SANDBOX_PURGE', sandboxPurgeHandler);
   registerHandler('PACKAGE_IMPORT', packageImportHandler);

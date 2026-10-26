@@ -368,6 +368,8 @@ export async function cleanupStorage(config: HostingConfig, checkCancelled: () =
             ? desired.id
             : null,
         ]);
+        const referencedContent = await tx.hostedBuild.findMany({where:{id:{in:[...keep].filter((id): id is string => !!id)}}});
+        for (const build of referencedContent) if (build.contentBuildId) keep.add(build.contentBuildId);
         for (const directory of await readdir(path.join(root, item.name), {
           withFileTypes: true,
         })) {
