@@ -38,6 +38,15 @@ const oidcConfig = loadSsoConfig();
 const hapiConfig = loadHapiConfig();
 const app = express();
 const port = process.env.PORT || 3000;
+// Apache terminates TLS. Without this, req.protocol stays http and the SSO
+// callback URL no longer matches the registered https redirect.
+const trustProxyHops = Number(process.env.FHIR_STUDIO_SERVER_TRUST_PROXY_HOPS || '0');
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 5) {
+  throw new Error('FHIR_STUDIO_SERVER_TRUST_PROXY_HOPS must be an integer from 0 to 5.');
+}
+if (trustProxyHops > 0) {
+  app.set('trust proxy', trustProxyHops);
+}
 if (isHostingEnabled()) apiUsage.start();
 
 // CORS setup supporting Angular UI

@@ -8,7 +8,7 @@
 #   - HAPI FHIR JPA v8.12.0-2 (R5, port 8085) with Partitioning enabled & Postgres DB (hapi_r5)
 
 # Preserve the existing Compose project and named volumes after moving this file.
-name: docker
+name: fhir-studio-development
 
 services:
   fhir-studio-postgres:
