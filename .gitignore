@@ -19,9 +19,7 @@ ui/tmp/
 .env.*
 !.env.example
 !.env.*.example
-private/*.env
-!private/*.env.example
-private/hl7-setup.sh
+private/
 
 # Testing & Code Coverage
 coverage/
