@@ -230,11 +230,13 @@
                       <i class="bi bi-gear me-2"></i> Sandbox Settings
                     </button>
                   </li>
-                  <li>
-                    <button class="dropdown-item" (click)="openCollaboratorsModal(sandbox)">
-                      <i class="bi bi-people me-2"></i> Collaborators
-                    </button>
-                  </li>
+                  @if (canManageAccess(sandbox)) {
+                    <li>
+                      <button class="dropdown-item" (click)="openCollaboratorsModal(sandbox)">
+                        <i class="bi bi-people me-2"></i> Manage access
+                      </button>
+                    </li>
+                  }
                   <li>
                     <button class="dropdown-item" (click)="resetPartition(sandbox)">
                       <i class="bi bi-arrow-counterclockwise me-2"></i> Reset FHIR Data
@@ -381,15 +383,6 @@
             </label>
             <div class="form-text">If disabled, SMART OAuth authorization Bearer tokens are strictly required.</div>
           </div>
-
-          @if (auth.hasPermission('sandboxes_shared')) {
-            <div class="form-check form-switch mb-3">
-              <input class="form-check-input" type="checkbox" id="sharedSwitch" [(ngModel)]="newSandbox.isShared">
-              <label class="form-check-label fw-semibold" for="sharedSwitch">
-                Shared Team Sandbox
-              </label>
-            </div>
-          }
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancel</button>
@@ -435,19 +428,19 @@
           }
           <!-- Technical Specs Banner -->
           <div class="row g-2 p-3 bg-light rounded border mb-4">
-            <div class="col-sm-4">
+            <div class="col-sm-6">
               <span class="text-muted small fw-bold text-uppercase d-block">FHIR Version</span>
               <span class="badge fs-6 mt-1" [ngClass]="selectedSandboxForSettings()!.fhirVersion === 'R4' ? 'bg-primary' : 'bg-success'">
                 FHIR {{ selectedSandboxForSettings()!.fhirVersion }}
               </span>
             </div>
-            <div class="col-sm-4">
+            <div class="col-sm-6">
               <span class="text-muted small fw-bold text-uppercase d-block">Created On</span>
               <span class="small fw-semibold mt-1 d-block">{{ selectedSandboxForSettings()!.createdAt | date:'mediumDate' }}</span>
             </div>
-            <div class="col-sm-4">
+            <div class="col-12">
               <span class="text-muted small fw-bold text-uppercase d-block">Access Endpoint</span>
-              <code class="small text-truncate d-block">/api/sandboxes/{{ selectedSandboxForSettings()!.sandboxId }}/fhir/{{ selectedSandboxForSettings()!.fhirVersion.toLowerCase() }}</code>
+              <code class="small text-break d-block user-select-all">{{ settingsAccessEndpoint() }}</code>
             </div>
           </div>
 
@@ -493,28 +486,14 @@
             </div>
           </div>
 
-          <!-- Visibility & Sharing -->
+          <!-- Catalog Visibility -->
           <div class="row g-3 mb-4">
-            <div class="col-md-6">
+            <div class="col-12">
               <label class="form-label fw-semibold">Catalog Visibility</label>
               <select class="form-select py-1 ps-2" [(ngModel)]="settingsForm.visibility">
                 <option value="PRIVATE">Private (Owner & Collaborators only)</option>
                 <option value="PUBLIC">Public (Visible in public directory)</option>
               </select>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Team Collaboration</label>
-              <div class="form-check form-switch mt-2">
-                <input
-                  class="form-check-input"
-                  type="checkbox"
-                  id="editSharedSwitch"
-                  [(ngModel)]="settingsForm.isShared"
-                />
-                <label class="form-check-label fw-semibold" for="editSharedSwitch">
-                  Shared Sandbox
-                </label>
-              </div>
             </div>
           </div>
 
@@ -523,7 +502,7 @@
           <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center p-3 border border-danger-subtle rounded bg-danger-subtle bg-opacity-10">
             <div>
               <div class="fw-bold text-danger">Partition Maintenance</div>
-              <div class="small text-muted">Reset FHIR resources or manage collaborators.</div>
+              <div class="small text-muted">Reset FHIR resources or delete this sandbox.</div>
             </div>
             <div class="d-flex gap-2">
               <button
@@ -567,12 +546,13 @@
 }
 
 <!-- Collaborators Modal -->
-@if (showCollaboratorModal() && selectedSandboxForCollab()) {
+@let accessSandbox = selectedSandboxForCollab();
+@if (showCollaboratorModal() && accessSandbox && canManageAccess(accessSandbox)) {
   <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">Manage Collaborators ({{ selectedSandboxForCollab()?.name }})</h5>
+          <h5 class="modal-title fw-bold">Manage access ({{ accessSandbox.name }})</h5>
           <button type="button" class="btn-close" (click)="showCollaboratorModal.set(false)"></button>
         </div>
         <div class="modal-body">
@@ -581,25 +561,29 @@
             <select class="form-select py-1 ps-2 w-auto" [(ngModel)]="newCollaboratorRole">
               <option value="READ_WRITE">Read/Write</option>
               <option value="READ_ONLY">Read Only</option>
-              <option value="MANAGE">Administrator</option>
+              @if (canManageAdministrators(accessSandbox)) {
+                <option value="MANAGE">Administrator</option>
+              }
             </select>
             <button class="btn btn-primary" (click)="addCollaborator()">Add</button>
           </div>
 
           <h6 class="fw-bold mb-2">Current Collaborators</h6>
-          @if (!selectedSandboxForCollab()?.collaborators || selectedSandboxForCollab()!.collaborators!.length === 0) {
+          @if (!accessSandbox.collaborators?.length) {
             <p class="text-muted small">No other collaborators on this sandbox yet.</p>
           } @else {
             <ul class="list-group list-group-flush">
-              @for (collab of selectedSandboxForCollab()!.collaborators!; track collab.id) {
+              @for (collab of accessSandbox.collaborators; track collab.id) {
                 <li class="list-group-item d-flex justify-content-between align-items-center px-0">
                   <div>
                     <span class="fw-semibold">{{ collab.user.displayName || collab.user.email }}</span>
                     <span class="badge bg-light text-dark ms-2">{{ collab.role }}</span>
                   </div>
-                  <button class="btn btn-sm btn-outline-danger" (click)="removeCollaborator(selectedSandboxForCollab()!, collab.userId)">
-                    <i class="bi bi-x-lg"></i>
-                  </button>
+                  @if (canManageCollaborator(accessSandbox, collab)) {
+                    <button class="btn btn-sm btn-outline-danger" (click)="removeCollaborator(accessSandbox, collab.userId)" aria-label="Remove collaborator">
+                      <i class="bi bi-x-lg"></i>
+                    </button>
+                  }
                 </li>
               }
             </ul>

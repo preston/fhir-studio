@@ -5,6 +5,18 @@ import type { HostingConfig } from './config.js';
 
 export const workflowPath = (id: string) =>
   `.github/workflows/fhir-studio-${id}.yml`;
+
+/** An explicit static root works for community examples and custom framework builds. */
+export function configuredStaticDirectory(manifest: unknown): string | undefined {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return undefined;
+  const settings = (manifest as Record<string, unknown>).fhirStudio;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return undefined;
+  const directory = (settings as Record<string, unknown>).staticDirectory;
+  if (directory === undefined) return undefined;
+  if (typeof directory !== 'string') throw new HostingError(400, 'fhirStudio.staticDirectory must be a relative directory.');
+  return repositoryPath(directory);
+}
+
 export async function commitFiles(
   token: string,
   base: string,

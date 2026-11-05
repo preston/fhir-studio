@@ -13,7 +13,6 @@ export interface SandboxSummary {
   partitionId: number;
   allowOpenAccess: boolean;
   visibility: SandboxVisibility;
-  isShared: boolean;
   isPayer?: boolean;
   createdByUserId: string;
   createdByUser?: {

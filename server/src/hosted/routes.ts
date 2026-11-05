@@ -39,6 +39,7 @@ import {
   readSource,
   sourceSnapshot,
   workflowPath,
+  configuredStaticDirectory,
 } from './source.js';
 import { curatedTemplates, templateFiles } from './templates.js';
 import { provisionClients, queueImport, reconcileRun, retireSupersededBuilds } from './builds.js';
@@ -430,12 +431,13 @@ export function createHostingRouter() {
       ...manifest.dependencies,
       ...manifest.devDependencies,
     };
-    let outputDirectory = dependencies['react-scripts']
+    const configuredOutput = configuredStaticDirectory(manifest);
+    let outputDirectory = configuredOutput || (dependencies['react-scripts']
       ? 'build'
       : dependencies.next
         ? 'out'
-        : 'dist';
-    if (dependencies['@angular/core']) {
+        : 'dist');
+    if (!configuredOutput && dependencies['@angular/core']) {
       const angular = JSON.parse(
         await readSource(
           req.sessionAuth!.userId,

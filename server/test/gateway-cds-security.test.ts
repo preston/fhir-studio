@@ -163,6 +163,95 @@ test('patient-scoped instance access checks membership with the same HAPI patien
   } finally { smartScope = 'user/Patient.r'; fhirSearchEntries = []; }
 });
 
+test('patient-scoped clinical writes use the resource-specific launch-patient association', async () => {
+  smartScope = 'patient/*.crus user/Questionnaire.rs';
+  const reference = { reference: 'Patient/p1' };
+  const resources = [
+    { resourceType: 'Appointment', status: 'booked', participant: [{ actor: reference, status: 'accepted' }, { actor: { reference: 'Practitioner/pr1' }, status: 'accepted' }] },
+    { resourceType: 'Task', status: 'requested', intent: 'order', for: reference },
+    { resourceType: 'Coverage', status: 'active', beneficiary: reference, payor: [{ reference: 'Organization/payer' }] },
+    { resourceType: 'Observation', status: 'final', subject: reference, code: { text: 'Observation' } },
+    { resourceType: 'Condition', subject: reference, code: { text: 'Condition' } },
+    { resourceType: 'AllergyIntolerance', patient: reference, code: { text: 'Allergy' } },
+    { resourceType: 'QuestionnaireResponse', status: 'completed', subject: reference },
+    { resourceType: 'Claim', status: 'draft', patient: reference },
+    { resourceType: 'Encounter', status: 'planned', subject: reference },
+  ];
+  try {
+    for (const resource of resources) {
+      const before = fhirRequests.length;
+      assert.equal((await request(gateway, 'POST', `/api/sandboxes/private/fhir/r4/${resource.resourceType}`, resource, undefined, true)).status, 200, resource.resourceType);
+      assert.equal(fhirRequests.length, before + 1, resource.resourceType);
+      assert.equal(fhirRequests.at(-1)?.url, `http://hapi.example.org/fhir/private/${resource.resourceType}`);
+      fhirSearchEntries = [{ resource: { id: 'existing' } }];
+      assert.equal((await request(gateway, 'PUT', `/api/sandboxes/private/fhir/r4/${resource.resourceType}/existing`, { ...resource, id: 'existing' }, undefined, true)).status, 200, resource.resourceType);
+      assert.deepEqual(fhirRequests.at(-2)?.params, { patient: 'Patient/p1', _id: 'existing', _count: 1 });
+    }
+    const canonical = { resourceType: 'Task', for: { reference: 'https://studio.example.org/api/sandboxes/private/fhir/r4/Patient/p1' } };
+    assert.equal((await request(gateway, 'POST', '/api/sandboxes/private/fhir/r4/Task', canonical, undefined, true)).status, 200);
+    assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Questionnaire?status=active', undefined, undefined, true)).status, 200);
+    assert.deepEqual(fhirRequests.at(-1)?.params, { status: 'active' });
+  } finally { smartScope = 'user/Patient.r'; fhirSearchEntries = []; }
+});
+
+test('patient writes reject forged association fields, foreign patients, body types and update IDs', async () => {
+  smartScope = 'patient/*.crus';
+  const own = { reference: 'Patient/p1' }, foreign = { reference: 'Patient/p2' };
+  const invalid = [
+    { resourceType: 'Task', subject: own, for: foreign },
+    { resourceType: 'Coverage', subject: own, beneficiary: foreign },
+    { resourceType: 'Appointment', subject: own, participant: [{ actor: foreign }] },
+    { resourceType: 'Appointment', participant: [{ actor: own }, { actor: foreign }] },
+    { resourceType: 'Appointment', participant: [{ actor: own }, { actor: { reference: 'https://elsewhere.example/Patient/p2' } }] },
+    { resourceType: 'Appointment', participant: [{ actor: own }, { actor: { reference: '#other', type: 'Patient' } }] },
+    { resourceType: 'Observation', patient: own, subject: foreign },
+    { resourceType: 'AllergyIntolerance', subject: own, patient: foreign },
+    { resourceType: 'Task', for: { reference: 'https://studio.example.org/api/sandboxes/other/fhir/r4/Patient/p1' } },
+    { resourceType: 'Task', for: { reference: 'https://studio.example.org/api/sandboxes/private/fhir/r4/Patient/p2' } },
+    { resourceType: 'Task', for: { reference: 'https://foreign.example/api/sandboxes/private/fhir/r4/Patient/p1' } },
+  ];
+  try {
+    const before = fhirRequests.length;
+    for (const resource of invalid) {
+      const url = `/api/sandboxes/private/fhir/r4/${resource.resourceType}`;
+      assert.equal((await request(gateway, 'POST', url, resource, undefined, true)).status, 403, JSON.stringify(resource));
+      assert.equal((await request(gateway, 'PUT', `${url}/existing`, { ...resource, id: 'existing' }, undefined, true)).status, 403);
+    }
+    assert.equal((await request(gateway, 'POST', '/api/sandboxes/private/fhir/r4/Observation', { resourceType: 'Task', subject: own, for: own }, undefined, true)).status, 403);
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Observation/existing', { resourceType: 'Observation', id: 'foreign', subject: own }, undefined, true)).status, 403);
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Observation/existing', { resourceType: 'Observation', subject: own }, undefined, true)).status, 403);
+    assert.equal((await request(gateway, 'PATCH', '/api/sandboxes/private/fhir/r4/Observation/existing', [], undefined, true)).status, 403);
+    assert.equal((await request(gateway, 'POST', '/api/sandboxes/private/fhir/r4/Observation', { resourceType: 'Observation', subject: own }, undefined, true, { 'if-none-exist': 'identifier=foreign-patient-record' })).status, 403);
+    assert.equal(fhirRequests.length, before);
+    // A valid replacement body cannot claim a resource outside the compartment.
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Task/foreign', { resourceType: 'Task', id: 'foreign', for: own }, undefined, true)).status, 403);
+    assert.equal(fhirRequests.length, before + 1);
+  } finally { smartScope = 'user/Patient.r'; }
+});
+
+test('patient demographics updates require the existing launch Patient and exact body ID', async () => {
+  smartScope = 'patient/*.crus';
+  try {
+    const before = fhirRequests.length;
+    const patient = { resourceType: 'Patient', id: 'p1', name: [{ text: 'Updated name' }] };
+    for (const [method, suffix, body] of [
+      ['POST', '', patient], ['PUT', '', patient], ['PUT', '?_id=p1', patient],
+      ['PUT', '/p2', { ...patient, id: 'p2' }], ['PUT', '/p1', { ...patient, id: 'p2' }],
+      ['PUT', '/p1', { resourceType: 'Observation', id: 'p1' }], ['PATCH', '/p1', []],
+    ] as const) {
+      assert.equal((await request(gateway, method, `/api/sandboxes/private/fhir/r4/Patient${suffix}`, body, undefined, true)).status, 403, `${method} Patient${suffix}`);
+    }
+    assert.equal(fhirRequests.length, before);
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Patient/p1', patient, undefined, true)).status, 403, 'PUT cannot create a missing launch Patient');
+    fhirSearchEntries = [{ resource: { id: 'p1' } }];
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Patient/p1', patient, undefined, true)).status, 200);
+    assert.deepEqual(fhirRequests.at(-2)?.params, { _id: 'p1', _count: 1 });
+    assert.equal(fhirRequests.at(-1)?.url, 'http://hapi.example.org/fhir/private/Patient/p1');
+    smartScope = 'patient/Patient.rs';
+    assert.equal((await request(gateway, 'PUT', '/api/sandboxes/private/fhir/r4/Patient/p1', patient, undefined, true)).status, 403);
+  } finally { smartScope = 'user/Patient.r'; fhirSearchEntries = []; }
+});
+
 test('patient scopes deny resource types without a safe patient filter before contacting HAPI', async () => {
   smartScope = 'patient/*.rs';
   try {

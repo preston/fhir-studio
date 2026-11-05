@@ -178,7 +178,6 @@ model Sandbox {
   partitionId     Int      @map("partition_id")
   allowOpenAccess Boolean  @default(false) @map("allow_open_access")
   visibility      String   @default("PRIVATE")
-  isShared        Boolean  @default(false) @map("is_shared")
   createdByUserId String    @map("created_by_user_id") @db.Uuid
   lastAccessedAt  DateTime? @map("last_accessed_at")
   createdAt       DateTime  @default(now()) @map("created_at")

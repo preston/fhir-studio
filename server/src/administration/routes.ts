@@ -29,7 +29,6 @@ export function createAdministrationRouter(): Router {
       r5Sandboxes,
       openSandboxes,
       securedSandboxes,
-      sharedSandboxes,
       totalUsers,
       suspendedUsers,
       totalSessions,
@@ -43,7 +42,6 @@ export function createAdministrationRouter(): Router {
       prisma.sandbox.count({ where: { fhirVersion: 'R5' } }),
       prisma.sandbox.count({ where: { allowOpenAccess: true } }),
       prisma.sandbox.count({ where: { allowOpenAccess: false } }),
-      prisma.sandbox.count({ where: { isShared: true } }),
       prisma.user.count(),
       prisma.user.count({ where: { isSuspended: true } }),
       prisma.session.count(),
@@ -51,7 +49,12 @@ export function createAdministrationRouter(): Router {
       prisma.launchScenario.count(),
 
       prisma.sandbox.findMany({
-        select: { createdAt: true, fhirVersion: true },
+        select: {
+          createdAt: true,
+          fhirVersion: true,
+          createdByUserId: true,
+          collaborators: { select: { userId: true } },
+        },
         orderBy: { createdAt: 'asc' },
       }),
       prisma.user.findMany({
@@ -80,7 +83,9 @@ export function createAdministrationRouter(): Router {
         r5Sandboxes,
         openSandboxes,
         securedSandboxes,
-        sharedSandboxes,
+        sharedSandboxes: sandboxes.filter(sandbox =>
+          sandbox.collaborators.some(collaborator => collaborator.userId !== sandbox.createdByUserId),
+        ).length,
         totalUsers,
         suspendedUsers,
         totalSessions,

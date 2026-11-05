@@ -46,3 +46,72 @@ export function patientSearchConstraint(
   }
   return { patient: `Patient/${patientId}` };
 }
+
+// A patient search parameter does not imply a `patient` or `subject` property.
+// Write support is explicit so an invented property cannot authorize a resource
+// whose real compartment association points to somebody else.
+const PATIENT_WRITE_FIELDS: Readonly<Record<string, string>> = {
+  AllergyIntolerance: 'patient',
+  CarePlan: 'subject',
+  Claim: 'patient',
+  ClinicalImpression: 'subject',
+  Communication: 'subject',
+  Condition: 'subject',
+  Coverage: 'beneficiary',
+  DiagnosticReport: 'subject',
+  DocumentReference: 'subject',
+  Encounter: 'subject',
+  ExplanationOfBenefit: 'patient',
+  ImagingStudy: 'subject',
+  Immunization: 'patient',
+  MeasureReport: 'subject',
+  MedicationRequest: 'subject',
+  Observation: 'subject',
+  QuestionnaireResponse: 'subject',
+  ServiceRequest: 'subject',
+  Task: 'for',
+};
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+/** Validate the actual patient association of a supported clinical write. */
+export function validPatientWriteAssociation(
+  resourceType: string,
+  body: unknown,
+  patientId: string,
+  fhirBaseUrl: string,
+): boolean {
+  const resource = record(body);
+  if (!resource) return false;
+  const patientReferences = new Set([
+    `Patient/${patientId}`,
+    `${fhirBaseUrl}/Patient/${patientId}`,
+  ]);
+  if (resourceType === 'Appointment') {
+    if (!Array.isArray(resource.participant) || !resource.participant.length) return false;
+    let foundPatient = false;
+    for (const participant of resource.participant) {
+      const actor = record(record(participant)?.actor);
+      const reference = actor?.reference;
+      // An unassigned participant has no patient identity to move across compartments.
+      if (!actor) continue;
+      if (typeof reference !== 'string') return false;
+      if (patientReferences.has(reference)) {
+        foundPatient = true;
+        continue;
+      }
+      // Reject foreign/contained/identifier-only Patient actors, while retaining
+      // ordinary clinician and location participants in an existing appointment.
+      if (actor.type === 'Patient' || actor.type === 'http://hl7.org/fhir/StructureDefinition/Patient'
+        || !/^(?:https?:\/\/[^?#]+\/)?(?:Practitioner|PractitionerRole|RelatedPerson|Device|HealthcareService|Location|Group)\/[A-Za-z0-9.-]{1,64}$/.test(reference)) return false;
+    }
+    return foundPatient;
+  }
+  const field = PATIENT_WRITE_FIELDS[resourceType];
+  if (!field) return false;
+  const reference = record(resource[field])?.reference;
+  return typeof reference === 'string' && patientReferences.has(reference);
+}

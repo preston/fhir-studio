@@ -19,13 +19,14 @@ import {
   buildDirectory,
 } from '../src/hosted/filesystem.js';
 import { webhookSignature } from '../src/hosted/webhooks.js';
-import { managedWorkflow } from '../src/hosted/source.js';
+import { configuredStaticDirectory, managedWorkflow } from '../src/hosted/source.js';
 import { templateFiles } from '../src/hosted/templates.js';
 import { verifyClientAssertionJwt } from '../src/smart-idp/crypto.js';
 import type { HostingConfig } from '../src/hosted/config.js';
 import { loadHostingConfig } from '../src/hosted/config.js';
 import { ClientKeyResolver, publicKeyAddress, keySetUrl } from '../src/smart-idp/client-keys.js';
 import { parseSmartV2Scopes, isSmartScopePermitted } from '../src/smart-idp/scopes.js';
+import { deploymentProfileErrors } from '../src/integrations/catalog-contract.js';
 
 test('deployment is denied by default, OR-merged explicitly, and included in the existing administrator bypass', () => {
   const defaults = createDefaultEffectivePermissions();
@@ -269,6 +270,29 @@ test('managed workflow has no Studio secrets and disambiguates run attempts', ()
       files.some((file) => file.content.includes('/_studio/config.json')),
     );
   }
+});
+
+test('community applications build from their project directory and publish only their static output', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../../apps/viets-ehr/package.json', import.meta.url), 'utf8')) as unknown;
+  const runtime = JSON.parse(await readFile(new URL('../../apps/viets-ehr/fhir-studio.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+  assert.deepEqual(deploymentProfileErrors({ ...runtime, artifact_id: 'community-example' }), {});
+  assert.equal(configuredStaticDirectory(manifest), 'public');
+  assert.equal(configuredStaticDirectory({ dependencies: { vite: '8' } }), undefined);
+  assert.equal(configuredStaticDirectory({ fhirStudio: { staticDirectory: 'dist/app/browser' } }), 'dist/app/browser');
+  assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: '../outside' } }));
+  assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: '/tmp' } }));
+  assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: 42 } }));
+  const workflow = managedWorkflow({
+    id: 'community-example',
+    projectDirectory: 'apps/viets-ehr',
+    buildCommand: 'npm ci && npm run build',
+    outputDirectory: configuredStaticDirectory(manifest)!,
+    nodeVersion: '26',
+  });
+  assert.match(workflow, /working-directory: "apps\/viets-ehr"/);
+  assert.match(workflow, /run: "npm ci && npm run build"/);
+  assert.match(workflow, /path: "apps\/viets-ehr\/public"/);
+  assert.doesNotMatch(workflow, /path: "(?:apps\/viets-ehr|public)"\n/);
 });
 test('asymmetric client authentication rejects unsigned or mismatched assertions', () => {
   const fake =

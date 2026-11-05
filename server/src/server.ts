@@ -33,6 +33,7 @@ import { createHostingRouter, hostingErrorHandler } from './hosted/routes.js';
 import { createGitHubWebhookRouter } from './hosted/webhooks.js';
 import { isHostingEnabled } from './env.js';
 import { PublicRequestError } from './http/public-request.js';
+import { jsonBodyParser } from './http/json-body.js';
 
 const oidcConfig = loadSsoConfig();
 const hapiConfig = loadHapiConfig();
@@ -54,7 +55,7 @@ app.use(createGitHubWebhookRouter());
 app.use(browserSecurity(oidcConfig));
 
 app.use(cookieParser());
-app.use(express.json({ limit: '50mb' }));
+app.use(jsonBodyParser());
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Global optional authentication to populate session & permissions

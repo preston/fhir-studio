@@ -22,7 +22,7 @@ import { loadStudioOrigin } from '../hosted/config.js';
 
 import { routeParam } from '../http/routeParam.js';
 import { isSafeFhirPath, isSafeFhirBundle, isUnsafeHapiOperationPath } from './path.js';
-import { patientSearchConstraint } from './patient-scope.js';
+import { patientSearchConstraint, validPatientWriteAssociation } from './patient-scope.js';
 
 const READ_ONLY_KNOWLEDGE_OPERATIONS = new Set([
   'validate', 'validate-code', 'expand', 'lookup', 'subsumes', 'find-matches', 'meta',
@@ -167,6 +167,8 @@ export function createFhirGatewayRouter(): Router {
     }
 
     const hapiBaseUrl = hapiClient.getHapiBaseUrl(versionParam);
+    const publicOrigin = studioOrigin;
+    const proxyBaseUrl = `${publicOrigin}/api/sandboxes/${sandboxId}/fhir/${versionParam.toLowerCase()}`;
     const postSearch = req.method === 'POST' && pathSegments.length === 2 && pathSegments[1] === '_search';
     const searchBody: Record<string, unknown> = postSearch && req.body && typeof req.body === 'object' && !Array.isArray(req.body)
       ? req.body as Record<string, unknown>
@@ -185,7 +187,7 @@ export function createFhirGatewayRouter(): Router {
       const patientId = accessResult.smartSession.patientFhirId;
       const parts = subpath.split('/').filter(Boolean);
       const search = postSearch || (parts.length === 1 && ['GET', 'HEAD'].includes(req.method));
-      if (!search && !['GET', 'HEAD'].includes(req.method) && (Object.keys(forwardedQuery).length || (req.method !== 'POST' && !parts[1]))) { res.status(403).json({ error: 'Conditional patient-scoped writes are not supported.' }); return; }
+      if (!search && !['GET', 'HEAD'].includes(req.method) && (Object.keys(forwardedQuery).length || req.get('If-None-Exist') || (req.method !== 'POST' && !parts[1]))) { res.status(403).json({ error: 'Conditional patient-scoped writes are not supported.' }); return; }
       if ([req.query, searchBody].some(params => Object.keys(params).some(key => key === '_has' || key.startsWith('_has:'))) || parts.some(p => p.startsWith('$') || p === '_history') || parts.length > 2) {
         res.status(403).json({ error: 'Patient-scoped operations must stay within the launch patient compartment.' }); return;
       }
@@ -197,15 +199,23 @@ export function createFhirGatewayRouter(): Router {
         Object.assign(forwardedQuery, patientConstraint);
         if (postSearch) forwardedBody = { ...searchBody, ...patientConstraint };
       } else if (resourceType === 'Patient') {
-        if ((parts[1] && parts[1] !== patientId) || (!['GET', 'HEAD'].includes(req.method))) { res.sendStatus(403); return; }
+        if (parts[1] !== patientId) { res.sendStatus(403); return; }
+        if (!['GET', 'HEAD'].includes(req.method)) {
+          const body = req.body as { resourceType?: unknown; id?: unknown } | undefined;
+          if (req.method !== 'PUT' || body?.resourceType !== 'Patient' || body.id !== patientId) { res.sendStatus(403); return; }
+          const existing = await axios.get<{ entry?: Array<{ resource?: { id?: string } }> }>(`${hapiBaseUrl}/${sandbox.sandboxId}/Patient`, { params: { _id: patientId, _count: 1 }, timeout: 15_000 });
+          if (!existing.data.entry?.some(entry => entry.resource?.id === patientId)) { res.sendStatus(403); return; }
+        }
       } else {
+        if (!['GET', 'HEAD', 'DELETE'].includes(req.method)) {
+          const body = req.body as { resourceType?: unknown; id?: unknown } | undefined;
+          if (!['POST', 'PUT'].includes(req.method) || body?.resourceType !== resourceType
+            || (req.method === 'PUT' && (!parts[1] || body.id !== parts[1]))
+            || !validPatientWriteAssociation(resourceType, body, patientId, proxyBaseUrl)) { res.sendStatus(403); return; }
+        }
         if (parts[1]) {
           const existing = await axios.get<{ entry?: Array<{ resource?: { id?: string } }> }>(`${hapiBaseUrl}/${sandbox.sandboxId}/${resourceType}`, { params: { ...patientConstraint, _id: parts[1], _count: 1 }, timeout: 15_000 });
           if (!existing.data.entry?.some(entry => entry.resource?.id === parts[1])) { res.sendStatus(403); return; }
-        }
-        if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-          const body = req.body as { subject?: { reference?: string }; patient?: { reference?: string } };
-          if (req.method === 'PATCH' || ![body.subject?.reference, body.patient?.reference].includes(`Patient/${patientId}`)) { res.sendStatus(403); return; }
         }
       }
     }
@@ -229,9 +239,6 @@ export function createFhirGatewayRouter(): Router {
     const canPublishKnowledge =
       hasPermission(req.effectivePermissions, 'knowledge_publish') ||
       hasPermission(req.effectivePermissions, 'global_manage');
-
-    const publicOrigin = studioOrigin;
-    const proxyBaseUrl = `${publicOrigin}/api/sandboxes/${sandboxId}/fhir/${versionParam.toLowerCase()}`;
 
     // Root batch/transaction Bundles may mix partitionable clinical resources with
     // HAPI non-partitionable conformance types (StructureDefinition, ValueSet, …).

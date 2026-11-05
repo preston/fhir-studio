@@ -6,10 +6,15 @@ editing, SMART starters, collaborators, and filesystem-hosted previews/publicati
 FHIR Studio is a modern, open healthcare developer platform for FHIR sandboxes, simulated EHR application launching, SMART on FHIR v2 development, and CDS Hooks 2.0 testing. It is functionally inspired by the original Logica Sandbox architecture, but re-architected and implemented in modern TypeScript.
 
 The codebase is organized as an npm monorepo with strict TypeScript typing:
+- **`apps/`** - User-contributed example SMART apps usable within FHIR Studio, but do not ship with it.
 - **`core/`** (`@fhir-studio/core`) – Shared domain models, RBAC definitions, SMART, FHIR, and CDS Hook types.
 - **`server/`** (`@fhir-studio/server`) – Express and Node.js ESM backend, Prisma OR/M, FHIR Gateway proxy, and SMART on FHIR v2 Identity Provider.
 - **`ui/`** (`@fhir-studio/ui`) – Angular standalone UI with Bootstrap and ECharts.
 - **`docker/`** – Support files for the root-level Docker Compose stacks providing PostgreSQL, Redis, Authentik (SSO/OIDC), and multi-version HAPI FHIR JPA instances (R4, R4B, R5).
+
+[Community applications](apps/README.md) are independently maintained examples,
+starting with [Viet's EHR](apps/viets-ehr/README.md). They deploy through Application
+Studio from a repository subdirectory and are excluded from FHIR Studio images.
 
 
 ---
@@ -206,6 +211,22 @@ The API image applies Prisma migrations on startup. Compose points the database 
 | **HAPI FHIR R4** | `http://localhost:8083/fhir` | Partitioned FHIR R4 JPA server |
 | **HAPI FHIR R4B** | `http://localhost:8084/fhir` | Partitioned FHIR R4B JPA server |
 | **HAPI FHIR R5** | `http://localhost:8085/fhir` | Partitioned FHIR R5 JPA server |
+
+### Sandbox access
+
+Every sandbox supports collaboration through **Manage access**. Changing collaborators
+requires the `sandboxes_shared` permission and sandbox ownership or a sandbox management
+role. Global administrators can manage access to any sandbox. Only owners and global
+administrators can grant, change, or remove administrator assignments. Existing
+collaborators retain their assigned access when the sharing permission is removed.
+
+Catalog visibility controls discovery, and **Allow Open Access** controls FHIR access
+without OAuth. Both settings are independent of collaborator assignments.
+
+The `isShared` sandbox property has been removed from creation, settings, and API
+responses. Legacy request fields are ignored. The `sharedSandboxes` administration
+metric now counts sandboxes with at least one collaborator other than their creator.
+Apply the database migration before starting the updated API or worker.
 
 ---
 

@@ -30,6 +30,9 @@ ui/tmp
 doc/
 private/
 
+# Community applications are packaged separately and never ship in Studio images.
+apps/
+
 # Local development stack
 docker/
 

@@ -28,7 +28,7 @@
     "test:catalog": "node --import tsx --test test/integration-artifacts.test.ts",
     "test:catalog:integration": "node --import tsx --test test/integration-security.integration.test.ts test/integration-editable.integration.test.ts test/integration-provider.integration.test.ts",
     "test:integration": "node --import tsx --test test/integration-security.integration.test.ts test/integration-editable.integration.test.ts test/integration-provider.integration.test.ts",
-    "test:security": "node --import tsx --test test/gateway-cds-security.test.ts test/hosting-webhook-security.test.ts test/bulk-subscription-security.test.ts test/public-request.test.ts",
+    "test:security": "node --import tsx --test test/gateway-cds-security.test.ts test/fhir-json.test.ts test/hosting-webhook-security.test.ts test/bulk-subscription-security.test.ts test/public-request.test.ts test/sandbox-access.test.ts",
     "test:security:integration": "node --import tsx --test test/hapi-partitions.integration.test.ts test/authorization-mappings.integration.test.ts"
   },
   "prisma": {

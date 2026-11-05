@@ -237,7 +237,6 @@ export function createSandboxesRouter(): Router {
         fhirVersion,
         allowOpenAccess = false,
         visibility = 'PRIVATE',
-        isShared = false,
         seedData = true,
       } = req.body;
 
@@ -254,11 +253,6 @@ export function createSandboxesRouter(): Router {
 
       if (RESERVED_SLUGS.has(cleanSlug)) {
         res.status(400).json({ error: `'${cleanSlug}' is a reserved system identifier.` });
-        return;
-      }
-
-      if (isShared && !hasPermission(req.effectivePermissions, 'sandboxes_shared')) {
-        res.status(403).json({ error: 'Permission denied: shared sandbox creation requires permission_sandboxes_shared.' });
         return;
       }
 
@@ -298,7 +292,6 @@ export function createSandboxesRouter(): Router {
           partitionId,
           allowOpenAccess: Boolean(allowOpenAccess),
           visibility: visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE',
-          isShared: Boolean(isShared),
           createdByUserId: req.sessionAuth!.userId,
         },
       });
@@ -356,7 +349,7 @@ export function createSandboxesRouter(): Router {
   // 4. PUT /api/sandboxes/:sandboxId (Update sandbox settings)
   router.put('/api/sandboxes/:sandboxId', async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
-    const { name, description, allowOpenAccess, visibility, isShared } = req.body;
+    const { name, description, allowOpenAccess, visibility } = req.body;
 
     const sandbox = await prisma.sandbox.findUnique({
       where: { sandboxId },
@@ -387,7 +380,6 @@ export function createSandboxesRouter(): Router {
         ...(description !== undefined ? { description } : {}),
         ...(allowOpenAccess !== undefined ? { allowOpenAccess: Boolean(allowOpenAccess) } : {}),
         ...(visibility !== undefined ? { visibility: visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE' } : {}),
-        ...(isShared !== undefined ? { isShared: Boolean(isShared) } : {}),
       },
     });
 
@@ -478,7 +470,7 @@ export function createSandboxesRouter(): Router {
   });
 
   // 7. Collaborators: POST /api/sandboxes/:sandboxId/collaborators
-  router.post('/api/sandboxes/:sandboxId/collaborators', async (req: Request, res: Response): Promise<void> => {
+  router.post('/api/sandboxes/:sandboxId/collaborators', requirePermission('sandboxes_shared'), async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
     const parent = await sandboxAccess(req.sessionAuth?.userId, sandboxId, true, req.effectivePermissions?.global_manage);
     const { email, role = 'READ_WRITE' } = req.body;
@@ -531,7 +523,7 @@ export function createSandboxesRouter(): Router {
   });
 
   // 8. Collaborators: DELETE /api/sandboxes/:sandboxId/collaborators/:userId
-  router.delete('/api/sandboxes/:sandboxId/collaborators/:userId', async (req: Request, res: Response): Promise<void> => {
+  router.delete('/api/sandboxes/:sandboxId/collaborators/:userId', requirePermission('sandboxes_shared'), async (req: Request, res: Response): Promise<void> => {
     const sandboxId = routeParam(req.params.sandboxId);
     const userId = routeParam(req.params.userId);
     const parent = await sandboxAccess(req.sessionAuth?.userId, sandboxId, true, req.effectivePermissions?.global_manage);

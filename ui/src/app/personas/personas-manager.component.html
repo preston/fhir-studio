@@ -4,7 +4,7 @@
     <p class="text-muted mb-0">Manage synthetic Practitioner and Patient personas for SMART OAuth simulated sign-ins.</p>
   </div>
   <div>
-    <button class="btn btn-primary d-flex align-items-center gap-1" (click)="formError.set(null); showCreateModal.set(true)">
+    <button class="btn btn-primary d-flex align-items-center gap-1" [disabled]="saving()" (click)="openCreatePersona()">
       <i class="bi bi-person-plus-fill"></i>
       <span>New Persona</span>
     </button>
@@ -44,9 +44,14 @@
 
             <div class="d-flex justify-content-between align-items-center pt-2 border-top mt-auto">
               <span class="text-muted small">Resource: {{ p.fhirResourceName }}</span>
-              <button class="btn btn-sm btn-outline-danger" (click)="deletePersona(p)">
-                <i class="bi bi-trash"></i>
-              </button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" [disabled]="saving()" (click)="openEditPersona(p)" [attr.aria-label]="'Edit persona ' + p.personaName">
+                  <i class="bi bi-pencil me-1"></i>Edit
+                </button>
+                <button class="btn btn-sm btn-outline-danger" (click)="deletePersona(p)" [attr.aria-label]="'Delete persona ' + p.personaName">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -55,46 +60,59 @@
   </div>
 }
 
-<!-- Create Persona Modal -->
-@if (showCreateModal()) {
-  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+<!-- Create / Edit Persona Modal -->
+@if (showPersonaModal()) {
+  <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="persona-modal-title" style="background: rgba(0,0,0,0.5);">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">Create Synthetic Persona</h5>
-          <button type="button" class="btn-close" (click)="showCreateModal.set(false)"></button>
+          <h5 id="persona-modal-title" class="modal-title fw-bold">{{ editingPersonaId() ? 'Edit Synthetic Persona' : 'Create Synthetic Persona' }}</h5>
+          <button type="button" class="btn-close" aria-label="Close" [disabled]="saving()" (click)="closePersonaModal()"></button>
         </div>
-        <div class="modal-body">
+        <fieldset class="modal-body" [disabled]="saving()">
           @if (formError()) {
             <div class="alert alert-danger" role="alert">{{ formError() }}</div>
           }
           <div class="mb-3">
-            <label class="form-label fw-semibold">Persona Name <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="newPersona.personaName" placeholder="e.g. Dr. Robert Vance, MD">
+            <label for="persona-name" class="form-label fw-semibold">Persona Name <span class="text-danger">*</span></label>
+            <input id="persona-name" type="text" class="form-control" [(ngModel)]="personaForm.personaName" required placeholder="e.g. Dr. Robert Vance, MD">
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold">Persona User ID (Slug) <span class="text-danger">*</span></label>
-            <input type="text" class="form-control font-monospace" [(ngModel)]="newPersona.personaUserId" placeholder="dr-robert-vance">
+            <label for="persona-user-id" class="form-label fw-semibold">Persona User ID (Slug) <span class="text-danger">*</span></label>
+            <input id="persona-user-id" type="text" class="form-control font-monospace" [(ngModel)]="personaForm.personaUserId" [readOnly]="editingPersonaId() !== null" required placeholder="dr-robert-vance" [attr.aria-describedby]="editingPersonaId() ? 'persona-user-id-help' : null">
+            @if (editingPersonaId()) {
+              <div id="persona-user-id-help" class="form-text">The persona user ID cannot be changed after creation.</div>
+            }
           </div>
 
           <div class="row g-3 mb-3">
             <div class="col-6">
-              <label class="form-label fw-semibold">FHIR Resource Type</label>
-              <select class="form-select py-1 ps-2" [(ngModel)]="newPersona.fhirResourceType">
+              <label for="persona-resource-type" class="form-label fw-semibold">FHIR Resource Type</label>
+              <select id="persona-resource-type" class="form-select py-1 ps-2" [(ngModel)]="personaForm.fhirResourceType">
                 <option value="Practitioner">Practitioner</option>
                 <option value="Patient">Patient</option>
               </select>
             </div>
             <div class="col-6">
-              <label class="form-label fw-semibold">FHIR Resource ID</label>
-              <input type="text" class="form-control font-monospace" [(ngModel)]="newPersona.fhirResourceId" placeholder="dr-vance-1">
+              <label for="persona-resource-id" class="form-label fw-semibold">FHIR Resource ID</label>
+              <input id="persona-resource-id" type="text" class="form-control font-monospace" [(ngModel)]="personaForm.fhirResourceId" placeholder="dr-vance-1">
             </div>
           </div>
-        </div>
+          <div class="mb-3">
+            <label for="persona-resource-name" class="form-label fw-semibold">FHIR Resource Name</label>
+            <input id="persona-resource-name" type="text" class="form-control" [(ngModel)]="personaForm.fhirResourceName" placeholder="Defaults to the persona name">
+          </div>
+        </fieldset>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="createPersona()">Save Persona</button>
+          <button type="button" class="btn btn-secondary" [disabled]="saving()" (click)="closePersonaModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" [disabled]="saving()" (click)="savePersona()">
+            @if (saving()) {
+              <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving...
+            } @else {
+              {{ editingPersonaId() ? 'Save Changes' : 'Save Persona' }}
+            }
+          </button>
         </div>
       </div>
     </div>

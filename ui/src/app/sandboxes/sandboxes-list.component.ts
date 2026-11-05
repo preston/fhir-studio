@@ -11,6 +11,8 @@ import { SandboxService, type Sandbox, type SandboxCollaborator } from '../core/
 import { AuthService } from '../core/services/auth.service.js';
 import { FhirReleasesService, type FhirReleaseId } from '../core/services/fhir-releases.service.js';
 import { ToastService } from '../core/services/toast.service.js';
+import { DeployConfigKeys, readDeployConfigUrl } from '../core/deploy-config.lib.js';
+import type { SandboxCollaboratorRole } from '@fhir-studio/core';
 
 export type SandboxSortField = 'name' | 'sandboxId' | 'fhirVersion' | 'createdAt' | 'lastAccessedAt';
 export type SandboxAccessFilter = 'all' | 'secured' | 'open';
@@ -59,7 +61,6 @@ export class SandboxesListComponent implements OnInit {
     fhirVersion: 'R4' as FhirReleaseId,
     allowOpenAccess: false,
     visibility: 'PRIVATE' as 'PUBLIC' | 'PRIVATE',
-    isShared: false,
     seedData: true,
   };
 
@@ -67,18 +68,23 @@ export class SandboxesListComponent implements OnInit {
   public readonly showCollaboratorModal = signal<boolean>(false);
   public readonly selectedSandboxForCollab = signal<Sandbox | null>(null);
   public newCollaboratorEmail = '';
-  public newCollaboratorRole = 'READ_WRITE';
+  public newCollaboratorRole: Exclude<SandboxCollaboratorRole, 'OWNER'> = 'READ_WRITE';
 
   // Sandbox Settings Modal
   public readonly showSettingsModal = signal<boolean>(false);
   public readonly selectedSandboxForSettings = signal<Sandbox | null>(null);
+  public readonly settingsAccessEndpoint = computed(() => {
+    const sandbox = this.selectedSandboxForSettings();
+    if (!sandbox) return '';
+    const baseUrl = readDeployConfigUrl(DeployConfigKeys.PUBLIC_API_BASE_URL);
+    return `${baseUrl}/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}`;
+  });
   public readonly savingSettings = signal<boolean>(false);
   public settingsForm = {
     name: '',
     description: '',
     allowOpenAccess: false,
     visibility: 'PRIVATE' as 'PUBLIC' | 'PRIVATE',
-    isShared: false,
   };
 
   public readonly enabledReleases = this.fhirReleases.enabledReleases;
@@ -220,6 +226,11 @@ export class SandboxesListComponent implements OnInit {
       next: () => {
         this.errorMessage.set(null);
         this.loading.set(false);
+        const selected = this.selectedSandboxForCollab();
+        if (selected) {
+          const updated = this.sandboxes().find(sandbox => sandbox.id === selected.id);
+          this.selectedSandboxForCollab.set(updated || null);
+        }
       },
       error: (err) => {
         this.errorMessage.set(err?.error?.error || 'Failed to load sandboxes.');
@@ -294,7 +305,6 @@ export class SandboxesListComponent implements OnInit {
       fhirVersion: defaultRelease,
       allowOpenAccess: false,
       visibility: 'PRIVATE',
-      isShared: false,
       seedData: true,
     };
     this.slugManuallyEdited.set(false);
@@ -352,7 +362,6 @@ export class SandboxesListComponent implements OnInit {
       description: sandbox.description || '',
       allowOpenAccess: sandbox.allowOpenAccess,
       visibility: sandbox.visibility || 'PRIVATE',
-      isShared: sandbox.isShared || false,
     };
     this.showSettingsModal.set(true);
   }
@@ -374,7 +383,6 @@ export class SandboxesListComponent implements OnInit {
         description: this.settingsForm.description.trim() || undefined,
         allowOpenAccess: this.settingsForm.allowOpenAccess,
         visibility: this.settingsForm.visibility,
-        isShared: this.settingsForm.isShared,
       })
       .subscribe({
         next: (res) => {
@@ -424,15 +432,37 @@ export class SandboxesListComponent implements OnInit {
     }
   }
 
+  public canManageAccess(sandbox: Sandbox): boolean {
+    const userId = this.auth.currentUser()?.id;
+    if (!userId || !this.auth.hasPermission('sandboxes_shared')) return false;
+    return sandbox.createdByUserId === userId || this.auth.isGlobalAdmin() ||
+      !!sandbox.collaborators?.some(collaborator =>
+        collaborator.userId === userId && (collaborator.role === 'MANAGE' || collaborator.role === 'OWNER'),
+      );
+  }
+
+  public canManageAdministrators(sandbox: Sandbox): boolean {
+    return this.canManageAccess(sandbox) &&
+      (sandbox.createdByUserId === this.auth.currentUser()?.id || this.auth.isGlobalAdmin());
+  }
+
+  public canManageCollaborator(sandbox: Sandbox, collaborator: SandboxCollaborator): boolean {
+    return this.canManageAccess(sandbox) &&
+      ((collaborator.role !== 'MANAGE' && collaborator.role !== 'OWNER') || this.canManageAdministrators(sandbox));
+  }
+
   public openCollaboratorsModal(sandbox: Sandbox): void {
+    if (!this.canManageAccess(sandbox)) return;
     this.selectedSandboxForCollab.set(sandbox);
     this.newCollaboratorEmail = '';
+    this.newCollaboratorRole = 'READ_WRITE';
     this.showCollaboratorModal.set(true);
   }
 
   public addCollaborator(): void {
     const selected = this.selectedSandboxForCollab();
-    if (!selected || !this.newCollaboratorEmail) return;
+    if (!selected || !this.newCollaboratorEmail || !this.canManageAccess(selected)) return;
+    if (this.newCollaboratorRole === 'MANAGE' && !this.canManageAdministrators(selected)) return;
     this.sandboxService
       .addCollaborator(
         selected.sandboxId,
@@ -453,14 +483,12 @@ export class SandboxesListComponent implements OnInit {
   }
 
   public removeCollaborator(sandbox: Sandbox, userId: string): void {
+    const collaborator = sandbox.collaborators?.find(member => member.userId === userId);
+    if (!collaborator || !this.canManageCollaborator(sandbox, collaborator)) return;
     this.sandboxService.removeCollaborator(sandbox.sandboxId, userId).subscribe({
       next: () => {
         this.toast.success(`Collaborator removed from '${sandbox.name}'.`);
         this.loadSandboxes();
-        if (this.selectedSandboxForCollab()?.id === sandbox.id) {
-          const updated = this.sandboxes().find((s) => s.id === sandbox.id);
-          if (updated) this.selectedSandboxForCollab.set(updated);
-        }
       },
       error: (err) => {
         this.toast.error(err?.error?.error || 'Failed to remove collaborator.');

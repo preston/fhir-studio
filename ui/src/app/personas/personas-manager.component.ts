@@ -23,23 +23,20 @@ export class PersonasManagerComponent implements OnInit {
   public readonly errorMessage = signal<string | null>(null);
   public readonly formError = signal<string | null>(null);
 
-  public readonly showCreateModal = signal<boolean>(false);
-  public newPersona = {
-    personaUserId: '',
-    personaName: '',
-    fhirResourceType: 'Practitioner',
-    fhirResourceId: '',
-    fhirResourceName: '',
-  };
+  public readonly showPersonaModal = signal<boolean>(false);
+  public readonly editingPersonaId = signal<string | null>(null);
+  public readonly saving = signal<boolean>(false);
+  public personaForm = this.emptyPersonaForm();
 
   constructor() {
     effect(() => {
       const active = this.sandboxService.activeSandbox();
-      if (active) {
-        untracked(() => {
+      untracked(() => {
+        this.closePersonaModal();
+        if (active) {
           this.loadPersonas(active.sandboxId);
-        });
-      }
+        }
+      });
     });
   }
 
@@ -67,39 +64,80 @@ export class PersonasManagerComponent implements OnInit {
     });
   }
 
-  public createPersona(): void {
+  private emptyPersonaForm() {
+    return {
+      personaUserId: '',
+      personaName: '',
+      fhirResourceType: 'Practitioner',
+      fhirResourceId: '',
+      fhirResourceName: '',
+    };
+  }
+
+  public openCreatePersona(): void {
+    this.personaForm = this.emptyPersonaForm();
+    this.editingPersonaId.set(null);
+    this.formError.set(null);
+    this.showPersonaModal.set(true);
+  }
+
+  public openEditPersona(persona: UserPersona): void {
+    this.personaForm = {
+      personaUserId: persona.personaUserId,
+      personaName: persona.personaName,
+      fhirResourceType: persona.fhirResourceType,
+      fhirResourceId: persona.fhirResourceId,
+      fhirResourceName: persona.fhirResourceName,
+    };
+    this.editingPersonaId.set(persona.id);
+    this.formError.set(null);
+    this.showPersonaModal.set(true);
+  }
+
+  public closePersonaModal(): void {
+    this.showPersonaModal.set(false);
+    this.editingPersonaId.set(null);
+    this.formError.set(null);
+  }
+
+  public savePersona(): void {
+    if (this.saving()) return;
     this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
-    if (!current || !this.newPersona.personaUserId || !this.newPersona.personaName) {
+    if (!current) return;
+    const personaUserId = this.personaForm.personaUserId.trim();
+    const personaName = this.personaForm.personaName.trim();
+    if (!personaUserId || !personaName) {
       this.formError.set('Persona User ID and Name are required.');
       return;
     }
 
-    this.personasService
-      .createPersona(current.sandboxId, {
-        personaUserId: this.newPersona.personaUserId,
-        personaName: this.newPersona.personaName,
-        fhirResourceType: this.newPersona.fhirResourceType,
-        fhirResourceId: this.newPersona.fhirResourceId || this.newPersona.personaUserId,
-        fhirResourceName: this.newPersona.fhirResourceName || this.newPersona.personaName,
-      })
-      .subscribe({
-        next: () => {
-          this.showCreateModal.set(false);
-          this.toast.success(`Persona '${this.newPersona.personaName}' created successfully.`);
-          this.newPersona = {
-            personaUserId: '',
-            personaName: '',
-            fhirResourceType: 'Practitioner',
-            fhirResourceId: '',
-            fhirResourceName: '',
-          };
+    const personaId = this.editingPersonaId();
+    const data = {
+      personaName,
+      fhirResourceType: this.personaForm.fhirResourceType,
+      fhirResourceId: this.personaForm.fhirResourceId.trim() || personaUserId,
+      fhirResourceName: this.personaForm.fhirResourceName.trim() || personaName,
+    };
+    const request = personaId
+      ? this.personasService.updatePersona(current.sandboxId, personaId, data)
+      : this.personasService.createPersona(current.sandboxId, { ...data, personaUserId });
+
+    this.saving.set(true);
+    request.subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.closePersonaModal();
+        this.toast.success(`Persona '${personaName}' ${personaId ? 'updated' : 'created'} successfully.`);
+        if (this.sandboxService.activeSandbox()?.sandboxId === current.sandboxId) {
           this.loadPersonas(current.sandboxId);
-        },
-        error: (err) => {
-          this.toast.error(err?.error?.error || 'Failed to create persona.');
-        },
-      });
+        }
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.formError.set(err?.error?.error || `Failed to ${personaId ? 'update' : 'create'} persona.`);
+      },
+    });
   }
 
   public deletePersona(persona: UserPersona): void {

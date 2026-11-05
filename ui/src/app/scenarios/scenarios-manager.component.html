@@ -64,11 +64,21 @@
               </div>
             </div>
 
-            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
-              <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" (click)="runScenario(scen)">
-                <i class="bi bi-play-fill"></i>
-                <span>Execute in EHR</span>
-              </button>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top">
+              <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-primary d-flex align-items-center gap-1" [disabled]="launchingScenarioId() !== null" (click)="runScenario(scen)">
+                  <i class="bi bi-play-fill"></i>
+                  <span>Execute in EHR</span>
+                </button>
+                <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" [disabled]="launchingScenarioId() !== null" (click)="launchStandalone(scen)" title="Open this scenario's application in a new tab with its saved launch context">
+                  @if (launchingScenarioId() === scen.id) {
+                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                  } @else {
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  }
+                  <span>Launch Standalone</span>
+                </button>
+              </div>
 
               <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-outline-primary" [disabled]="saving()" (click)="openEditScenario(scen)" [attr.aria-label]="'Edit scenario ' + scen.title">

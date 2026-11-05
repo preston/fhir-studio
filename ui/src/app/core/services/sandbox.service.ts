@@ -3,11 +3,12 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
+import type { SandboxCollaboratorRole } from '@fhir-studio/core';
 
 export interface SandboxCollaborator {
   id: string;
   userId: string;
-  role: string;
+  role: SandboxCollaboratorRole;
   user: {
     id: string;
     email: string | null;
@@ -24,7 +25,6 @@ export interface Sandbox {
   partitionId: number;
   allowOpenAccess: boolean;
   visibility: 'PUBLIC' | 'PRIVATE';
-  isShared: boolean;
   createdByUserId: string;
   createdByUser?: {
     id: string;
@@ -93,7 +93,6 @@ export class SandboxService {
     fhirVersion?: 'R4' | 'R4B' | 'R5';
     allowOpenAccess?: boolean;
     visibility?: 'PUBLIC' | 'PRIVATE';
-    isShared?: boolean;
     seedData?: boolean;
   }): Observable<{ sandbox: Sandbox }> {
     return this.http.post<{ sandbox: Sandbox }>('/api/sandboxes', data);
@@ -106,7 +105,6 @@ export class SandboxService {
       description?: string;
       allowOpenAccess?: boolean;
       visibility?: 'PUBLIC' | 'PRIVATE';
-      isShared?: boolean;
     },
   ): Observable<{ sandbox: Sandbox }> {
     return this.http.put<{ sandbox: Sandbox }>(`/api/sandboxes/${sandboxId}`, data);
@@ -123,7 +121,7 @@ export class SandboxService {
   public addCollaborator(
     sandboxId: string,
     email: string,
-    role = 'READ_WRITE',
+    role: Exclude<SandboxCollaboratorRole, 'OWNER'> = 'READ_WRITE',
   ): Observable<{ collaborator: SandboxCollaborator }> {
     return this.http.post<{ collaborator: SandboxCollaborator }>(`/api/sandboxes/${sandboxId}/collaborators`, {
       email,

@@ -112,6 +112,32 @@ workflow dispatch is available. Use Install / repair workflow after build-settin
 Detect build settings inspects the selected project directory; review the result before
 creating the app. Custom templates carry their build and SMART defaults into the wizard.
 
+### Community examples and monorepo projects
+
+The repository's `apps/` directory contains independently maintained community examples;
+it is excluded from Studio workspaces and Docker images. Applications can build directly
+from a subdirectory of a GitHub repository. For Viet's EHR, choose project directory
+`apps/viets-ehr`, build command `npm ci && npm run build`, Node `26`, and output directory
+`public`. Launch and callback paths are both `index.html`; configure scopes as
+`launch launch/patient patient/*.crus user/Questionnaire.rs` before building.
+
+Build detection honors a project's `package.json` `fhirStudio.staticDirectory` before
+framework defaults. The managed workflow runs the command in the selected project
+directory and uploads that directory's configured static output. React/Vite projects
+typically use `dist`; Angular projects typically use `dist/<project>/browser`.
+The launch/callback paths are relative to that final output, not the repository root.
+
+`fhir-studio.json` records public contribution metadata and the existing static SMART
+runtime contract. It does not automatically change a GitHub application's registered
+launch paths or scopes. Framework builds share the same runtime configuration endpoint
+and PKCE launch flow as plain JavaScript apps. Real HTML callbacks, locally included
+scripts, and the hosting CSP apply to every framework.
+
+See [the community application contract](../apps/README.md) for contribution requirements
+and optional release packaging. The helper produces a ZIP from already built static
+assets; Application Studio continues to deploy these examples through GitHub Actions.
+There is no local ZIP upload interface.
+
 The editor saves multiple files as one commit without force-pushing. Drafts stay in the
 current tab through failed saves/reconnects. Download the recovery patch before closing
 the tab or discarding edits. Use a local editor for binary/large source files. Template

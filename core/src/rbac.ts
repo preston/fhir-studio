@@ -6,6 +6,7 @@ export type SandboxCollaboratorRole = 'OWNER' | 'MANAGE' | 'READ_WRITE' | 'READ_
 
 export interface BooleanPermissions {
   sandboxes_create: boolean;
+  /** Manage sandbox collaborators; also requires ownership or a sandbox management role. */
   sandboxes_shared: boolean;
   ehr_simulator: boolean;
   data_manager: boolean;

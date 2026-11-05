@@ -4,12 +4,14 @@ import { Component, OnInit, inject, signal, computed, effect, untracked } from '
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { forkJoin, of } from 'rxjs';
 import { SandboxService, type Sandbox } from '../core/services/sandbox.service.js';
 import { FhirService } from '../core/services/fhir.service.js';
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
-import { ScenariosService } from '../core/services/scenarios.service.js';
+import { ScenariosService, type LaunchScenario } from '../core/services/scenarios.service.js';
 import { CdsHooksService, type CdsEndpoint } from '../core/services/cds-hooks.service.js';
 import type { CdsHookCard } from '@fhir-studio/core';
 import { ToastService } from '../core/services/toast.service.js';
@@ -56,6 +58,7 @@ export interface SimulatedTimelineEvent {
 })
 export class EhrSimulatorComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
+  private readonly queryParams = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
   private readonly sanitizer = inject(DomSanitizer);
   public readonly sandboxService = inject(SandboxService);
   private readonly fhirService = inject(FhirService);
@@ -64,6 +67,8 @@ export class EhrSimulatorComponent implements OnInit {
   private readonly scenariosService = inject(ScenariosService);
   private readonly cdsHooksService = inject(CdsHooksService);
   private readonly toast = inject(ToastService);
+  private scenarioId: string | null = null;
+  private sandboxLoadId = 0;
 
   public readonly applications = signal<SmartApplication[]>([]);
   public readonly personas = signal<UserPersona[]>([]);
@@ -141,9 +146,10 @@ export class EhrSimulatorComponent implements OnInit {
   constructor() {
     effect(() => {
       const active = this.sandboxService.activeSandbox();
+      const params = this.queryParams();
       if (active) {
         untracked(() => {
-          this.onActiveSandboxChanged(active);
+          this.onActiveSandboxChanged(active, params.get('sandbox') === active.sandboxId ? params.get('scenario') : null);
         });
       }
     });
@@ -164,26 +170,55 @@ export class EhrSimulatorComponent implements OnInit {
     }
   }
 
-  public onActiveSandboxChanged(sandbox: Sandbox): void {
-    // Load Applications
-    this.applicationsService.getSandboxApplications(sandbox.sandboxId).subscribe({
-      next: (res) => {
-        const list = res?.applications || [];
-        this.applications.set(list);
-        if (list.length > 0 && !this.selectedApplication()) {
-          this.selectedApplication.set(list[0]);
-        }
-      },
-    });
+  public onActiveSandboxChanged(sandbox: Sandbox, scenarioId: string | null = null): void {
+    const loadId = ++this.sandboxLoadId;
+    this.scenarioId = scenarioId;
+    this.selectedApplication.set(null);
+    this.selectedPersona.set(null);
+    this.iframeSrc.set(null);
+    this.rawLaunchUrl.set(null);
+    this.activeLaunchToken.set(null);
+    this.patients.set([]);
+    this.encounters.set([]);
+    this.locations.set([]);
+    this.launching.set(Boolean(scenarioId));
 
-    // Load Personas
-    this.personasService.getPersonas(sandbox.sandboxId).subscribe({
-      next: (res) => {
-        const list = res?.personas || [];
-        this.personas.set(list);
-        if (list.length > 0 && !this.selectedPersona()) {
-          this.selectedPersona.set(list[0]);
+    // Resolve the complete saved context before launching; these requests can finish in any order.
+    forkJoin({
+      applications: this.applicationsService.getSandboxApplications(sandbox.sandboxId),
+      personas: this.personasService.getPersonas(sandbox.sandboxId),
+      scenarios: scenarioId ? this.scenariosService.getScenarios(sandbox.sandboxId) : of({ scenarios: [] }),
+    }).subscribe({
+      next: ({ applications, personas, scenarios }) => {
+        if (loadId !== this.sandboxLoadId) return;
+        this.applications.set(applications.applications);
+        this.personas.set(personas.personas);
+        this.selectedApplication.set(applications.applications[0] || null);
+        this.selectedPersona.set(personas.personas[0] || null);
+
+        if (scenarioId) {
+          const scenario = scenarios.scenarios.find((item) => item.id === scenarioId);
+          if (!scenario) {
+            this.toast.error('The launch scenario is unavailable in this sandbox.');
+            this.launching.set(false);
+            return;
+          }
+          if (!this.applyScenario(scenario)) {
+            this.launching.set(false);
+            return;
+          }
         }
+
+        // FHIR searches enrich the selectors but must not block or replace a saved scenario's IDs.
+        this.loadFhirPatients(sandbox);
+        this.loadFhirEncounters(sandbox);
+        this.loadFhirLocations(sandbox);
+        if (scenarioId) this.launchApplication();
+      },
+      error: (err) => {
+        if (loadId !== this.sandboxLoadId) return;
+        this.launching.set(false);
+        this.toast.error(err?.error?.error || 'Failed to load launch configuration.');
       },
     });
 
@@ -194,15 +229,54 @@ export class EhrSimulatorComponent implements OnInit {
       },
     });
 
-    // Search Patients, Encounters, Locations from FHIR endpoint
-    this.loadFhirPatients(sandbox);
-    this.loadFhirEncounters(sandbox);
-    this.loadFhirLocations(sandbox);
+  }
+
+  private applyScenario(scenario: LaunchScenario): boolean {
+    const application = scenario.applicationId
+      ? this.applications().find((item) => item.id === scenario.applicationId)
+      : this.applications()[0];
+    const persona = scenario.userPersonaId
+      ? this.personas().find((item) => item.id === scenario.userPersonaId)
+      : this.personas()[0];
+    this.selectedApplication.set(application || null);
+    this.selectedPersona.set(persona || null);
+    if (!application) {
+      this.toast.error('The scenario application is unavailable. Select an available application.');
+      return false;
+    }
+    if (scenario.userPersonaId && !persona) {
+      this.toast.error('The scenario persona is unavailable. Select an available persona.');
+      return false;
+    }
+    this.selectedPatient.set({
+      id: scenario.patientFhirId || '',
+      name: scenario.patientName || scenario.patientFhirId || 'No patient selected',
+      gender: 'unknown',
+      birthDate: 'Unknown',
+      mrn: '',
+    });
+    this.selectedEncounter.set({
+      id: scenario.encounterFhirId || '',
+      class: '',
+      status: '',
+      displayName: scenario.encounterFhirId || 'No encounter selected',
+    });
+    this.selectedLocation.set({
+      id: scenario.locationFhirId || '',
+      name: scenario.locationFhirId || 'No location selected',
+      status: '',
+    });
+    this.patientConditions.set([]);
+    this.patientAllergies.set([]);
+    const sandbox = this.sandboxService.activeSandbox();
+    if (sandbox && scenario.patientFhirId) this.loadClinicalContext(sandbox, scenario.patientFhirId);
+    return true;
   }
 
   public loadFhirPatients(sandbox: Sandbox): void {
     this.fhirService.search(sandbox.sandboxId, sandbox.fhirVersion, 'Patient', { _count: 20 }).subscribe({
       next: (bundle) => {
+        if (this.sandboxService.activeSandbox()?.sandboxId !== sandbox.sandboxId) return;
         if (bundle.entry && Array.isArray(bundle.entry)) {
           const mapped: PatientSummary[] = bundle.entry.map((e) => {
             const p = e.resource as {
@@ -227,9 +301,10 @@ export class EhrSimulatorComponent implements OnInit {
             };
           });
           this.patients.set(mapped);
-          if (mapped.length > 0) {
-            this.selectedPatient.set(mapped[0]);
-            this.loadClinicalContext(sandbox, mapped[0].id);
+          const patient = this.scenarioId ? mapped.find((item) => item.id === this.selectedPatient().id) : mapped[0];
+          if (patient) {
+            this.selectedPatient.set(patient);
+            if (!this.scenarioId) this.loadClinicalContext(sandbox, patient.id);
           }
         }
       },
@@ -240,6 +315,7 @@ export class EhrSimulatorComponent implements OnInit {
   public loadFhirEncounters(sandbox: Sandbox): void {
     this.fhirService.search(sandbox.sandboxId, sandbox.fhirVersion, 'Encounter', { _count: 10 }).subscribe({
       next: (bundle) => {
+        if (this.sandboxService.activeSandbox()?.sandboxId !== sandbox.sandboxId) return;
         if (bundle.entry && Array.isArray(bundle.entry)) {
           const mapped: EncounterSummary[] = bundle.entry.map((e) => {
             const enc = e.resource as {
@@ -257,9 +333,8 @@ export class EhrSimulatorComponent implements OnInit {
             };
           });
           this.encounters.set(mapped);
-          if (mapped.length > 0) {
-            this.selectedEncounter.set(mapped[0]);
-          }
+          const encounter = this.scenarioId ? mapped.find((item) => item.id === this.selectedEncounter().id) : mapped[0];
+          if (encounter) this.selectedEncounter.set(encounter);
         }
       },
       error: () => {},
@@ -269,6 +344,7 @@ export class EhrSimulatorComponent implements OnInit {
   public loadFhirLocations(sandbox: Sandbox): void {
     this.fhirService.search(sandbox.sandboxId, sandbox.fhirVersion, 'Location', { _count: 10 }).subscribe({
       next: (bundle) => {
+        if (this.sandboxService.activeSandbox()?.sandboxId !== sandbox.sandboxId) return;
         if (bundle.entry && Array.isArray(bundle.entry)) {
           const mapped: LocationSummary[] = bundle.entry.map((e) => {
             const loc = e.resource as {
@@ -285,9 +361,8 @@ export class EhrSimulatorComponent implements OnInit {
             };
           });
           this.locations.set(mapped);
-          if (mapped.length > 0) {
-            this.selectedLocation.set(mapped[0]);
-          }
+          const location = this.scenarioId ? mapped.find((item) => item.id === this.selectedLocation().id) : mapped[0];
+          if (location) this.selectedLocation.set(location);
         }
       },
       error: () => {},
@@ -353,8 +428,12 @@ export class EhrSimulatorComponent implements OnInit {
   public launchApplication(): void {
     const activeSandbox = this.sandboxService.activeSandbox();
     const application = this.selectedApplication();
-    if (!activeSandbox || !application) return;
+    if (!activeSandbox || !application) {
+      this.launching.set(false);
+      return;
+    }
 
+    const loadId = this.sandboxLoadId;
     this.launching.set(true);
     const fhirVersion = activeSandbox.fhirVersion.toLowerCase();
     const issUrl = `${window.location.origin}/api/sandboxes/${activeSandbox.sandboxId}/fhir/${fhirVersion}`;
@@ -373,9 +452,15 @@ export class EhrSimulatorComponent implements OnInit {
         applicationId: application.id,
         clientId: application.clientId,
         scope: application.scope,
+        fhirContext: [
+          { type: 'Patient', id: patient.id },
+          { type: 'Encounter', id: encounter.id },
+          { type: 'Location', id: location.id },
+        ].filter((item) => item.id).map((item) => ({ type: item.type, reference: `${item.type}/${item.id}` })),
       })
       .subscribe({
         next: (ctx) => {
+          if (loadId !== this.sandboxLoadId) return;
           this.activeLaunchToken.set(ctx.launch);
           const launchUrl = new URL(application.launchUri, window.location.origin);
           launchUrl.searchParams.set('iss', issUrl);
@@ -437,6 +522,7 @@ export class EhrSimulatorComponent implements OnInit {
           }
         },
         error: (err) => {
+          if (loadId !== this.sandboxLoadId) return;
           console.error('Launch failed:', err);
           this.toast.error(err?.error?.error || err?.message || 'Failed to launch application.');
           this.launching.set(false);

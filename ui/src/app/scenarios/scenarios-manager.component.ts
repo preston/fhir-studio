@@ -4,6 +4,7 @@ import { Component, OnInit, inject, signal, effect, untracked } from '@angular/c
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { finalize, forkJoin, map, switchMap } from 'rxjs';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { ScenariosService, type LaunchScenario } from '../core/services/scenarios.service.js';
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
@@ -35,6 +36,7 @@ export class ScenariosManagerComponent implements OnInit {
   public readonly showScenarioModal = signal<boolean>(false);
   public readonly editingScenarioId = signal<string | null>(null);
   public readonly saving = signal<boolean>(false);
+  public readonly launchingScenarioId = signal<string | null>(null);
   public scenarioForm = this.emptyScenarioForm();
 
   constructor() {
@@ -182,6 +184,67 @@ export class ScenariosManagerComponent implements OnInit {
     this.router.navigate(['/ehr-simulator'], {
       queryParams: {
         sandbox: current.sandboxId,
+        scenario: scenario.id,
+      },
+    });
+  }
+
+  public launchStandalone(scenario: LaunchScenario): void {
+    const sandbox = this.sandboxService.activeSandbox();
+    if (!sandbox || this.launchingScenarioId()) return;
+
+    // Open during the click so browsers do not block the tab after the HTTP request.
+    const launchWindow = window.open('about:blank', '_blank');
+    if (!launchWindow) {
+      this.toast.error('Allow pop-ups to launch this scenario in a new tab.');
+      return;
+    }
+    launchWindow.opener = null;
+    this.launchingScenarioId.set(scenario.id);
+
+    forkJoin({
+      applications: this.applicationsService.getSandboxApplications(sandbox.sandboxId),
+      personas: this.personasService.getPersonas(sandbox.sandboxId),
+    }).pipe(
+      switchMap(({ applications, personas }) => {
+        const application = scenario.applicationId
+          ? applications.applications.find((item) => item.id === scenario.applicationId)
+          : applications.applications[0];
+        const persona = scenario.userPersonaId
+          ? personas.personas.find((item) => item.id === scenario.userPersonaId)
+          : personas.personas[0];
+        if (!application) throw new Error('The scenario application is unavailable. Select an available application.');
+        if (scenario.userPersonaId && !persona) throw new Error('The scenario persona is unavailable. Select an available persona.');
+
+        const launchUrl = new URL(application.launchUri, window.location.origin);
+        launchUrl.searchParams.set('iss', `${window.location.origin}/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}`);
+        return this.scenariosService.createLaunchContext(sandbox.sandboxId, {
+          applicationId: application.id,
+          clientId: application.clientId,
+          scope: application.scope,
+          userPersonaId: persona?.id || null,
+          patientFhirId: scenario.patientFhirId,
+          patientName: scenario.patientName,
+          encounterFhirId: scenario.encounterFhirId,
+          locationFhirId: scenario.locationFhirId,
+          fhirContext: [
+            { type: 'Patient', id: scenario.patientFhirId },
+            { type: 'Encounter', id: scenario.encounterFhirId },
+            { type: 'Location', id: scenario.locationFhirId },
+          ].filter((item) => item.id).map((item) => ({ type: item.type, reference: `${item.type}/${item.id}` })),
+        }).pipe(map((context) => {
+          launchUrl.searchParams.set('launch', context.launch);
+          return launchUrl.toString();
+        }));
+      }),
+      finalize(() => this.launchingScenarioId.set(null)),
+    ).subscribe({
+      next: (url) => {
+        if (!launchWindow.closed) launchWindow.location.replace(url);
+      },
+      error: (err) => {
+        launchWindow.close();
+        this.toast.error(err?.error?.error || err?.message || 'Failed to launch scenario.');
       },
     });
   }
