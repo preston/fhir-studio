@@ -154,9 +154,9 @@ export async function seed(): Promise<void> {
     },
     {
       clientId: 'cql-with-fhir-example',
-      clientName: 'CQL with FHIR Example',
-      launchUri: '/cql-with-fhir-example/launch',
-      redirectUris: ['/cql-with-fhir-example', '/cql-with-fhir-example/launch'],
+      clientName: 'Example CQL with FHIR Runner',
+      launchUri: '/example-cql-with-fhir/launch',
+      redirectUris: ['/example-cql-with-fhir', '/example-cql-with-fhir/launch'],
       briefDescription:
         'Reference SMART on FHIR v2 app that discovers Libraries in global knowledge and runs Library/$evaluate with sandbox data/content/terminology Endpoints.',
       author: 'Logica Health / FHIR Studio',

@@ -174,16 +174,6 @@ export class ExampleApplicationComponent implements OnInit {
     return mrnObj?.value || p.identifier[0]?.value || 'N/A';
   });
 
-  public readonly patientAge = computed(() => {
-    const p = this.patient();
-    if (!p?.birthDate) return null;
-    const dob = new Date(p.birthDate);
-    if (isNaN(dob.getTime())) return null;
-    const diffMs = Date.now() - dob.getTime();
-    const ageDt = new Date(diffMs);
-    return Math.abs(ageDt.getUTCFullYear() - 1970);
-  });
-
   ngOnInit(): void {
     // Load sandboxes list for standalone mode selector
     if (this.sandboxService.sandboxes().length === 0) {

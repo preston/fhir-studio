@@ -1,7 +1,7 @@
 // Author: Preston Lee
 
 /**
- * CQL-with-FHIR example SMART app.
+ * Example CQL with FHIR Runner SMART app.
  * Fork-friendly starter for a future in-Studio SMART app builder:
  * - SMART v2 + PKCE launch
  * - Library discovery from global knowledge (DEFAULT via gateway)
@@ -119,7 +119,7 @@ export class CqlWithFhirExampleComponent implements OnInit {
     const queryParams = this.route.snapshot.queryParams;
     const urlPath = this.route.snapshot.routeConfig?.path || '';
 
-    if (urlPath === 'cql-with-fhir-example/launch' || (queryParams['iss'] && queryParams['launch'])) {
+    if (urlPath === 'example-cql-with-fhir/launch' || (queryParams['iss'] && queryParams['launch'])) {
       void this.handleEhrLaunch(queryParams['iss'], queryParams['launch']);
     } else if (queryParams['code'] && queryParams['state']) {
       void this.handleOAuthCallback(queryParams['code'], queryParams['state']);
@@ -153,7 +153,7 @@ export class CqlWithFhirExampleComponent implements OnInit {
       sessionStorage.setItem('cql_smart_token_endpoint', config.token_endpoint);
       sessionStorage.setItem('cql_smart_iss', iss);
 
-      const redirectUri = `${window.location.origin}/cql-with-fhir-example`;
+      const redirectUri = `${window.location.origin}/example-cql-with-fhir`;
       const authUrl = new URL(config.authorization_endpoint);
       authUrl.searchParams.set('response_type', 'code');
       authUrl.searchParams.set('client_id', CLIENT_ID);
@@ -188,7 +188,7 @@ export class CqlWithFhirExampleComponent implements OnInit {
       const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: `${window.location.origin}/cql-with-fhir-example`,
+        redirect_uri: `${window.location.origin}/example-cql-with-fhir`,
         client_id: CLIENT_ID,
         code_verifier: codeVerifier,
       });
@@ -215,7 +215,7 @@ export class CqlWithFhirExampleComponent implements OnInit {
         if (match) this.selectedLibraryId.set(match.id);
         sessionStorage.removeItem('cql_smart_preferred_library');
       }
-      void this.router.navigate(['/cql-with-fhir-example'], { replaceUrl: true });
+      void this.router.navigate(['/example-cql-with-fhir'], { replaceUrl: true });
     } catch (err: any) {
       sessionStorage.removeItem('cql_smart_code_verifier');
       sessionStorage.removeItem('cql_smart_auth_state');

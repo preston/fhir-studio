@@ -193,7 +193,7 @@ export function createKnowledgeRouter(): Router {
         knowledgePublish,
         deepLinks: {
           dataManagerShared: '/data-manager?partition=DEFAULT&resourceType=Library',
-          cqlWithFhirExample: '/cql-with-fhir-example',
+          cqlWithFhirExample: '/example-cql-with-fhir',
         },
         helpers,
       };

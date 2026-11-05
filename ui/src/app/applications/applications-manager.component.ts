@@ -73,6 +73,18 @@ export class ApplicationsManagerComponent implements OnInit {
     });
   }
 
+  public builtInApplicationPath(application: SmartApplication): string | null {
+    switch (application.clientId) {
+      case 'example-application':
+      case 'example-app':
+        return '/example-application';
+      case 'cql-with-fhir-example':
+        return '/example-cql-with-fhir';
+      default:
+        return null;
+    }
+  }
+
   public registerApplication(): void {
     this.formError.set(null);
     const current = this.sandboxService.activeSandbox();

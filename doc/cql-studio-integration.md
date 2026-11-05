@@ -33,4 +33,4 @@ Configure the public API base URL for clients via `FHIR_STUDIO_SERVER_PUBLIC_API
 
 ## Example SMART app
 
-Seeded client `cql-with-fhir-example` at `/cql-with-fhir-example` discovers Libraries and runs `Library/$evaluate` for the launch Patient, passing sandbox `dataEndpoint` / `contentEndpoint` / `terminologyEndpoint` parameters so clinical data resolves in the sandbox while Libraries live in `DEFAULT`.
+The built-in **Example CQL with FHIR Runner** (seeded client `cql-with-fhir-example`) at `/example-cql-with-fhir`, with EHR launch URI `/example-cql-with-fhir/launch`, discovers Libraries and runs `Library/$evaluate` for the launch Patient, passing sandbox `dataEndpoint` / `contentEndpoint` / `terminologyEndpoint` parameters so clinical data resolves in the sandbox while Libraries live in `DEFAULT`.

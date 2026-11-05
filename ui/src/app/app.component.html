@@ -33,17 +33,17 @@
               </a>
             </li>
 
-            <!-- SMART & Applications Dropdown -->
+            <!-- Applications Dropdown -->
             <li class="nav-item dropdown">
               <a
                 class="nav-link dropdown-toggle"
-                [class.active]="isSmartApplicationsActive()"
+                [class.active]="isApplicationsActive()"
                 role="button"
                 data-bs-toggle="dropdown"
                 aria-expanded="false"
                 style="cursor: pointer;"
               >
-                SMART & Applications
+                Applications
               </a>
               <ul class="dropdown-menu shadow">
                 @if (auth.hasPermission('ehr_simulator')) {
@@ -56,16 +56,6 @@
                 <li>
                   <a class="dropdown-item" routerLink="/applications" routerLinkActive="active">
                     <i class="bi bi-grid me-2"></i>SMART Applications
-                  </a>
-                </li>
-                <li>
-                  <a class="dropdown-item" routerLink="/example-application" routerLinkActive="active">
-                    <i class="bi bi-hospital me-2"></i>Example Application
-                  </a>
-                </li>
-                <li>
-                  <a class="dropdown-item" routerLink="/cql-with-fhir-example" routerLinkActive="active">
-                    <i class="bi bi-braces me-2"></i>CQL with FHIR Example
                   </a>
                 </li>
                 <li>

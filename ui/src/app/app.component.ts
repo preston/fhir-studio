@@ -32,7 +32,7 @@ export class AppComponent implements OnInit {
 
   public readonly isIsolatedApp = computed(() => {
     const url = this.navUrl();
-    return url.startsWith('/example-application') || url.startsWith('/cql-with-fhir-example') || url.startsWith('/integration/') || url.startsWith('/handoff');
+    return url.startsWith('/example-application') || url.startsWith('/example-cql-with-fhir') || url.startsWith('/integration/') || url.startsWith('/handoff');
   });
 
   public readonly isSandboxesActive = computed(() => {
@@ -40,14 +40,12 @@ export class AppComponent implements OnInit {
     return url === '/' || url.startsWith('/sandboxes');
   });
 
-  public readonly isSmartApplicationsActive = computed(() => {
+  public readonly isApplicationsActive = computed(() => {
     const url = this.navUrl();
     return (
       url.startsWith('/ehr-simulator') ||
       url.startsWith('/applications') ||
       url.startsWith('/apps') ||
-      url.startsWith('/example-application') ||
-      url.startsWith('/cql-with-fhir-example') ||
       url.startsWith('/scenarios') ||
       url.startsWith('/personas')
     );
@@ -65,7 +63,7 @@ export class AppComponent implements OnInit {
       } else {
         const url = this.router.url;
         const isIsolated =
-          url.startsWith('/example-application') || url.startsWith('/cql-with-fhir-example') || url.startsWith('/integration/') || url.startsWith('/handoff');
+          url.startsWith('/example-application') || url.startsWith('/example-cql-with-fhir') || url.startsWith('/integration/') || url.startsWith('/handoff');
         if (!isIsolated && url !== '/' && !url.startsWith('/?')) {
           this.router.navigate(['/']);
         }
