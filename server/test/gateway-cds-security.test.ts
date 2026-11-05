@@ -34,6 +34,8 @@ Object.assign(db.smartAuthSession, { findFirst: async () => ({ id: 'smart-sessio
 Object.assign(db.application, { findUnique: async () => ({ clientId: 'external-app', hostedApplication: null }) });
 const externalRequests: Array<{ url: string; options?: PublicRequestOptions }> = [];
 const prefetchRequests: string[] = [];
+const fhirRequests: Array<{ url: string; params: Record<string, unknown>; data: unknown }> = [];
+let fhirSearchEntries: Array<{ resource: { id: string } }> = [];
 const deletions: unknown[] = [];
 Object.assign(db.cdsServiceEndpoint, {
   findMany: async () => [],
@@ -46,7 +48,8 @@ Object.assign(db.cdsServiceEndpoint, {
 const originalAdapter = axios.defaults.adapter;
 axios.defaults.adapter = async config => {
   prefetchRequests.push(config.url ?? '');
-  return { config, status: 200, statusText: 'OK', headers: {}, data: { resourceType: 'Bundle', entry: [] } };
+  fhirRequests.push({ url: config.url ?? '', params: config.params as Record<string, unknown>, data: config.data });
+  return { config, status: 200, statusText: 'OK', headers: {}, data: { resourceType: 'Bundle', entry: fhirSearchEntries } };
 };
 const hooks = createHooksRouter({ requestJson: async (url, options) => {
   externalRequests.push({ url, options });
@@ -56,7 +59,7 @@ const hooks = createHooksRouter({ requestJson: async (url, options) => {
 const gateway = createFhirGatewayRouter();
 
 /** Exercise real Express route matching/middleware without opening a listening socket. */
-async function request(router: Router, method: string, url: string, body?: unknown, userId?: string, bearer = false) {
+async function request(router: Router, method: string, url: string, body?: unknown, userId?: string, bearer = false, headers: Record<string, string> = {}) {
   const app = express();
   app.use(router);
   app.use((error: Error, _req: Request, res: Response, _next: NextFunction) =>
@@ -65,7 +68,8 @@ async function request(router: Router, method: string, url: string, body?: unkno
   req.method = method;
   req.url = url;
   req.body = body;
-  req.headers = { host: 'studio.example.org', ...(bearer ? { authorization: 'Bearer valid-token' } : {}) };
+  req.headers = { host: 'studio.example.org', ...(bearer ? { authorization: 'Bearer valid-token' } : {}),
+    ...(body === undefined ? {} : { 'content-length': String(Buffer.byteLength(JSON.stringify(body))) }), ...headers };
   if (userId) req.sessionAuth = { userId, sessionId: 'browser', sub: userId, ssoRoles: [], email: null, displayName: null, isSuspended: false };
   return new Promise<{ status: number; body: unknown }>((resolve, reject) => {
     const res = new ServerResponse(req);
@@ -106,6 +110,68 @@ test('SMART resource grants cannot authorize multi-resource operations or compar
   assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Patient/_history', undefined, undefined, true)).status, 403);
   smartScope = 'user/Patient.rs';
   assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Patient/_history', undefined, undefined, true)).status, 200);
+});
+
+test('patient-scoped clinical searches use HAPI type searches and override client patient IDs', async () => {
+  smartScope = 'patient/*.rs';
+  try {
+    for (const type of ['Condition', 'Observation', 'MedicationRequest', 'Encounter']) {
+      const result = await request(gateway, 'GET', `/api/sandboxes/private/fhir/r4/${type}?patient=p2&patient=p3&_count=20`, undefined, undefined, true);
+      assert.equal(result.status, 200, type);
+      assert.deepEqual(fhirRequests.at(-1), {
+        url: `http://hapi.example.org/fhir/private/${type}`,
+        params: { patient: 'Patient/p1', _count: '20' },
+        data: undefined,
+      });
+    }
+    assert.equal((await request(gateway, 'HEAD', '/api/sandboxes/private/fhir/r4/Observation?status=final', undefined, undefined, true)).status, 200);
+    assert.deepEqual(fhirRequests.at(-1)?.params, { status: 'final', patient: 'Patient/p1' });
+    assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Patient?_id=p2', undefined, undefined, true)).status, 200);
+    assert.deepEqual(fhirRequests.at(-1)?.params, { _id: 'p1' });
+  } finally { smartScope = 'user/Patient.r'; }
+});
+
+test('patient POST searches constrain both query and form body without discarding other filters', async () => {
+  smartScope = 'patient/*.rs';
+  try {
+    const result = await request(gateway, 'POST', '/api/sandboxes/private/fhir/r4/Observation/_search?patient=p2&_count=5',
+      { patient: ['p2', 'p3'], status: 'final' }, undefined, true, { 'content-type': 'application/x-www-form-urlencoded' });
+    assert.equal(result.status, 200);
+    const upstream = fhirRequests.at(-1)!;
+    assert.equal(upstream.url, 'http://hapi.example.org/fhir/private/Observation/_search');
+    assert.deepEqual(upstream.params, { patient: 'Patient/p1', _count: '5' });
+    const form = new URLSearchParams(String(upstream.data));
+    assert.deepEqual(form.getAll('patient'), ['Patient/p1']);
+    assert.equal(form.get('status'), 'final');
+  } finally { smartScope = 'user/Patient.r'; }
+});
+
+test('patient-scoped instance access checks membership with the same HAPI patient filter', async () => {
+  smartScope = 'patient/*.rs';
+  try {
+    const before = fhirRequests.length;
+    assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Condition/other', undefined, undefined, true)).status, 403);
+    assert.equal(fhirRequests.length, before + 1);
+    assert.deepEqual(fhirRequests.at(-1), {
+      url: 'http://hapi.example.org/fhir/private/Condition',
+      params: { patient: 'Patient/p1', _id: 'other', _count: 1 },
+      data: undefined,
+    });
+    fhirSearchEntries = [{ resource: { id: 'c1' } }];
+    assert.equal((await request(gateway, 'GET', '/api/sandboxes/private/fhir/r4/Condition/c1', undefined, undefined, true)).status, 200);
+    assert.equal(fhirRequests.at(-1)?.url, 'http://hapi.example.org/fhir/private/Condition/c1');
+  } finally { smartScope = 'user/Patient.r'; fhirSearchEntries = []; }
+});
+
+test('patient scopes deny resource types without a safe patient filter before contacting HAPI', async () => {
+  smartScope = 'patient/*.rs';
+  try {
+    const before = fhirRequests.length;
+    for (const path of ['Practitioner', 'Practitioner/pr1', 'Organization', 'Library']) {
+      assert.equal((await request(gateway, 'GET', `/api/sandboxes/private/fhir/r4/${path}`, undefined, undefined, true)).status, 403, path);
+    }
+    assert.equal(fhirRequests.length, before);
+  } finally { smartScope = 'user/Patient.r'; }
 });
 
 test('SMART tokens require the current immutable tenant binding, including after slug reuse', async () => {

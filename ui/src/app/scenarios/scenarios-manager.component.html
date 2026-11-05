@@ -3,7 +3,7 @@
     <h2 class="fw-bold mb-1">SMART Launch Scenarios</h2>
   </div>
   <div>
-    <button class="btn btn-primary d-flex align-items-center gap-1" (click)="formError.set(null); showCreateModal.set(true)">
+    <button class="btn btn-primary d-flex align-items-center gap-1" [disabled]="saving()" (click)="openCreateScenario()">
       <i class="bi bi-plus-circle-fill"></i>
       <span>New Scenario</span>
     </button>
@@ -30,7 +30,7 @@
     <h4>No Launch Scenarios</h4>
     <p class="text-muted mb-4">Create a launch scenario to quickly launch a target SMART application with designated practitioner and patient context.</p>
     <div>
-      <button class="btn btn-primary" (click)="formError.set(null); showCreateModal.set(true)">
+      <button class="btn btn-primary" [disabled]="saving()" (click)="openCreateScenario()">
         <i class="bi bi-plus-circle me-1"></i> Create Scenario
       </button>
     </div>
@@ -70,9 +70,14 @@
                 <span>Execute in EHR</span>
               </button>
 
-              <button class="btn btn-sm btn-outline-danger" (click)="deleteScenario(scen)">
-                <i class="bi bi-trash"></i>
-              </button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" [disabled]="saving()" (click)="openEditScenario(scen)" [attr.aria-label]="'Edit scenario ' + scen.title">
+                  <i class="bi bi-pencil me-1"></i>Edit
+                </button>
+                <button class="btn btn-sm btn-outline-danger" (click)="deleteScenario(scen)" [attr.aria-label]="'Delete scenario ' + scen.title">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -81,41 +86,43 @@
   </div>
 }
 
-<!-- Create Scenario Modal -->
-@if (showCreateModal()) {
-  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+<!-- Create / Edit Scenario Modal -->
+@if (showScenarioModal()) {
+  <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="scenario-modal-title" style="background: rgba(0,0,0,0.5);">
     <div class="modal-dialog modal-dialog-centered modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">Design Launch Scenario</h5>
-          <button type="button" class="btn-close" (click)="showCreateModal.set(false)"></button>
+          <h5 id="scenario-modal-title" class="modal-title fw-bold">{{ editingScenarioId() ? 'Edit Launch Scenario' : 'Design Launch Scenario' }}</h5>
+          <button type="button" class="btn-close" aria-label="Close" [disabled]="saving()" (click)="closeScenarioModal()"></button>
         </div>
-        <div class="modal-body">
+        <fieldset class="modal-body" [disabled]="saving()">
           @if (formError()) {
             <div class="alert alert-danger" role="alert">{{ formError() }}</div>
           }
           <div class="mb-3">
-            <label class="form-label fw-semibold">Scenario Title <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="newScenario.title" placeholder="e.g. Pediatric Growth Curve - Infant Checkup">
+            <label for="scenario-title" class="form-label fw-semibold">Scenario Title <span class="text-danger">*</span></label>
+            <input id="scenario-title" type="text" class="form-control" [(ngModel)]="scenarioForm.title" required placeholder="e.g. Pediatric Growth Curve - Infant Checkup">
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold">Description</label>
-            <textarea class="form-control" rows="2" [(ngModel)]="newScenario.description" placeholder="Notes on this launch testing condition"></textarea>
+            <label for="scenario-description" class="form-label fw-semibold">Description</label>
+            <textarea id="scenario-description" class="form-control" rows="2" [(ngModel)]="scenarioForm.description" placeholder="Notes on this launch testing condition"></textarea>
           </div>
 
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Target SMART Application</label>
-              <select class="form-select py-1 ps-2" [(ngModel)]="newScenario.applicationId">
+              <label for="scenario-application" class="form-label fw-semibold">Target SMART Application</label>
+              <select id="scenario-application" class="form-select py-1 ps-2" [(ngModel)]="scenarioForm.applicationId">
+                <option value="">Default Application</option>
                 @for (application of applications(); track application.id) {
                   <option [value]="application.id">{{ application.clientName }}</option>
                 }
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Practitioner Persona</label>
-              <select class="form-select py-1 ps-2" [(ngModel)]="newScenario.userPersonaId">
+              <label for="scenario-persona" class="form-label fw-semibold">Practitioner Persona</label>
+              <select id="scenario-persona" class="form-select py-1 ps-2" [(ngModel)]="scenarioForm.userPersonaId">
+                <option value="">Default Practitioner</option>
                 @for (persona of personas(); track persona.id) {
                   <option [value]="persona.id">{{ persona.personaName }}</option>
                 }
@@ -125,18 +132,36 @@
 
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Patient FHIR ID</label>
-              <input type="text" class="form-control" [(ngModel)]="newScenario.patientFhirId" placeholder="SMART-1088792">
+              <app-patient-search-input
+                inputId="scenario-patient-id"
+                label="Patient FHIR ID"
+                searchBy="id"
+                placeholder="SMART-1088792"
+                [(value)]="scenarioForm.patientFhirId"
+                (patientSelected)="selectPatient($event)"
+              />
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Patient Display Name</label>
-              <input type="text" class="form-control" [(ngModel)]="newScenario.patientName" placeholder="Sherlock Holmes">
+              <app-patient-search-input
+                inputId="scenario-patient-name"
+                label="Patient Display Name"
+                searchBy="name"
+                placeholder="Sherlock Holmes"
+                [(value)]="scenarioForm.patientName"
+                (patientSelected)="selectPatient($event)"
+              />
             </div>
           </div>
-        </div>
+        </fieldset>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="createScenario()">Save Scenario</button>
+          <button type="button" class="btn btn-secondary" [disabled]="saving()" (click)="closeScenarioModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" [disabled]="saving()" (click)="saveScenario()">
+            @if (saving()) {
+              <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving...
+            } @else {
+              {{ editingScenarioId() ? 'Save Changes' : 'Save Scenario' }}
+            }
+          </button>
         </div>
       </div>
     </div>

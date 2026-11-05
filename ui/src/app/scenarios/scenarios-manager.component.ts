@@ -9,11 +9,12 @@ import { ScenariosService, type LaunchScenario } from '../core/services/scenario
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
 import { ToastService } from '../core/services/toast.service.js';
+import { PatientSearchInputComponent, type PatientSearchResult } from '../shared/patient-search-input/patient-search-input.component.js';
 
 @Component({
   selector: 'app-scenarios-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, PatientSearchInputComponent],
   templateUrl: './scenarios-manager.component.html',
 })
 export class ScenariosManagerComponent implements OnInit {
@@ -31,26 +32,20 @@ export class ScenariosManagerComponent implements OnInit {
   public readonly errorMessage = signal<string | null>(null);
   public readonly formError = signal<string | null>(null);
 
-  public readonly showCreateModal = signal<boolean>(false);
-  public newScenario = {
-    title: '',
-    description: '',
-    applicationId: '',
-    userPersonaId: '',
-    patientFhirId: 'SMART-1088792',
-    patientName: 'Sherlock Holmes',
-    encounterFhirId: 'encounter-101',
-    intent: '',
-  };
+  public readonly showScenarioModal = signal<boolean>(false);
+  public readonly editingScenarioId = signal<string | null>(null);
+  public readonly saving = signal<boolean>(false);
+  public scenarioForm = this.emptyScenarioForm();
 
   constructor() {
     effect(() => {
       const active = this.sandboxService.activeSandbox();
-      if (active) {
-        untracked(() => {
+      untracked(() => {
+        this.closeScenarioModal();
+        if (active) {
           this.loadData(active.sandboxId);
-        });
-      }
+        }
+      });
     });
   }
 
@@ -80,54 +75,105 @@ export class ScenariosManagerComponent implements OnInit {
 
     this.applicationsService.getSandboxApplications(targetId).subscribe({
       next: (res) => {
-        const appsList = res?.applications || [];
-        this.applications.set(appsList);
-        if (appsList.length > 0 && !this.newScenario.applicationId) {
-          this.newScenario.applicationId = appsList[0].id;
-        }
+        this.applications.set(res?.applications || []);
       },
     });
 
     this.personasService.getPersonas(targetId).subscribe({
       next: (res) => {
-        const personasList = res?.personas || [];
-        this.personas.set(personasList);
-        if (personasList.length > 0 && !this.newScenario.userPersonaId) {
-          this.newScenario.userPersonaId = personasList[0].id;
-        }
+        this.personas.set(res?.personas || []);
       },
     });
   }
 
-  public createScenario(): void {
+  private emptyScenarioForm() {
+    return {
+      title: '',
+      description: '',
+      applicationId: this.applications()[0]?.id || '',
+      userPersonaId: this.personas()[0]?.id || '',
+      patientFhirId: 'SMART-1088792',
+      patientName: 'Sherlock Holmes',
+      encounterFhirId: 'encounter-101',
+      intent: '',
+    };
+  }
+
+  public openCreateScenario(): void {
+    this.scenarioForm = this.emptyScenarioForm();
+    this.editingScenarioId.set(null);
+    this.formError.set(null);
+    this.showScenarioModal.set(true);
+  }
+
+  public openEditScenario(scenario: LaunchScenario): void {
+    this.scenarioForm = {
+      title: scenario.title,
+      description: scenario.description ?? '',
+      applicationId: scenario.applicationId ?? '',
+      userPersonaId: scenario.userPersonaId ?? '',
+      patientFhirId: scenario.patientFhirId ?? '',
+      patientName: scenario.patientName ?? '',
+      encounterFhirId: scenario.encounterFhirId ?? '',
+      intent: scenario.intent ?? '',
+    };
+    this.editingScenarioId.set(scenario.id);
+    this.formError.set(null);
+    this.showScenarioModal.set(true);
+  }
+
+  public closeScenarioModal(): void {
+    this.showScenarioModal.set(false);
+    this.editingScenarioId.set(null);
+    this.formError.set(null);
+  }
+
+  public selectPatient(patient: PatientSearchResult): void {
+    this.scenarioForm.patientFhirId = patient.id;
+    this.scenarioForm.patientName = patient.name;
+  }
+
+  public saveScenario(): void {
+    if (this.saving()) return;
     this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
-    if (!current || !this.newScenario.title) {
+    if (!current) return;
+    const title = this.scenarioForm.title.trim();
+    if (!title) {
       this.formError.set('Title is required.');
       return;
     }
 
-    this.scenariosService
-      .createScenario(current.sandboxId, {
-        title: this.newScenario.title,
-        description: this.newScenario.description,
-        applicationId: this.newScenario.applicationId || null,
-        userPersonaId: this.newScenario.userPersonaId || null,
-        patientFhirId: this.newScenario.patientFhirId || null,
-        patientName: this.newScenario.patientName || null,
-        encounterFhirId: this.newScenario.encounterFhirId || null,
-        intent: this.newScenario.intent || null,
-      })
-      .subscribe({
-        next: () => {
-          this.showCreateModal.set(false);
-          this.toast.success(`Scenario '${this.newScenario.title}' created successfully.`);
+    const scenarioId = this.editingScenarioId();
+    const data: Partial<LaunchScenario> = {
+      title,
+      description: this.scenarioForm.description || null,
+      applicationId: this.scenarioForm.applicationId || null,
+      userPersonaId: this.scenarioForm.userPersonaId || null,
+      patientFhirId: this.scenarioForm.patientFhirId || null,
+      patientName: this.scenarioForm.patientName || null,
+      encounterFhirId: this.scenarioForm.encounterFhirId || null,
+      intent: this.scenarioForm.intent || null,
+    };
+    const request = scenarioId
+      ? this.scenariosService.updateScenario(current.sandboxId, scenarioId, data)
+      : this.scenariosService.createScenario(current.sandboxId, data);
+
+    this.saving.set(true);
+    request.subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.closeScenarioModal();
+        this.toast.success(`Scenario '${title}' ${scenarioId ? 'updated' : 'created'} successfully.`);
+        if (this.sandboxService.activeSandbox()?.sandboxId === current.sandboxId) {
           this.loadData(current.sandboxId);
-        },
-        error: (err) => {
-          this.toast.error(err?.error?.error || 'Failed to create scenario.');
-        },
-      });
+        }
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.formError.set(err?.error?.error || `Failed to ${scenarioId ? 'update' : 'create'} scenario.`);
+      },
+    });
   }
 
   public runScenario(scenario: LaunchScenario): void {

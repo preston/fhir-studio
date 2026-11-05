@@ -22,6 +22,7 @@ import { loadStudioOrigin } from '../hosted/config.js';
 
 import { routeParam } from '../http/routeParam.js';
 import { isSafeFhirPath, isSafeFhirBundle, isUnsafeHapiOperationPath } from './path.js';
+import { patientSearchConstraint } from './patient-scope.js';
 
 const READ_ONLY_KNOWLEDGE_OPERATIONS = new Set([
   'validate', 'validate-code', 'expand', 'lookup', 'subsumes', 'find-matches', 'meta',
@@ -117,7 +118,7 @@ export function createFhirGatewayRouter(): Router {
 
     // Determine subpath within FHIR endpoint (`*path` is string[] under Express 5 types)
     const pathParam = req.params.path;
-    let subpath = Array.isArray(pathParam)
+    const subpath = Array.isArray(pathParam)
       ? (pathParam.length > 0 ? `/${pathParam.join('/')}` : '')
       : pathParam
         ? `/${pathParam}`
@@ -188,18 +189,18 @@ export function createFhirGatewayRouter(): Router {
       if ([req.query, searchBody].some(params => Object.keys(params).some(key => key === '_has' || key.startsWith('_has:'))) || parts.some(p => p.startsWith('$') || p === '_history') || parts.length > 2) {
         res.status(403).json({ error: 'Patient-scoped operations must stay within the launch patient compartment.' }); return;
       }
+      const patientConstraint = patientSearchConstraint(versionParam, resourceType, patientId);
+      if (!patientConstraint) {
+        res.status(403).json({ error: `Patient-scoped access is not supported for ${resourceType}.` }); return;
+      }
       if (search) {
-        if (resourceType === 'Patient') {
-          forwardedQuery['_id'] = patientId;
-          if (postSearch) forwardedBody = { ...searchBody, _id: patientId };
-        } else {
-          subpath = `/Patient/${encodeURIComponent(patientId)}/${resourceType}${postSearch ? '/_search' : ''}`;
-        }
+        Object.assign(forwardedQuery, patientConstraint);
+        if (postSearch) forwardedBody = { ...searchBody, ...patientConstraint };
       } else if (resourceType === 'Patient') {
         if ((parts[1] && parts[1] !== patientId) || (!['GET', 'HEAD'].includes(req.method))) { res.sendStatus(403); return; }
       } else {
         if (parts[1]) {
-          const existing = await axios.get<{ entry?: Array<{ resource?: { id?: string } }> }>(`${hapiBaseUrl}/${sandbox.sandboxId}/Patient/${encodeURIComponent(patientId)}/${resourceType}`, { params: { _id: parts[1], _count: 1 }, timeout: 15_000 });
+          const existing = await axios.get<{ entry?: Array<{ resource?: { id?: string } }> }>(`${hapiBaseUrl}/${sandbox.sandboxId}/${resourceType}`, { params: { ...patientConstraint, _id: parts[1], _count: 1 }, timeout: 15_000 });
           if (!existing.data.entry?.some(entry => entry.resource?.id === parts[1])) { res.sendStatus(403); return; }
         }
         if (['POST', 'PUT', 'PATCH'].includes(req.method)) {

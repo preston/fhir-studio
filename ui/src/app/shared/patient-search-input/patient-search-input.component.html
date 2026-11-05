@@ -1,0 +1,60 @@
+<label [for]="inputId()" class="form-label fw-semibold">{{ label() }}</label>
+<div class="position-relative">
+  <input
+    type="text"
+    class="form-control"
+    [id]="inputId()"
+    [ngModel]="value()"
+    (ngModelChange)="edit($event)"
+    [placeholder]="placeholder()"
+    autocomplete="off"
+    role="combobox"
+    aria-autocomplete="list"
+    aria-haspopup="listbox"
+    [attr.aria-expanded]="open()"
+    [attr.aria-controls]="open() ? inputId() + '-results' : null"
+    [attr.aria-activedescendant]="activeOptionId()"
+    [attr.aria-describedby]="inputId() + '-help'"
+    (focus)="open.set(true)"
+    (blur)="open.set(false)"
+    (keydown)="onKeydown($event)"
+  >
+  @if (open()) {
+    <div class="dropdown-menu show w-100 p-0 shadow" style="max-height: 16rem; overflow-y: auto;">
+      <div [id]="inputId() + '-results'" role="listbox" [attr.aria-label]="label() + ' matches'" [attr.aria-busy]="searching()">
+        @for (patient of results(); track patient.id; let index = $index) {
+          <button
+            type="button"
+            class="dropdown-item text-wrap py-2"
+            [class.active]="activeIndex() === index"
+            [id]="inputId() + '-option-' + index"
+            role="option"
+            [attr.aria-selected]="activeIndex() === index"
+            tabindex="-1"
+            (mousedown)="$event.preventDefault()"
+            (click)="selectPatient(patient)"
+          >
+            <span class="d-block fw-semibold">{{ patient.name }}</span>
+            <span class="d-block small">{{ patient.id }}</span>
+          </button>
+        }
+      </div>
+      <div class="px-3 py-2 small text-body-secondary" role="status" aria-live="polite">
+        @if (!sandboxService.activeSandbox()) {
+          Select a sandbox to search patients. Custom values are still allowed.
+        } @else if (searching()) {
+          Searching patients…
+        } @else if (searchError()) {
+          {{ searchError() }}
+        } @else if (results().length === 0) {
+          No matching patients. Your custom value will be used.
+        } @else {
+          Select a patient to fill both fields, or keep your custom value.
+        }
+      </div>
+    </div>
+  }
+</div>
+<div [id]="inputId() + '-help'" class="form-text">
+  {{ searchBy() === 'id' ? 'Search by exact FHIR ID' : 'Search by patient name' }}, or enter any test value.
+</div>

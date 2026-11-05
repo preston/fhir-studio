@@ -166,7 +166,7 @@ before(async () => {
   fhir.get('/fhir/:tenant/Patient', (_req, res) => res.json({ resourceType: 'Bundle', entry: [{ resource: patient }] }));
   fhir.get('/fhir/:tenant/Patient/:id', (req, res) => req.params.id === 'p1' ? res.json(patient) : res.sendStatus(404));
   fhir.all('/fhir/:tenant/Patient/_search', (_req, res) => res.json({ resourceType: 'Bundle', entry: [{ resource: patient }] }));
-  fhir.all('/fhir/:tenant/Patient/:patient/Observation{/_search}', (_req, res) => res.json({ resourceType: 'Bundle', entry: [{ resource: { resourceType: 'Observation', id: 'o1' } }] }));
+  fhir.all('/fhir/:tenant/Observation{/_search}', (_req, res) => res.json({ resourceType: 'Bundle', entry: [{ resource: { resourceType: 'Observation', id: 'o1' } }] }));
   fhir.put('/fhir/:tenant/Observation/:id', (req, res) => {
     res.setHeader('ETag', 'W/"2"');
     res.setHeader('Preference-Applied', 'return=representation');
@@ -1798,7 +1798,9 @@ test('patient POST searches stay in the selected compartment and constrain body 
   const search = (type: string, body: string) => realFetch(`${origin}/api/sandboxes/launch-test/fhir/r4/${type}/_search`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   const observation = await search('Observation', 'status=final');
   assert.equal(observation.status, 200, await observation.clone().text());
-  assert.equal(fhirRequests.at(-1)?.path, '/fhir/launch-test/Patient/p1/Observation/_search');
+  assert.equal(fhirRequests.at(-1)?.path, '/fhir/launch-test/Observation/_search');
+  assert.equal((fhirRequests.at(-1)?.query as Record<string, string>).patient, 'Patient/p1');
+  assert.equal((fhirRequests.at(-1)?.body as Record<string, string>).patient, 'Patient/p1');
   assert.equal((fhirRequests.at(-1)?.body as Record<string, string>).status, 'final');
   const patient = await search('Patient', '_id=p2');
   assert.equal(patient.status, 200, await patient.clone().text());
