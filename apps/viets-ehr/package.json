@@ -1,0 +1,21 @@
+{
+  "name": "viets-ehr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Viet's EHR community SMART on FHIR example",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "build": "npm run typecheck",
+    "package": "npm run build && node ../../scripts/package-example-app.mjs ."
+  },
+  "fhirStudio": {
+    "staticDirectory": "public"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

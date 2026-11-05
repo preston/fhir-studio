@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "name": "Viet's EHR",
+  "description": "A community-maintained SMART on FHIR clinical EHR example for a FHIR Studio sandbox.",
+  "runtime_contract": {
+    "kind": "static-smart",
+    "version": 1,
+    "authentication": "studio-smart",
+    "pkce": "S256",
+    "launch_path": "index.html",
+    "callback_paths": ["index.html"],
+    "scopes": ["launch", "launch/patient", "patient/*.crus", "user/Questionnaire.rs"],
+    "fhir_versions": ["R4", "R4B", "R5"],
+    "launch_requirements": ["ehr", "patient"],
+    "public_configuration": [],
+    "dependencies": []
+  }
+}
