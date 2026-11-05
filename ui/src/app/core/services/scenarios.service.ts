@@ -3,6 +3,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { SmartLaunchContextResponse } from '@fhir-studio/core';
 import type { SmartApplication } from './applications.service.js';
 import type { UserPersona } from './personas.service.js';
 
@@ -75,8 +76,8 @@ export class ScenariosService {
       scope?: string;
       fhirContext?: unknown;
     },
-  ): Observable<{ launch: string; sandboxId: string; expiresIn: number }> {
-    return this.http.post<{ launch: string; sandboxId: string; expiresIn: number }>(
+  ): Observable<SmartLaunchContextResponse> {
+    return this.http.post<SmartLaunchContextResponse>(
       `/api/sandboxes/${sandboxId}/launch-context`,
       data,
     );

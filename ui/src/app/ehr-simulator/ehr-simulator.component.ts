@@ -435,8 +435,6 @@ export class EhrSimulatorComponent implements OnInit {
 
     const loadId = this.sandboxLoadId;
     this.launching.set(true);
-    const fhirVersion = activeSandbox.fhirVersion.toLowerCase();
-    const issUrl = `${window.location.origin}/api/sandboxes/${activeSandbox.sandboxId}/fhir/${fhirVersion}`;
     const patient = this.selectedPatient();
     const encounter = this.selectedEncounter();
     const location = this.selectedLocation();
@@ -463,7 +461,7 @@ export class EhrSimulatorComponent implements OnInit {
           if (loadId !== this.sandboxLoadId) return;
           this.activeLaunchToken.set(ctx.launch);
           const launchUrl = new URL(application.launchUri, window.location.origin);
-          launchUrl.searchParams.set('iss', issUrl);
+          launchUrl.searchParams.set('iss', ctx.iss);
           launchUrl.searchParams.set('launch', ctx.launch);
 
           const urlStr = launchUrl.toString();
@@ -473,7 +471,7 @@ export class EhrSimulatorComponent implements OnInit {
 
           // Update Inspector state
           this.simulatedIdTokenPayload.set({
-            iss: window.location.origin,
+            iss: new URL(ctx.iss).origin,
             sub: persona?.personaUserId || 'practitioner-1',
             aud: application.clientId || 'smart-application-client',
             fhirUser: `Practitioner/${persona?.personaUserId || 'dr-smith'}`,
@@ -499,7 +497,7 @@ export class EhrSimulatorComponent implements OnInit {
             {
               step: '2. Application Launch Requested',
               time: new Date().toLocaleTimeString(),
-              detail: `Redirected to ${application.launchUri} with iss=${issUrl}`,
+              detail: `Redirected to ${application.launchUri} with iss=${ctx.iss}`,
               status: 'success',
             },
             {

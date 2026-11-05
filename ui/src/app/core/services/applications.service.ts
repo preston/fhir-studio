@@ -7,6 +7,7 @@ import { Observable } from 'rxjs';
 export interface SmartApplication {
   id: string;
   sandboxId: string | null;
+  hostedApplicationId?: string | null;
   clientId: string;
   clientSecret: string | null;
   clientName: string;

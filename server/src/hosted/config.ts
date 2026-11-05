@@ -4,6 +4,7 @@ import {
   HOSTING_REQUIRED_ENV,
   HOSTING_STATIC_REQUIRED_ENV,
   requireEnv,
+  readEnv,
   isHostingEnabled,
   isGitHubHostingEnabled,
 } from '../env.js';
@@ -15,6 +16,7 @@ export interface HostingConfig {
   analyticsKey?: string;
   root: string;
   studioOrigin: string;
+  frameAncestors: string[];
   encryptionKey: string;
   appId: string;
   clientId: string;
@@ -29,6 +31,41 @@ export interface HostingConfig {
   maxStorageBytes: number;
   trustProxyHops?: number;
 }
+
+function loadFrameAncestors(studioOrigin: string, domain: string): string[] {
+  const origins = new Set([studioOrigin]);
+  // Development can serve the simulator from a separate UI origin (e.g. ng serve).
+  // Production keeps the canonical Studio as the only permitted embedding origin.
+  if (process.env.NODE_ENV?.trim() === 'production') return [...origins];
+  const configuredOrigins = (readEnv('FHIR_STUDIO_SERVER_CORS_ORIGINS') || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  for (const value of configuredOrigins) {
+    let origin: URL;
+    try {
+      origin = new URL(value);
+    } catch {
+      throw new Error(
+        'Hosting development FHIR_STUDIO_SERVER_CORS_ORIGINS must contain exact HTTP(S) origins outside the hosted application sub-zone.',
+      );
+    }
+    const hostname = origin.hostname.replace(/\.$/, '');
+    if (
+      !['http:', 'https:'].includes(origin.protocol) ||
+      origin.origin !== value ||
+      hostname.includes('*') ||
+      hostname === domain ||
+      hostname.endsWith(`.${domain}`)
+    )
+      throw new Error(
+        'Hosting development FHIR_STUDIO_SERVER_CORS_ORIGINS must contain exact HTTP(S) origins outside the hosted application sub-zone.',
+      );
+    origins.add(value);
+  }
+  return [...origins];
+}
+
 export function loadHostingConfig(
   mode: 'api' | 'worker' | 'host' = 'api',
 ): HostingConfig {
@@ -119,6 +156,7 @@ export function loadHostingConfig(
     analyticsKey: get('ANALYTICS_KEY'),
     root,
     studioOrigin: origin.origin,
+    frameAncestors: loadFrameAncestors(origin.origin, domain),
     encryptionKey: get('ENCRYPTION_KEY'),
     appId: get('GITHUB_APP_ID'),
     clientId: get('GITHUB_CLIENT_ID'),
@@ -143,7 +181,6 @@ export function loadStudioOrigin(): string {
 export function appOrigin(
   config: HostingConfig,
   id: string,
-  channel: 'preview' | 'published',
 ): string {
-  return `https://${channel === 'preview' ? 'preview' : 'app'}-${id}.${config.domain}`;
+  return `https://app-${id}.${config.domain}`;
 }

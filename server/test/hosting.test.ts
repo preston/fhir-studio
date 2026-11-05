@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, access, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -19,7 +19,7 @@ import {
   buildDirectory,
 } from '../src/hosted/filesystem.js';
 import { webhookSignature } from '../src/hosted/webhooks.js';
-import { configuredStaticDirectory, managedWorkflow } from '../src/hosted/source.js';
+import { configuredStaticDirectory, normalizeStaticDirectory, repositoryStaticDirectory } from '../src/hosted/source.js';
 import { templateFiles } from '../src/hosted/templates.js';
 import { verifyClientAssertionJwt } from '../src/smart-idp/crypto.js';
 import type { HostingConfig } from '../src/hosted/config.js';
@@ -90,10 +90,58 @@ test('hosting configuration is required in API/worker startup; static hosts requ
   }
 });
 
+test('hosted framing allows exact configured development UI origins and only the canonical Studio in production', () => {
+  const saved = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      NODE_ENV: 'development',
+      FHIR_STUDIO_HOSTING_ENABLED: 'true',
+      FHIR_STUDIO_HOSTING_ANALYTICS_KEY: Buffer.alloc(32, 7).toString('base64'),
+      FHIR_STUDIO_HOSTING_DOMAIN: 'user.localhost',
+      FHIR_STUDIO_HOSTING_STUDIO_ORIGIN: 'https://localhost',
+      FHIR_STUDIO_HOSTING_ROOT: tmpdir(),
+    });
+    delete process.env.FHIR_STUDIO_SERVER_CORS_ORIGINS;
+    assert.deepEqual(loadHostingConfig('host').frameAncestors, [
+      'https://localhost',
+    ]);
+    process.env.FHIR_STUDIO_SERVER_CORS_ORIGINS =
+      'https://localhost, http://localhost:4200, http://localhost:4200';
+    assert.deepEqual(loadHostingConfig('host').frameAncestors, [
+      'https://localhost',
+      'http://localhost:4200',
+    ]);
+    process.env.NODE_ENV = 'production';
+    assert.deepEqual(loadHostingConfig('host').frameAncestors, [
+      'https://localhost',
+    ]);
+    process.env.NODE_ENV = 'development';
+    for (const origin of [
+      '*',
+      'http:',
+      'https://*.localhost',
+      'https://localhost/extra',
+      'https://user:password@localhost',
+      'https://localhost; frame-ancestors *',
+      'https://user.localhost',
+      'https://app-example.user.localhost',
+      'https://app-example.user.localhost.',
+    ]) {
+      process.env.FHIR_STUDIO_SERVER_CORS_ORIGINS = origin;
+      assert.throws(() => loadHostingConfig('host'), /CORS_ORIGINS/, origin);
+    }
+  } finally {
+    for (const name of Object.keys(process.env))
+      if (!(name in saved)) delete process.env[name];
+    Object.assign(process.env, saved);
+  }
+});
+
 const config: HostingConfig = {
   root: '/tmp',
   domain: 'user.example.org',
   studioOrigin: 'https://studio.example.org',
+  frameAncestors: ['https://studio.example.org'],
   encryptionKey: crypto.randomBytes(32).toString('base64'),
   appId: '1',
   clientId: '',
@@ -242,27 +290,7 @@ test('artifact extraction bounds actual bytes and entries and rejects duplicate 
     await rm(root, { recursive: true, force: true });
   }
 });
-test('managed workflow has no Studio secrets and disambiguates run attempts', () => {
-  const workflow = managedWorkflow({
-    id: 'project',
-    projectDirectory: 'packages/app',
-    outputDirectory: 'dist',
-    buildCommand: 'npm ci && npm run build',
-    nodeVersion: '26',
-  });
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /github.run_attempt/);
-  assert.match(workflow, /timeout-minutes: 15/);
-  assert.doesNotMatch(workflow, /secrets\.|id-token: write/);
-  assert.throws(() =>
-    managedWorkflow({
-      id: 'app',
-      projectDirectory: '',
-      outputDirectory: 'dist',
-      buildCommand: '${{ secrets.KEY }}',
-      nodeVersion: '26',
-    }),
-  );
+test('application templates retain the public SMART runtime contract', () => {
   for (const kind of ['javascript', 'react', 'angular']) {
     const files = templateFiles(kind);
     assert.ok(files.some((file) => file.path === 'package.json'));
@@ -272,7 +300,66 @@ test('managed workflow has no Studio secrets and disambiguates run attempts', ()
   }
 });
 
-test('community applications build from their project directory and publish only their static output', async () => {
+test('static repository paths preserve legacy nested directories and accept an explicit repository root', () => {
+  assert.equal(normalizeStaticDirectory('.'), '.');
+  assert.equal(normalizeStaticDirectory(''), '.');
+  assert.equal(normalizeStaticDirectory('public/'), 'public');
+  assert.equal(repositoryStaticDirectory({ projectDirectory: 'apps/example', outputDirectory: 'public' }), 'apps/example/public');
+  assert.equal(repositoryStaticDirectory({ projectDirectory: '', outputDirectory: '.' }), '.');
+  for (const directory of ['/tmp', '/', '../public', 'app/../public', '.git', 'public//assets']) assert.throws(() => normalizeStaticDirectory(directory), directory);
+});
+
+test('repository deployment extracts only its static subtree, with limits independent of unrelated source files', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'studio-repository-static-'));
+  try {
+    const archive = path.join(root, 'repository.zip');
+    await writeFile(archive, zipSync({
+      'owner-repo-commit/src/server.ts': strToU8('throw new Error("must never execute")'),
+      'owner-repo-commit/.env': strToU8('secret=value'),
+      'owner-repo-commit/package.json': strToU8('{"scripts":{"build":"must never execute"}}'),
+      'owner-repo-commit/packages/site/public/index.html': strToU8('<p>Committed site</p>'),
+      'owner-repo-commit/packages/site/public/assets/app.js': strToU8('export {}'),
+    }));
+    const destination = path.join(root, 'content');
+    await extractArtifact(archive, destination, { ...config, maxFiles: 2 }, new AbortController().signal, { repositoryDirectory: 'packages/site/public' });
+    assert.equal(await readFile(path.join(destination, 'index.html'), 'utf8'), '<p>Committed site</p>');
+    assert.equal(await readFile(path.join(destination, 'assets/app.js'), 'utf8'), 'export {}');
+    for (const file of ['src/server.ts', '.env', 'package.json', 'packages/site/public/index.html']) await assert.rejects(access(path.join(destination, file)));
+    await assert.rejects(extractArtifact(archive, path.join(root, 'too-many'), { ...config, maxFiles: 1 }, new AbortController().signal, { repositoryDirectory: 'packages/site/public' }), /count/i);
+    await assert.rejects(extractArtifact(archive, path.join(root, 'missing'), config, new AbortController().signal, { repositoryDirectory: 'missing' }), /no deployable static assets/i);
+    await writeFile(archive, zipSync({
+      'owner-repo-commit/index.html': strToU8('<p>Root site</p>'),
+      'owner-repo-commit/.gitignore': strToU8('node_modules'),
+      'owner-repo-commit/.github/workflows/publish.yml': strToU8('must never execute'),
+      'owner-repo-commit/README.md': strToU8('source documentation'),
+      'owner-repo-commit/src/source.ts': strToU8('source only'),
+      'owner-repo-commit/node_modules/library/index.js': strToU8('do not publish'),
+    }));
+    const rootContent = path.join(root, 'root-content');
+    await extractArtifact(archive, rootContent, { ...config, maxFiles: 1 }, new AbortController().signal, { repositoryDirectory: '.' });
+    assert.equal(await readFile(path.join(rootContent, 'index.html'), 'utf8'), '<p>Root site</p>');
+    for (const file of ['.gitignore', '.github/workflows/publish.yml', 'README.md', 'src/source.ts', 'node_modules/library/index.js']) await assert.rejects(access(path.join(rootContent, file)));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('repository subtree deployment rejects traversal, symlinks, case-folded duplicates, and multiple archive roots', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'studio-repository-invalid-'));
+  try {
+    const cases = [
+      { files: { 'repo/public/index.html': strToU8('ok'), 'repo/public/../escape.html': strToU8('bad') }, error: /relative path|unsafe|\.\./i },
+      { files: { 'repo/public/index.html': [strToU8('/etc/passwd'), { os: 3, attrs: 0xa1ff0000 }] }, error: /links|devices/i },
+      { files: { 'repo/public/App.js': strToU8('a'), 'repo/public/app.js': strToU8('b') }, error: /duplicate/i },
+      { files: { 'repo-a/public/index.html': strToU8('a'), 'repo-b/public/app.js': strToU8('b') }, error: /multiple roots/i },
+    ];
+    for (const [index, item] of cases.entries()) {
+      const archive = path.join(root, `${index}.zip`);
+      await writeFile(archive, zipSync(item.files as Parameters<typeof zipSync>[0]));
+      await assert.rejects(extractArtifact(archive, path.join(root, `content-${index}`), config, new AbortController().signal, { repositoryDirectory: 'public' }), item.error);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('community application metadata identifies its existing static directory', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../apps/viets-ehr/package.json', import.meta.url), 'utf8')) as unknown;
   const runtime = JSON.parse(await readFile(new URL('../../apps/viets-ehr/fhir-studio.json', import.meta.url), 'utf8')) as Record<string, unknown>;
   assert.deepEqual(deploymentProfileErrors({ ...runtime, artifact_id: 'community-example' }), {});
@@ -282,17 +369,7 @@ test('community applications build from their project directory and publish only
   assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: '../outside' } }));
   assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: '/tmp' } }));
   assert.throws(() => configuredStaticDirectory({ fhirStudio: { staticDirectory: 42 } }));
-  const workflow = managedWorkflow({
-    id: 'community-example',
-    projectDirectory: 'apps/viets-ehr',
-    buildCommand: 'npm ci && npm run build',
-    outputDirectory: configuredStaticDirectory(manifest)!,
-    nodeVersion: '26',
-  });
-  assert.match(workflow, /working-directory: "apps\/viets-ehr"/);
-  assert.match(workflow, /run: "npm ci && npm run build"/);
-  assert.match(workflow, /path: "apps\/viets-ehr\/public"/);
-  assert.doesNotMatch(workflow, /path: "(?:apps\/viets-ehr|public)"\n/);
+  assert.equal(repositoryStaticDirectory({projectDirectory:'apps/viets-ehr',outputDirectory:configuredStaticDirectory(manifest)!}), 'apps/viets-ehr/public');
 });
 test('asymmetric client authentication rejects unsigned or mismatched assertions', () => {
   const fake =

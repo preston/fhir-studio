@@ -11,6 +11,7 @@ import {
   rm,
   utimes,
   access,
+  readFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -24,7 +25,7 @@ import { WebSocket } from 'ws';
 import { SubscriptionHub } from '../src/subscriptions/hub.js';
 import { hmacSign } from '../src/authentication/hmac.js';
 import { SESSION_COOKIE } from '../src/authentication/session.js';
-import { zipSync, strToU8 } from 'fflate';
+import { zipSync, unzipSync, strToU8 } from 'fflate';
 import { createDefaultEffectivePermissions } from '../../core/src/rbac.js';
 import { getPrisma, disconnectPrisma } from '../src/db/prisma.js';
 import { loadEffectivePermissions } from '../src/authorization/effectivePermissions.js';
@@ -46,6 +47,8 @@ import {
   importBuild,
   publisherForRun,
   reconcileJob,
+  queueRepositoryDeployment,
+  REPOSITORY_DEPLOYMENT_EVENT,
 } from '../src/hosted/builds.js';
 import { createGitHubWebhookRouter } from '../src/hosted/webhooks.js';
 import { createSmartIdpRouter } from '../src/smart-idp/routes.js';
@@ -78,6 +81,10 @@ let created = false;
 let refreshes = 0;
 let refreshStatus = 200;
 let badDigest = false;
+let repositoryArchiveDirectory = 'dist';
+let repositoryReadOnly = false;
+const githubRequests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
+const archiveRequests: string[] = [];
 let appId: string;
 let activeRun: GitHubRun;
 let zip: Uint8Array;
@@ -101,7 +108,7 @@ before(async () => {
   created = true;
   const url = new URL(adminUrl);
   url.pathname = `/${database}`;
-  root = await mkdtemp(path.join(os.tmpdir(), 'studio-hosting-integration-'));
+  root = await mkdtemp(path.join(os.tmpdir(), '.studio-hosting-integration-'));
   Object.assign(process.env, {
     NODE_ENV: 'test',
     FHIR_STUDIO_HOSTING_ENABLED: 'true',
@@ -261,9 +268,17 @@ before(async () => {
         refresh_token_expires_in: 15897600,
       });
     }
+    if (url.hostname === 'codeload.github.com') {
+      assert.equal(new Headers(init?.headers).get('authorization'), null, 'GitHub API credentials must not follow the archive redirect');
+      archiveRequests.push(url.pathname);
+      if (badDigest) return new Response('invalid ZIP payload');
+      const files = unzipSync(zip);
+      return new Response(zipSync(Object.fromEntries(Object.entries(files).map(([name, bytes]) => [`owner-repo-commit/${repositoryArchiveDirectory === '.' ? '' : `${repositoryArchiveDirectory}/`}${name}`, bytes]))));
+    }
     if (url.hostname.endsWith('.blob.core.windows.net'))
       return new Response(zip);
     if (url.hostname !== 'api.github.com') return realFetch(input, init);
+    githubRequests.push({path:url.pathname,method:init?.method || 'GET',body:typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string,unknown> : undefined});
     const auth = new Headers(init?.headers).get('authorization') || '';
     if (url.pathname === '/user') return Response.json({ id: 100, login: 'owner' });
     if (url.pathname === '/user/repos' && init?.method === 'POST') return Response.json({ id: 42, full_name: 'owner/new-app', default_branch: 'main', private: true });
@@ -282,9 +297,11 @@ before(async () => {
         full_name: 'owner/repo',
         default_branch: 'main',
         private: false,
-        permissions: { push: !auth.includes('viewer') },
+        permissions: { push: !repositoryReadOnly && !auth.includes('viewer') },
       });
     }
+    if (url.pathname.startsWith('/repos/owner/repo/contents')) return Response.json([{name:'index.html',type:'file'}]);
+    if (url.pathname.startsWith('/repos/owner/repo/zipball/')) return new Response(null, {status:302,headers:{location:`https://codeload.github.com/owner/repo/legacy.zip/${url.pathname.split('/').at(-1)}`}});
     if (url.pathname.endsWith('/commits/main')) {
       if (revokeBeforeActivation) {
         revokeBeforeActivation = false;
@@ -538,7 +555,7 @@ test('deployment permission gates all management and GitHub endpoints despite ow
       ['', 'GET'],
       ['/source', 'PUT'],
       ['/builds', 'POST'],
-      ['/publish', 'POST'],
+      ['/deployments', 'POST'],
       ['/unpublish', 'POST'],
       ['', 'DELETE'],
     ])
@@ -558,7 +575,7 @@ test('deployment permission gates all management and GitHub endpoints despite ow
     );
     assert.equal(refreshes, beforeRefreshes);
     assert.equal((await request('operator', '')).status, 200);
-    assert.equal((await request('operator', '/publish', 'POST')).status, 403);
+    assert.equal((await request('operator', '/deployments', 'POST')).status, 403);
     assert.equal(
       (await loadEffectivePermissions(getPrisma(), users.operator))
         .applications_deployment,
@@ -574,7 +591,7 @@ test('generated migration creates ownership and GitHub structures; ACL denies cr
   assert.equal((await request('stranger', '')).status, 404);
   assert.equal(
     (
-      await request('viewer', '/publish', 'POST', {
+      await request('viewer', '/deployments', 'POST', {
         buildId: crypto.randomUUID(),
       })
     ).status,
@@ -616,7 +633,7 @@ test('untrusted same-site app origins cannot call credentialed management endpoi
     `${origin}/api/hosted-applications/${appId}`,
     {
       headers: {
-        Origin: `https://preview-${appId}.user.studio.test`,
+        Origin: `https://app-${appId}.user.studio.test`,
         Cookie: '__Host-fhir_studio_session=secret',
         'x-test-user': 'owner',
       },
@@ -625,7 +642,7 @@ test('untrusted same-site app origins cannot call credentialed management endpoi
   assert.equal(response.status, 403);
   assert.equal(response.headers.get('access-control-allow-credentials'), null);
 });
-test('canonical run artifact imports through leased worker; publication requires exact reviewed build', async () => {
+test('committed static assets publish directly through the leased worker without review or promotion', async () => {
   const prisma = getPrisma();
   const cfg = loadHostingConfig()!;
   activeRun = {
@@ -646,14 +663,7 @@ test('canonical run artifact imports through leased worker; publication requires
     head_repository: { id: 42 },
   };
   zip = zipSync({ 'index.html': strToU8('<html>Valid app</html>') });
-  await reconcileRun(
-    await prisma.hostedApplication.findUniqueOrThrow({ where: { id: appId } }),
-    '123',
-    cfg,
-  );
-  const build = await prisma.hostedBuild.findFirstOrThrow({
-    where: { applicationId: appId, runId: '123' },
-  });
+  const build = await queueRepositoryDeployment(appId, users.owner, 'main', cfg, {integrationGrantId:null});
   assert.ok(build.jobId);
   const job = await prisma.job.update({
     where: { id: build.jobId },
@@ -673,32 +683,37 @@ test('canonical run artifact imports through leased worker; publication requires
   const project = await prisma.hostedApplication.findUniqueOrThrow({
     where: { id: appId },
   });
-  assert.equal(project.previewBuildId, build.id);
-  assert.equal(project.publishedBuildId, null);
-  assert.equal(
-    (
-      await request('manager', '/publish', 'POST', {
-        buildId: crypto.randomUUID(),
-      })
-    ).status,
-    409,
-  );
-  assert.equal(
-    (await request('manager', '/publish', 'POST', { buildId: build.id }))
-      .status,
-    200,
-  );
+  assert.equal(project.publishedBuildId, build.id);
+  const serialized = await (await request('owner', '')).json();
+  assert.equal('previewBuildId' in serialized, false);
+  assert.equal('previewUrl' in serialized, false);
+  assert.equal((await request('manager', '/publish', 'POST', {buildId: build.id})).status, 404);
+  assert.equal((await request('developer', '/deployments', 'POST', {branch: 'main'})).status, 403);
+  assert.equal(await prisma.application.count({where: {hostedApplicationId: appId}}), 1);
   await access(path.join(buildDirectory(cfg, appId, build.id), 'index.html'));
 });
 
-test('static host serves only active generated origins, without GitHub credentials or management routes', async () => {
+test('queued repository previews from the retired workflow cannot publish', async () => {
+  const prisma=getPrisma();
+  const app=await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}});
+  const legacy=await prisma.hostedBuild.create({data:{applicationId:appId,branch:'main',commit:currentHead,generation:app.generation,requestEvent:'repository_static',requestedByUserId:users.owner,status:'IMPORTING'}});
+  const job=await prisma.job.create({data:{name:'Legacy preview',jobType:'HOSTED_IMPORT',input:{buildId:legacy.id},status:'in_progress',lockedBy:'legacy-worker',leaseExpiresAt:new Date(Date.now()+60000)}});
+  await assert.rejects(importBuild({job,signal:new AbortController().signal} as JobExecutionContext),/workflow is no longer supported/);
+  assert.equal((await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}})).publishedBuildId,app.publishedBuildId);
+});
+
+test('static host serves active generated origins from hidden storage roots, without GitHub credentials or management routes', async () => {
   const probe = net.createServer();
   await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
   const address = probe.address();
   assert.ok(address && typeof address !== 'string');
   const port = address.port;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
-  const env = { ...process.env, PORT: String(port) };
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    FHIR_STUDIO_SERVER_CORS_ORIGINS: 'http://studio.test,http://localhost:4200',
+  };
   for (const name of Object.keys(env))
     if (
       name.startsWith('FHIR_STUDIO_HOSTING_GITHUB_') ||
@@ -743,7 +758,7 @@ test('static host serves only active generated origins, without GitHub credentia
         )
         .on('error', reject);
     });
-  const hostname = `preview-${appId}.user.studio.test`;
+  const hostname = `app-${appId}.user.studio.test`;
   let response: Awaited<ReturnType<typeof load>> | undefined;
   for (let attempt = 0; attempt < 40; attempt++) {
     try {
@@ -756,6 +771,12 @@ test('static host serves only active generated origins, without GitHub credentia
   assert.ok(response, output);
   assert.equal(response.status, 200, response.body);
   assert.match(response.body, /Valid app/);
+  const launch = await load(
+    hostname,
+    '/index.html?iss=http%3A%2F%2Fstudio.test%2Fapi%2Fsandboxes%2Ftest%2Ffhir%2Fr4&launch=test-launch',
+  );
+  assert.equal(launch.status, 200, launch.body);
+  assert.match(launch.body, /Valid app/);
   const visitor = response.headers['set-cookie']?.find(cookie => cookie.startsWith('__Host-studio-visitor='));
   assert.ok(visitor);
   assert.match(visitor, /HttpOnly/); assert.match(visitor, /Secure/); assert.match(visitor, /SameSite=Lax/); assert.ok(!/Domain=/i.test(visitor));
@@ -763,9 +784,20 @@ test('static host serves only active generated origins, without GitHub credentia
     String(response.headers['content-security-policy']),
     /worker-src 'none'/,
   );
+  assert.match(
+    String(response.headers['content-security-policy']),
+    /(?:^|; )frame-ancestors http:\/\/studio\.test http:\/\/localhost:4200;/,
+  );
+  assert.match(
+    String(launch.headers['content-security-policy']),
+    /(?:^|; )frame-ancestors http:\/\/studio\.test http:\/\/localhost:4200;/,
+  );
   assert.equal((await load('studio.test')).status, 404);
+  assert.equal((await load(`preview-${appId}.user.studio.test`)).status, 404);
   assert.equal((await load(hostname, '/api/github/connection')).status, 404);
   assert.equal((await load(hostname, '/.staging/index.html')).status, 404);
+  assert.equal((await load(hostname, '/%2eenv')).status, 404);
+  assert.equal((await load(hostname, '/%2e%2e%2findex.html')).status, 404);
   await setDeployment('owner', false);
   try {
     assert.equal((await load(hostname)).status, 200);
@@ -805,7 +837,6 @@ test('old completions, unpublish and role changes cannot publish stale work', as
     where: { id: appId },
   });
   assert.equal(paused.publishedBuildId, null);
-  assert.equal(paused.publishingPaused, true);
   assert.ok(paused.generation > generation);
   await reconcileRun(project, '123', loadHostingConfig()!);
   assert.equal(
@@ -824,12 +855,16 @@ test('old completions, unpublish and role changes cannot publish stale work', as
   );
   assert.equal(
     (
-      await request('manager', '/publish', 'POST', {
-        buildId: project.previewBuildId,
+      await request('manager', '/deployments', 'POST', {
+        branch: 'main',
       })
     ).status,
     403,
   );
+  const build = await queueRepositoryDeployment(appId, users.owner, 'main', loadHostingConfig(), { integrationGrantId: null });
+  const job = await prisma.job.update({ where: { id: build.jobId! }, data: {status: 'in_progress', lockedBy: 'republish-worker', leaseExpiresAt: new Date(Date.now()+60000)} });
+  await importBuild({job,prisma,signal:new AbortController().signal,updateProgress:async()=>{},isCancelled:async()=>false} as JobExecutionContext);
+
 });
 test('SMART bearer scope never inherits owner session or open-access authority', async () => {
   const prisma = getPrisma();
@@ -846,7 +881,7 @@ test('SMART bearer scope never inherits owner session or open-access authority',
     data: {
       sandboxId: sandbox.sandboxId,
       sandboxRowId: sandbox.id,
-      clientId: `hosted-${appId}-preview`,
+      clientId: `hosted-${appId}-published`,
       redirectUri: 'https://example.test',
       accessToken: 'smart-test-token',
       tokenExpiresAt: new Date(Date.now() + 60_000),
@@ -875,7 +910,7 @@ test('filesystem cleanup removes only unreferenced complete directories after gr
   const project = await getPrisma().hostedApplication.findUniqueOrThrow({
     where: { id: appId },
   });
-  await access(buildDirectory(cfg, appId, project.previewBuildId!));
+  await access(buildDirectory(cfg, appId, project.publishedBuildId!));
   const interrupted = await getPrisma().hostedBuild.create({
     data: {
       applicationId: appId,
@@ -895,7 +930,7 @@ test('filesystem cleanup removes only unreferenced complete directories after gr
   await utimes(finalizedOrphan, new Date(0), new Date(0));
   await cleanupStorage(cfg);
   await assert.rejects(access(finalizedOrphan));
-  await access(buildDirectory(cfg, appId, project.previewBuildId!));
+  await access(buildDirectory(cfg, appId, project.publishedBuildId!));
 });
 
 test('cookie requests without Origin fail CSRF; same-site FHIR subresources omit Studio authority', async () => {
@@ -924,12 +959,9 @@ test('cookie requests without Origin fail CSRF; same-site FHIR subresources omit
   });
 });
 
-test('automatic publication checks original and rerun identities, Studio roles and live connection state', async () => {
+test('workflow identities cannot automatically publish repository content', async () => {
   const prisma = getPrisma();
-  const app = await prisma.hostedApplication.update({
-    where: { id: appId },
-    data: { autoPublish: true, publishingPaused: false },
-  });
+  const app = await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}});
   await prisma.hostedCollaborator.update({
     where: {
       applicationId_userId: { applicationId: appId, userId: users.manager },
@@ -942,7 +974,7 @@ test('automatic publication checks original and rerun identities, Studio roles a
     actor: { id: 100, type: 'User' },
     triggering_actor: { id: 101, type: 'User' },
   };
-  assert.equal(await publisherForRun(app, run, loadHostingConfig()!), true);
+  assert.equal(await publisherForRun(app, run, loadHostingConfig()!), false);
   for (const name of ['owner', 'manager'] as const) {
     await setDeployment(name, false);
     try {
@@ -981,10 +1013,6 @@ test('automatic publication checks original and rerun identities, Studio roles a
   await prisma.gitHubConnection.update({
     where: { userId: users.owner },
     data: { status: 'CONNECTED' },
-  });
-  await prisma.hostedApplication.update({
-    where: { id: appId },
-    data: { autoPublish: false, publishingPaused: true },
   });
 });
 
@@ -1030,54 +1058,22 @@ test('temporary OAuth outages preserve credentials; expired refresh authorizatio
   );
 });
 
-test('explicit dispatch request cannot be replaced by an unrelated push or different dispatch', async () => {
+test('workflow notifications cannot replace an explicit static deployment', async () => {
   const prisma = getPrisma();
-  const cfg = loadHostingConfig()!;
-  const app = await prisma.hostedApplication.findUniqueOrThrow({
-    where: { id: appId },
-  });
-  const pending = await prisma.hostedBuild.create({
-    data: {
-      applicationId: appId,
-      branch: 'main',
-      commit: currentHead,
-      generation: app.generation,
-      requestEvent: 'workflow_dispatch',
-      requestedByUserId: users.owner,
-    },
-  });
-  await prisma.hostedApplication.update({
-    where: { id: appId },
-    data: { desiredBuildId: pending.id },
-  });
-  activeRun = { ...activeRun, id: 200, run_attempt: 1, event: 'push' };
-  await reconcileRun(app, '200', cfg);
-  assert.equal(
-    (await prisma.hostedBuild.findUniqueOrThrow({ where: { id: pending.id } }))
-      .runId,
-    null,
-  );
-  activeRun = {
-    ...activeRun,
-    event: 'workflow_dispatch',
-    display_title: `Studio preview ${crypto.randomUUID()}`,
-  };
-  await reconcileRun(app, '200', cfg);
-  assert.equal(
-    (await prisma.hostedBuild.findUniqueOrThrow({ where: { id: pending.id } }))
-      .runId,
-    null,
-  );
-  activeRun.display_title = `Studio preview ${pending.id}`;
-  await reconcileRun(app, '200', cfg);
-  assert.equal(
-    (await prisma.hostedBuild.findUniqueOrThrow({ where: { id: pending.id } }))
-      .runId,
-    '200',
-  );
+  const cfg = loadHostingConfig();
+  const app = await prisma.hostedApplication.findUniqueOrThrow({ where: { id: appId } });
+  const pending = await queueRepositoryDeployment(appId, users.owner, 'main', cfg, {integrationGrantId:null});
+  const count = await prisma.hostedBuild.count({where:{applicationId:appId}});
+  for (const event of ['push','workflow_dispatch']) {
+    activeRun = { ...activeRun, id:200, event, display_title:`Studio deployment ${pending.id}` };
+    await reconcileRun(app,'200',cfg);
+  }
+  assert.equal((await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}})).desiredBuildId,pending.id);
+  assert.equal((await prisma.hostedBuild.findUniqueOrThrow({where:{id:pending.id}})).runId,null);
+  assert.equal(await prisma.hostedBuild.count({where:{applicationId:appId}}),count);
 });
 
-test('lost worker lease and artifact integrity failure cannot replace successful preview', async () => {
+test('lost worker lease and invalid repository archive cannot replace the published deployment', async () => {
   const prisma = getPrisma();
   const cfg = loadHostingConfig()!;
   const app = await prisma.hostedApplication.findUniqueOrThrow({
@@ -1104,12 +1100,12 @@ test('lost worker lease and artifact integrity failure cannot replace successful
   await assert.rejects(importBuild(context), /lease/);
   assert.equal(
     (await prisma.hostedApplication.findUniqueOrThrow({ where: { id: appId } }))
-      .previewBuildId,
-    app.previewBuildId,
+      .publishedBuildId,
+    app.publishedBuildId,
   );
   badDigest = true;
   try {
-    await assert.rejects(importBuild({ ...context, job }), /integrity/);
+    await assert.rejects(importBuild({ ...context, job }), /zip|archive|signature|end of central/i);
   } finally {
     badDigest = false;
   }
@@ -1120,8 +1116,8 @@ test('lost worker lease and artifact integrity failure cannot replace successful
   );
   assert.equal(
     (await prisma.hostedApplication.findUniqueOrThrow({ where: { id: appId } }))
-      .previewBuildId,
-    app.previewBuildId,
+      .publishedBuildId,
+    app.publishedBuildId,
   );
 });
 
@@ -1135,8 +1131,10 @@ test('SMART launch binds sandbox, client, exact callback, PKCE and single-use au
       createdByUserId: users.owner,
     },
   });
-  const clientId = `hosted-${appId}-preview`;
-  const callback = `https://preview-${appId}.user.studio.test/index.html`;
+  const sandbox = await prisma.sandbox.findUniqueOrThrow({where:{sandboxId:'launch-test'}});
+  await prisma.hostedSandbox.create({data:{applicationId:appId,sandboxId:sandbox.id}});
+  const clientId = `hosted-${appId}-published`;
+  const callback = `https://app-${appId}.user.studio.test/index.html`;
   const launchResponse = await realFetch(
     `${origin}/api/sandboxes/launch-test/launch-context`,
     {
@@ -1209,7 +1207,7 @@ test('SMART launch binds sandbox, client, exact callback, PKCE and single-use au
   assert.equal((await token(callback, verifier)).status, 400);
 });
 
-test('published SMART launches remain available without deployment permission; preview testing requires it', async () => {
+test('published SMART launches remain available without deployment permission; retired clients are unavailable', async () => {
   const prisma = getPrisma();
   const before = await prisma.hostedApplication.findUniqueOrThrow({
     where: { id: appId },
@@ -1227,9 +1225,15 @@ test('published SMART launches remain available without deployment permission; p
   });
   const active = await prisma.hostedApplication.update({
     where: { id: appId },
-    data: { publishedBuildId: before.previewBuildId },
+    data: { publishedBuildId: before.publishedBuildId },
   });
   await provisionClients(active, loadHostingConfig());
+  await prisma.application.create({data:{clientId:`hosted-${appId}-preview`, clientName:'Legacy preview', launchUri:`https://preview-${appId}.user.studio.test/index.html`, redirectUris:[`https://preview-${appId}.user.studio.test/index.html`], scope:'launch patient/Patient.r', hostedApplicationId:appId,hostedChannel:'preview',createdByUserId:users.owner}});
+  await prisma.smartAuthSession.create({data:{sandboxId:sandbox.sandboxId,sandboxRowId:sandbox.id,clientId:`hosted-${appId}-preview`,redirectUri:`https://preview-${appId}.user.studio.test/index.html`,accessToken:'retired-preview-token',refreshToken:'retired-preview-refresh',tokenExpiresAt:new Date(Date.now()+60000),scope:'patient/Patient.r',patientFhirId:'p1'}});
+  const legacyAccess=await verifySandboxAccess(prisma,sandbox,'Bearer retired-preview-token',undefined,createDefaultEffectivePermissions(),{method:'GET',path:'/Patient/p1',resourceType:'Patient'});
+  assert.equal(legacyAccess.authorized,false);
+  const legacyRefresh=await realFetch(`${origin}/oauth/token`,{method:'POST',body:new URLSearchParams({grant_type:'refresh_token',client_id:`hosted-${appId}-preview`,refresh_token:'retired-preview-refresh'})});
+  assert.equal(legacyRefresh.status,401);
   await setDeployment('viewer', false);
   try {
     for (const [channel, status] of [
@@ -1263,7 +1267,7 @@ test('published SMART launches remain available without deployment permission; p
   }
 });
 
-test('signed webhook notifications are durable and installation removal invalidates queued imports', async () => {
+test('workflow notifications do not queue deployments and installation removal invalidates queued imports', async () => {
   const send = async (kind: string, value: unknown, valid = true) => {
     const body = JSON.stringify(value);
     return realFetch(`${origin}/api/github/webhook`, {
@@ -1287,7 +1291,7 @@ test('signed webhook notifications are durable and installation removal invalida
   assert.equal((await send('workflow_run', event)).status, 204);
   assert.equal(
     await getPrisma().job.count({ where: { jobType: 'HOSTED_RECONCILE' } }),
-    1,
+    0,
   );
   const before = await getPrisma().hostedApplication.findUniqueOrThrow({
     where: { id: appId },
@@ -1301,8 +1305,7 @@ test('signed webhook notifications are durable and installation removal invalida
     where: { id: appId },
   });
   assert.ok(after.generation > before.generation);
-  assert.equal(after.publishingPaused, true);
-  assert.equal(after.previewBuildId, before.previewBuildId);
+  assert.equal(after.publishedBuildId, before.publishedBuildId);
   assert.equal(
     (
       await send('github_app_authorization', {
@@ -1325,14 +1328,14 @@ test('completed builds cannot be cancelled by developers and storage reservation
     where: { id: appId },
   });
   assert.equal(
-    (await request('developer', `/builds/${app.previewBuildId}/cancel`, 'POST'))
+    (await request('developer', `/builds/${app.publishedBuildId}/cancel`, 'POST'))
       .status,
     409,
   );
   assert.equal(
     (
       await prisma.hostedBuild.findUniqueOrThrow({
-        where: { id: app.previewBuildId! },
+        where: { id: app.publishedBuildId! },
       })
     ).status,
     'READY',
@@ -1357,13 +1360,10 @@ test('completed builds cannot be cancelled by developers and storage reservation
   );
 });
 
-test('queued reconciliation from before a policy change cannot activate a build', async () => {
-  const job = await getPrisma().job.findFirstOrThrow({
-    where: { jobType: 'HOSTED_RECONCILE' },
-  });
-  assert.deepEqual(await reconcileJob({ job } as JobExecutionContext), {
-    ignored: true,
-  });
+test('legacy queued workflow reconciliation cannot activate repository content', async () => {
+  const result = await reconcileJob({job:{input:{applicationId:appId,runId:'123'}}} as JobExecutionContext);
+  assert.equal(result.ignored,true);
+  assert.match(String(result.reason),/committed static files/);
 });
 
 test('asymmetric SMART assertions require a valid signature and are accepted only once', async () => {
@@ -1497,7 +1497,7 @@ test('WebSocket upgrades require a trusted Studio origin, an active session and 
         if (!String(error).includes('closed before')) reject(error);
       });
     });
-  assert.equal(await connect(`https://preview-${appId}.user.studio.test`), 403);
+  assert.equal(await connect(`https://app-${appId}.user.studio.test`), 403);
   assert.equal(await connect('http://studio.test', false), 403);
   const ws = await connect('http://studio.test');
   assert.ok(ws instanceof WebSocket);
@@ -1521,7 +1521,7 @@ test('deployment-setting edits preserve callbacks and runtime settings of alread
   });
   await provisionClients(app, cfg);
   const client = await prisma.application.findUniqueOrThrow({
-    where: { clientId: `hosted-${appId}-preview` },
+    where: { clientId: `hosted-${appId}-published` },
   });
   assert.ok(
     Array.isArray(client.redirectUris) &&
@@ -1550,47 +1550,23 @@ test('FHIR Binary content is an attachment and cannot execute as a Studio-origin
   assert.match(await response.text(), /<script>/);
 });
 
-test('branch movement before workflow dispatch starts fails with rebuild guidance without replacing preview', async () => {
-  const prisma = getPrisma();
-  const cfg = loadHostingConfig()!;
-  const app = await prisma.hostedApplication.findUniqueOrThrow({
-    where: { id: appId },
-  });
-  const pending = await prisma.hostedBuild.create({
-    data: {
-      applicationId: appId,
-      branch: 'main',
-      commit: currentHead,
-      generation: app.generation,
-      requestEvent: 'workflow_dispatch',
-    },
-  });
-  await prisma.hostedApplication.update({
-    where: { id: appId },
-    data: { desiredBuildId: pending.id },
-  });
-  activeRun = {
-    ...activeRun,
-    id: 300,
-    run_attempt: 1,
-    event: 'workflow_dispatch',
-    display_title: `Studio preview ${pending.id}`,
-    head_sha: 'b'.repeat(40),
-  };
-  await reconcileRun(app, '300', cfg);
-  const failed = await prisma.hostedBuild.findUniqueOrThrow({
-    where: { id: pending.id },
-  });
-  assert.equal(failed.status, 'FAILED');
-  assert.match(failed.error || '', /branch changed.*Build the current commit/s);
-  assert.equal(
-    (await prisma.hostedApplication.findUniqueOrThrow({ where: { id: appId } }))
-      .previewBuildId,
-    app.previewBuildId,
-  );
+test('legacy workflow imports and retries are rejected without replacing the published deployment', async () => {
+  const prisma=getPrisma();
+  const app=await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}});
+  const build=await prisma.hostedBuild.create({data:{applicationId:appId,branch:'main',commit:currentHead,generation:app.generation,runId:'300',status:'IMPORTING'}});
+  const job=await prisma.job.create({data:{name:'Legacy workflow fixture',jobType:'HOSTED_IMPORT',input:{buildId:build.id},status:'in_progress',lockedBy:'legacy-worker',leaseExpiresAt:new Date(Date.now()+60000)}});
+  await prisma.hostedBuild.update({where:{id:build.id},data:{jobId:job.id}});
+  await prisma.hostedApplication.update({where:{id:appId},data:{desiredBuildId:build.id}});
+  await assert.rejects(importBuild({job,signal:new AbortController().signal} as JobExecutionContext),/Deploy the committed static files again/);
+  const retry=await request('owner',`/builds/${build.id}/retry`,'POST');
+  assert.equal(retry.status,410);
+  assert.match((await retry.json()).error,/committed static files/);
+  const current=await prisma.hostedApplication.findUniqueOrThrow({where:{id:appId}});
+  assert.equal(current.publishedBuildId,app.publishedBuildId);
 });
 
 test('deployment revocation blocks queued imports and is rechecked immediately before activation', async () => {
+  await restoreRegressionConnection('owner');
   const prisma = getPrisma();
   const before = await prisma.hostedApplication.findUniqueOrThrow({
     where: { id: appId },
@@ -1599,7 +1575,7 @@ test('deployment revocation blocks queued imports and is rechecked immediately b
     Object.fromEntries(
       ['index.html', before.launchPath, before.callbackPath].map((name) => [
         name,
-        strToU8('<p>New preview</p>'),
+        strToU8('<p>New deployment</p>'),
       ]),
     ),
   );
@@ -1611,8 +1587,9 @@ test('deployment revocation blocks queued imports and is rechecked immediately b
         branch: 'main',
         commit: currentHead,
         generation: before.generation,
-        runId:
-          phase === 'queued' ? '400' : phase === 'activation' ? '401' : '402',
+        requestEvent: REPOSITORY_DEPLOYMENT_EVENT,
+        artifactSource: {kind:'repository',repositoryId:before.repositoryId,installationId:before.installationId,staticDirectory:[before.projectDirectory,before.outputDirectory].filter(Boolean).join('/') || '.'},
+        launchPath:before.launchPath,callbackPath:before.callbackPath,scope:before.scope,
         status: 'IMPORTING',
       },
     });
@@ -1645,7 +1622,7 @@ test('deployment revocation blocks queued imports and is rechecked immediately b
       conclusion: 'success',
     };
     if (phase === 'queued') await setDeployment('owner', false);
-    else if (phase === 'activation') revokeBeforeActivation = true;
+
     try {
       await assert.rejects(
         importBuild({
@@ -1653,7 +1630,7 @@ test('deployment revocation blocks queued imports and is rechecked immediately b
           prisma,
           signal: new AbortController().signal,
           updateProgress: async (progress: number) => {
-            if (phase === 'finalized' && progress === 80)
+            if ((phase === 'activation' && progress === 50) || (phase === 'finalized' && progress === 80))
               await setDeployment('owner', false);
           },
           isCancelled: async () => false,
@@ -1663,7 +1640,6 @@ test('deployment revocation blocks queued imports and is rechecked immediately b
       const after = await prisma.hostedApplication.findUniqueOrThrow({
         where: { id: appId },
       });
-      assert.equal(after.previewBuildId, before.previewBuildId);
       assert.equal(after.publishedBuildId, before.publishedBuildId);
       assert.equal(
         (
@@ -1825,26 +1801,19 @@ test('registered browser FHIR clients can preflight and forward conditional-writ
   assert.equal(response.headers.get('access-control-allow-credentials'), null);
 });
 
-test('configuration changes retire obsolete builds and allow the next push to import', async () => {
+test('configuration changes retire obsolete requests and permit a new static deployment', async () => {
   const prisma = getPrisma();
   await restoreRegressionConnection('owner');
-  const app = await prisma.hostedApplication.create({ data: { name: 'Superseded build', ownerUserId: users.owner, createdByUserId: users.owner, repositoryId: '42', repository: 'owner/repo', installationId: '7' } });
+  const app = await prisma.hostedApplication.create({ data: { name: 'Superseded deployment', ownerUserId: users.owner, createdByUserId: users.owner, repositoryId: '42', repository: 'owner/repo', installationId: '7' } });
   const pending = await prisma.hostedBuild.create({ data: { applicationId: app.id, commit: '0'.repeat(40), branch: 'main', generation: 0, status: 'BUILDING', runId: '900' } });
   await prisma.hostedApplication.update({ where: { id: app.id }, data: { desiredBuildId: pending.id } });
   const changed = await regressionPost(`/api/hosted-applications/${app.id}`, { description: 'changed' }, 'owner', 'PATCH');
   assert.equal(changed.status, 200, await changed.clone().text());
   assert.equal((await prisma.hostedBuild.findUniqueOrThrow({ where: { id: pending.id } })).status, 'CANCELLED');
-  assert.equal((await prisma.hostedApplication.findUniqueOrThrow({ where: { id: app.id } })).desiredBuildId, null);
-  const previous = activeRun;
-  activeRun = { ...previous, id: 901, run_attempt: 1, head_sha: currentHead, head_branch: 'main', path: `.github/workflows/fhir-studio-${app.id}.yml`, event: 'push', status: 'completed', conclusion: 'success', repository: { id: 42 }, head_repository: { id: 42 } };
-  try {
-    await reconcileRun(app, '901', loadHostingConfig());
-    const current = await prisma.hostedApplication.findUniqueOrThrow({ where: { id: app.id } });
-    const next = await prisma.hostedBuild.findUniqueOrThrow({ where: { id: current.desiredBuildId! } });
-    assert.equal(next.runId, '901');
-    assert.equal(next.status, 'IMPORTING');
-    assert.equal(next.generation, current.generation);
-  } finally { activeRun = previous; }
+  const next=await queueRepositoryDeployment(app.id,users.owner,'main',loadHostingConfig(),{integrationGrantId:null});
+  assert.equal(next.requestEvent,REPOSITORY_DEPLOYMENT_EVENT);
+  assert.equal(next.status,'IMPORTING');
+  assert.equal(next.generation,(await prisma.hostedApplication.findUniqueOrThrow({where:{id:app.id}})).generation);
 });
 
 test('administrator quota overrides allow creation beyond the instance application default', async () => {
@@ -1865,6 +1834,63 @@ test('repository creation defaults an empty owner to the connected GitHub accoun
   const response = await regressionPost('/api/github/repositories', { owner: '', name: 'new-app', private: true });
   assert.equal(response.status, 201, await response.clone().text());
   assert.equal((await response.json()).full_name, 'owner/new-app');
+});
+
+test('read-only repositories publish their pinned static path without workflow setup or dispatch', async () => {
+  const prisma = getPrisma();
+  await restoreRegressionConnection('owner');
+  const originalZip = zip;
+  const originalHead = currentHead;
+  const requestStart = githubRequests.length;
+  repositoryReadOnly = true;
+  repositoryArchiveDirectory = 'public';
+  zip = zipSync({ 'index.html': strToU8('<p>Already built and committed</p>'), 'assets/site.js': strToU8('export const ready=true;') });
+  try {
+    const created = await regressionPost('/api/hosted-applications', { repositoryId: '42', installationId: '7', name: 'Committed static site', staticDirectory: 'public' });
+    assert.equal(created.status, 201, await created.clone().text());
+    const project = await created.json();
+    assert.equal(project.staticDirectory, 'public');
+    assert.equal(project.buildCommand, '');
+    assert.equal(project.nodeVersion, '');
+    assert.deepEqual(project.builds, []);
+    const beforePreviewSave = githubRequests.length;
+    const obsoletePreviewSave = await regressionPost(`/api/hosted-applications/${project.id}/source`, { preview:true,branch:'main',expectedCommit:originalHead,files:[{path:'index.html',content:'do not commit'}] });
+    assert.equal(obsoletePreviewSave.status,410);
+    assert.equal(githubRequests.length,beforePreviewSave,'Obsolete save-and-preview must reject before any GitHub access or source mutation');
+    const obsoleteWorkflow = await regressionPost(`/api/hosted-applications/${project.id}/workflow`, {});
+    assert.equal(obsoleteWorkflow.status, 410);
+    const deployed = await regressionPost(`/api/hosted-applications/${project.id}/deployments`, { branch: 'main' });
+    assert.equal(deployed.status, 202, await deployed.clone().text());
+    const result = await deployed.json();
+    const deployment = await prisma.hostedBuild.findUniqueOrThrow({ where: { id: result.deploymentId } });
+    assert.equal(deployment.requestEvent, REPOSITORY_DEPLOYMENT_EVENT);
+    assert.equal(deployment.commit, originalHead);
+    assert.equal(deployment.runId, null);
+    assert.deepEqual(deployment.artifactSource, {kind:'repository',repositoryId:'42',installationId:'7',staticDirectory:'public'});
+    const job = await prisma.job.update({ where: { id: deployment.jobId! }, data: { status:'in_progress',lockedBy:'static-worker',leaseExpiresAt:new Date(Date.now()+60000) } });
+    currentHead = 'b'.repeat(40);
+    await importBuild({job,prisma,signal:new AbortController().signal,updateProgress:async()=>{},isCancelled:async()=>false} as JobExecutionContext);
+    const activated = await prisma.hostedApplication.findUniqueOrThrow({where:{id:project.id}});
+    const stored = await prisma.hostedBuild.findUniqueOrThrow({where:{id:deployment.id}});
+    assert.equal(activated.publishedBuildId,deployment.id);
+    assert.equal('previewBuildId' in activated,false);
+    assert.equal(stored.status,'READY');
+    assert.equal(await readFile(path.join(stored.directory!,'index.html'),'utf8'),'<p>Already built and committed</p>');
+    assert.ok(archiveRequests.at(-1)?.endsWith(originalHead),'Archive retrieval must use the captured immutable commit, not the moving branch');
+    const relinked=await regressionPost(`/api/hosted-applications/${project.id}/repository`,{repositoryId:'42',installationId:'7'});
+    assert.equal(relinked.status,200,await relinked.clone().text());
+    const requests=githubRequests.slice(requestStart);
+    assert.ok(requests.every(request=>!request.path.includes('/actions/')),'Deploying static assets must not use Actions endpoints');
+    for(const request of requests.filter(request=>request.method!=='GET')){
+      assert.ok(request.path.endsWith('/access_tokens'),`Unexpected repository mutation: ${request.method} ${request.path}`);
+      assert.deepEqual(request.body?.permissions,{contents:'read'});
+    }
+  } finally {
+    currentHead = originalHead;
+    zip = originalZip;
+    repositoryArchiveDirectory = 'dist';
+    repositoryReadOnly = false;
+  }
 });
 
 test('a registered remote JWKS authenticates signed backend requests and rejects substituted jku', async () => {

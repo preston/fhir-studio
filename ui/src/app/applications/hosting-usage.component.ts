@@ -37,13 +37,6 @@ export function hostingBytes(value: string | number): string {
           type="date"
           [(ngModel)]="through"
       /></label>
-      <label class="form-label"
-        >Channel<select class="form-select" [(ngModel)]="channel">
-          <option value="">Both</option>
-          <option value="preview">Preview</option>
-          <option value="published">Published</option>
-        </select></label
-      >
       <button
         class="btn btn-primary mb-2"
         (click)="load()"
@@ -80,10 +73,9 @@ export function hostingBytes(value: string | number): string {
       </div>
       @if (r.visitors; as visitors) {
         <p class="text-muted small">
-          Estimated browsers: {{ visitors.preview | number }} preview /
-          {{ visitors.published | number }} published. Estimates are separate
-          per hostname, use a 90-day cookie, and have approximately 3.3%
-          standard error. Cookies blocked or cleared can affect coverage.
+          Estimated browsers: {{ visitors.published | number }}. Estimates use a
+          90-day cookie, and have approximately 3.3% standard error. Cookies
+          blocked or cleared can affect coverage.
         </p>
       }
       <label class="form-label"
@@ -145,7 +137,6 @@ export class HostingUsageComponent implements OnChanges {
   );
   from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   through = new Date().toISOString().slice(0, 10);
-  channel = '';
   metric: 'requests' | 'documents' | 'bytes' | 'launches' | 'status5xx' =
     'requests';
   private requestVersion = 0;
@@ -184,7 +175,6 @@ export class HostingUsageComponent implements OnChanges {
     const params = new URLSearchParams({
       from: `${this.from}T00:00:00Z`,
       to: Number.isFinite(+until) ? until.toISOString() : '',
-      ...(this.channel ? { channel: this.channel } : {}),
       ...(this.administrative && this.applicationId
         ? { applicationId: this.applicationId }
         : {}),
@@ -218,17 +208,16 @@ export class HostingUsageComponent implements OnChanges {
     const points = this.report()?.points ?? [];
     this.chart.set({
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Preview', 'Published'] },
       xAxis: { type: 'time' },
       yAxis: { type: 'value' },
-      series: ['preview', 'published'].map((channel) => ({
-        type: 'line' as const,
-        name: channel === 'preview' ? 'Preview' : 'Published',
-        showSymbol: false,
-        data: points
-          .filter((p) => p.channel === channel)
-          .map((p) => [p.hour, Number(p[this.metric])]),
-      })),
+      series: [
+        {
+          type: 'line' as const,
+          name: 'Traffic',
+          showSymbol: false,
+          data: points.map((p) => [p.hour, Number(p[this.metric])]),
+        },
+      ],
     });
   }
 }

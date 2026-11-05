@@ -1,6 +1,9 @@
 // Author: Preston Lee
 
-import { deploymentProfileErrors, type StaticSmartRuntimeContract } from '../integrations/catalog-contract.js';
+import {
+  deploymentProfileErrors,
+  type StaticSmartRuntimeContract,
+} from '../integrations/catalog-contract.js';
 import { performHostingAction } from './operations.js';
 import { assertOwnerQuota, lockHostingAllocation } from './quotas.js';
 import crypto from 'node:crypto';
@@ -34,15 +37,19 @@ import {
 import type { GitHubRepo } from './github.js';
 import {
   commitFiles,
-  copyTemplateSnapshot,
-  managedWorkflow,
   readSource,
   sourceSnapshot,
-  workflowPath,
-  configuredStaticDirectory,
+  normalizeStaticDirectory,
+  repositoryStaticDirectory,
 } from './source.js';
-import { curatedTemplates, templateFiles } from './templates.js';
-import { provisionClients, queueImport, reconcileRun, retireSupersededBuilds } from './builds.js';
+import { curatedTemplates } from './templates.js';
+import {
+  provisionClients,
+  queueImport,
+  queueRepositoryDeployment,
+  REPOSITORY_DEPLOYMENT_EVENT,
+  retireSupersededBuilds,
+} from './builds.js';
 import { cancelJob } from '../jobs/queue.js';
 import { safeAssetPath } from './filesystem.js';
 import { isHostingEnabled } from '../env.js';
@@ -96,9 +103,16 @@ export function hostingErrorHandler(
 export function createHostingRouter() {
   const router = express.Router();
   if (!isHostingEnabled()) {
-    router.use(['/api/github', '/api/hosted-applications', '/api/application-templates'], (_req, res) => {
-      res.status(503).json({ error: 'Application hosting is not enabled on this instance.' });
-    });
+    router.use(
+      ['/api/github', '/api/hosted-applications', '/api/application-templates'],
+      (_req, res) => {
+        res
+          .status(503)
+          .json({
+            error: 'Application hosting is not enabled on this instance.',
+          });
+      },
+    );
     return router;
   }
   const config = loadHostingConfig();
@@ -129,7 +143,8 @@ export function createHostingRouter() {
   const rateCounters = new Map<string, number>();
   setInterval(() => rateCounters.clear(), 60_000).unref();
   router.use(['/api/github', '/api/hosted-applications'], (req, res, next) => {
-    const builds = req.method === 'POST' && /\/(builds|sync)$/.test(req.path);
+    const builds =
+      req.method === 'POST' && /\/(builds|deployments|sync)$/.test(req.path);
     const key = `${req.sessionAuth!.userId}:${builds ? 'build' : 'request'}`;
     const count = (rateCounters.get(key) || 0) + 1;
     rateCounters.set(key, count);
@@ -151,7 +166,10 @@ export function createHostingRouter() {
     maxAge: 600_000,
   };
   router.get('/api/github/connection', async (req, res) => {
-    if (!cfg.appId) {res.json({status:'DISCONNECTED'});return;}
+    if (!cfg.appId) {
+      res.json({ status: 'DISCONNECTED' });
+      return;
+    }
     const row = await prisma.gitHubConnection.findUnique({
       where: { userId: req.sessionAuth!.userId },
     });
@@ -390,98 +408,13 @@ export function createHostingRouter() {
     );
     res.status(201).json(repo);
   });
-  router.get('/api/github/build-defaults', async (req, res) => {
-    const repositoryId = String(req.query.repositoryId || '');
-    const projectDirectory = repositoryPath(
-      String(req.query.projectDirectory || ''),
-      true,
-    );
-    const { token, base } = await repositoryForUser(
-      req.sessionAuth!.userId,
-      repositoryId,
-      cfg,
-    );
-    const entries = await github<Array<{ name: string }>>(
-      token,
-      `${base}/contents/${projectDirectory.split('/').map(encodeURIComponent).join('/')}`,
-    );
-    if (
-      !Array.isArray(entries) ||
-      !entries.some((file) => file.name === 'package.json')
-    )
-      throw new HostingError(
-        400,
-        'No package.json found. Confirm the project directory or enter a static build command manually.',
-      );
-    const manifest = JSON.parse(
-      await readSource(
-        req.sessionAuth!.userId,
-        repositoryId,
-        req.query.branch ? String(req.query.branch) : 'HEAD',
-        [projectDirectory, 'package.json'].filter(Boolean).join('/'),
-        cfg,
-      ),
-    ) as {
-      scripts?: Record<string, string>;
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-      engines?: { node?: string };
-    };
-    const dependencies = {
-      ...manifest.dependencies,
-      ...manifest.devDependencies,
-    };
-    const configuredOutput = configuredStaticDirectory(manifest);
-    let outputDirectory = configuredOutput || (dependencies['react-scripts']
-      ? 'build'
-      : dependencies.next
-        ? 'out'
-        : 'dist');
-    if (!configuredOutput && dependencies['@angular/core']) {
-      const angular = JSON.parse(
-        await readSource(
-          req.sessionAuth!.userId,
-          repositoryId,
-          req.query.branch ? String(req.query.branch) : 'HEAD',
-          [projectDirectory, 'angular.json'].filter(Boolean).join('/'),
-          cfg,
-        ),
-      ) as {
-        projects?: Record<
-          string,
-          {
-            architect?: {
-              build?: {
-                builder?: string;
-                options?: {
-                  outputPath?: string | { base: string; browser?: string };
-                };
-              };
-            };
-          }
-        >;
-      };
-      const build = Object.values(angular.projects || {})[0]?.architect?.build;
-      const output = build?.options?.outputPath;
-      outputDirectory =
-        typeof output === 'object'
-          ? [output.base, output.browser ?? 'browser'].filter(Boolean).join('/')
-          : `${output || 'dist'}/${build?.builder?.endsWith(':browser') ? '' : 'browser'}`.replace(
-              /\/$/,
-              '',
-            );
-    }
-    res.json({
-      projectDirectory,
-      buildCommand: `${entries.some((file) => file.name === 'package-lock.json') ? 'npm ci' : 'npm install --ignore-scripts'} && npm run build`,
-      outputDirectory,
-      nodeVersion: manifest.engines?.node?.match(/\d{2}/)?.[0] || '26',
-      note: !manifest.scripts?.build
-        ? 'This package has no build script. Enter the build command before creating the application.'
-        : dependencies.next
-          ? 'Next.js must use static export. Server-side rendering and API routes cannot be hosted.'
-          : 'Review and confirm these detected settings.',
-    });
+  router.get('/api/github/build-defaults', (_req, res) => {
+    res
+      .status(410)
+      .json({
+        error:
+          'Studio deploys committed static assets. Specify a staticDirectory; build commands and runtimes are not used.',
+      });
   });
   const include = {
     collaborators: {
@@ -491,22 +424,34 @@ export function createHostingRouter() {
   };
   type Project = Awaited<ReturnType<typeof applicationAccess>>['app'];
   const serialize = async (app: Project, req: Request) => {
-    const missingActive=[app.previewBuildId,app.publishedBuildId,app.desiredBuildId].filter((id):id is string=>!!id&&!app.builds.some(build=>build.id===id));
-    if(missingActive.length)app.builds.push(...await prisma.hostedBuild.findMany({where:{applicationId:app.id,id:{in:missingActive}}}));
-    return ({
-    ...app,
-    builds: app.builds.map(
-      ({ directory: _dir, byteSize: _size, ...build }) => build,
-    ),
-    previewUrl: `${appOrigin(cfg, app.id, 'preview')}/${app.builds.find((build) => build.id === app.previewBuildId)?.launchPath || app.launchPath}`,
-    publishedUrl: `${appOrigin(cfg, app.id, 'published')}/${app.builds.find((build) => build.id === app.publishedBuildId)?.launchPath || app.launchPath}`,
-    capabilities: capabilities(
-      app.ownerUserId,
-      req.sessionAuth!.userId,
-      app.collaborators.find((c) => c.userId === req.sessionAuth!.userId)?.role,
-      req.effectivePermissions?.global_manage,
-    ),
-  });
+    const missingActive = [app.publishedBuildId, app.desiredBuildId].filter(
+      (id): id is string =>
+        !!id && !app.builds.some((build) => build.id === id),
+    );
+    if (missingActive.length)
+      app.builds.push(
+        ...(await prisma.hostedBuild.findMany({
+          where: { applicationId: app.id, id: { in: missingActive } },
+        })),
+      );
+    return {
+      ...app,
+      staticDirectory:
+        app.sourceKind === 'repository'
+          ? repositoryStaticDirectory(app)
+          : undefined,
+      builds: app.builds.map(
+        ({ directory: _dir, byteSize: _size, ...build }) => build,
+      ),
+      publishedUrl: `${appOrigin(cfg, app.id)}/${app.builds.find((build) => build.id === app.publishedBuildId)?.launchPath || app.launchPath}`,
+      capabilities: capabilities(
+        app.ownerUserId,
+        req.sessionAuth!.userId,
+        app.collaborators.find((c) => c.userId === req.sessionAuth!.userId)
+          ?.role,
+        req.effectivePermissions?.global_manage,
+      ),
+    };
   };
   router.get('/api/hosted-applications', async (req, res) => {
     const apps = await prisma.hostedApplication.findMany({
@@ -527,7 +472,9 @@ export function createHostingRouter() {
       include,
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ applications: await Promise.all(apps.map((app) => serialize(app, req))) });
+    res.json({
+      applications: await Promise.all(apps.map((app) => serialize(app, req))),
+    });
   });
   router.get('/api/application-templates', async (req, res) => {
     const apps = await prisma.hostedApplication.findMany({
@@ -570,19 +517,23 @@ export function createHostingRouter() {
     const installationId = text(body, 'installationId');
     if (!/^\d+$/.test(repositoryId) || !/^\d+$/.test(installationId))
       throw new HostingError(400, 'Select a repository and installation.');
-    const { token, repo, base } = await repositoryForUser(
-      userId,
-      repositoryId,
-      cfg,
-      true,
-    );
+    if (text(body, 'starter'))
+      throw new HostingError(
+        410,
+        'Choose an existing repository containing ready-to-serve static assets.',
+      );
+    const { token, repo } = await repositoryForUser(userId, repositoryId, cfg);
     let installed = false;
     for (let page = 1; page <= 100; page++) {
       const result = await github<{ repositories: GitHubRepo[] }>(
         token,
         `/user/installations/${installationId}/repositories?per_page=100&page=${page}`,
       );
-      if (result.repositories.some((r) => String(r.id) === repositoryId)) {
+      if (
+        result.repositories.some(
+          (repository) => String(repository.id) === repositoryId,
+        )
+      ) {
         installed = true;
         break;
       }
@@ -594,123 +545,23 @@ export function createHostingRouter() {
         'Add this repository to the Studio GitHub App installation first.',
         'repository-access',
       );
-    const starter = text(body, 'starter');
-    const branch = branchName(text(body, 'branch', repo.default_branch));
-    let originCommit: string | null = null;
-    let inherited: Record<string, string> = {};
-    if (starter) {
-      const head = await github<{ sha: string }>(
-        token,
-        `${base}/commits/${encodeURIComponent(branch)}`,
-      );
-      const existing = await github<{
-        tree: Array<{ path: string; type: string }>;
-      }>(token, `${base}/git/trees/${head.sha}?recursive=1`);
-      if (
-        existing.tree.some(
-          (file) =>
-            file.type === 'blob' &&
-            !/^(README(?:\.md)?|LICENSE(?:\.md)?|\.gitignore)$/i.test(
-              file.path,
-            ),
-        )
-      )
-        throw new HostingError(
-          409,
-          'Create templates in a new, empty repository. Existing project files will not be overwritten.',
-        );
-      if (curatedTemplates.some((t) => t.id === starter))
-        await commitFiles(
-          token,
-          base,
-          branch,
-          head.sha,
-          templateFiles(starter),
-          'Create application from Studio template',
-        );
-      else {
-        const donor = await prisma.hostedApplication.findFirst({
-          where: {
-            id: starter,
-            isTemplate: true,
-            deletedAt: null,
-            suspended: false,
-            OR: [
-              { templateVisibility: 'PUBLIC' },
-              { ownerUserId: userId },
-              { collaborators: { some: { userId } } },
-            ],
-          },
-        });
-        if (!donor?.templateCommit)
-          throw new HostingError(404, 'Template not available.');
-        originCommit = donor.templateCommit;
-        inherited = {
-          projectDirectory: donor.projectDirectory,
-          buildCommand: donor.buildCommand,
-          outputDirectory: donor.outputDirectory,
-          nodeVersion: donor.nodeVersion,
-          launchPath: donor.launchPath,
-          callbackPath: donor.callbackPath,
-          scope: donor.scope,
-        };
-        await copyTemplateSnapshot(
-          userId,
-          donor.repositoryId,
-          donor.templateCommit,
-          token,
-          base,
-          branch,
-          head.sha,
-          cfg,
-        );
-      }
-    }
-    const settings = {
-      projectDirectory: repositoryPath(
-        text(body, 'projectDirectory', inherited.projectDirectory || ''),
-        true,
-      ),
-      buildCommand: text(
-        body,
-        'buildCommand',
-        inherited.buildCommand ||
-          (starter
-            ? 'npm install --ignore-scripts && npm run build'
-            : 'npm ci && npm run build'),
-      ),
-      outputDirectory: repositoryPath(
-        text(
-          body,
-          'outputDirectory',
-          inherited.outputDirectory ||
-            (starter === 'angular' ? 'dist/browser' : 'dist'),
-        ),
-      ),
-      nodeVersion: text(body, 'nodeVersion', inherited.nodeVersion || '26'),
-      launchPath: safeAssetPath(
-        text(body, 'launchPath', inherited.launchPath || 'index.html'),
-      ),
-      callbackPath: safeAssetPath(
-        text(body, 'callbackPath', inherited.callbackPath || 'index.html'),
-      ),
-      scope: text(
-        body,
-        'scope',
-        inherited.scope || 'launch launch/patient openid fhirUser patient/*.rs',
-      ),
-    };
-    if (
-      !settings.buildCommand ||
-      !/^\d{1,2}(?:\.\d{1,2})?$/.test(settings.nodeVersion) ||
-      settings.scope.includes('system/') ||
-      settings.scope.includes('?')
-    )
+    const staticDirectory = normalizeStaticDirectory(
+      body.staticDirectory === undefined
+        ? [text(body, 'projectDirectory'), text(body, 'outputDirectory', '.')]
+            .filter((part) => part && part !== '.')
+            .join('/')
+        : text(body, 'staticDirectory'),
+    );
+    const scope = text(
+      body,
+      'scope',
+      'launch launch/patient openid fhirUser patient/*.rs',
+    );
+    if (scope.includes('system/') || scope.includes('?'))
       throw new HostingError(
         400,
-        'Confirm a build command, Node runtime, and supported public-client scopes.',
+        'Hosted public clients do not support system or filtered scopes.',
       );
-    managedWorkflow({ id: 'validation', ...settings });
     const app = await prisma.$transaction(async (tx) => {
       await lockHostingAllocation(tx, [userId]);
       await assertDeploymentPermission(tx, userId);
@@ -723,49 +574,30 @@ export function createHostingRouter() {
           repositoryId,
           repository: repo.full_name,
           installationId,
-          branch,
-          ...settings,
-          originatingCommit: originCommit,
+          branch: branchName(text(body, 'branch', repo.default_branch)),
+          projectDirectory: '',
+          outputDirectory: staticDirectory,
+          buildCommand: '',
+          nodeVersion: '',
+          launchPath: safeAssetPath(text(body, 'launchPath', 'index.html')),
+          callbackPath: safeAssetPath(text(body, 'callbackPath', 'index.html')),
+          scope,
         },
       });
     });
     await provisionClients(app, cfg);
     await audit(app.id, userId, 'CREATED');
-    try {
-      const head = await github<{ sha: string }>(
-        token,
-        `${base}/commits/${encodeURIComponent(branch)}`,
+    res
+      .status(201)
+      .json(
+        await serialize(
+          await prisma.hostedApplication.findUniqueOrThrow({
+            where: { id: app.id },
+            include,
+          }),
+          req,
+        ),
       );
-      await commitFiles(
-        token,
-        base,
-        branch,
-        head.sha,
-        [{ path: workflowPath(app.id), content: managedWorkflow(app) }],
-        'Install FHIR Studio build workflow',
-      );
-    } catch {
-      await prisma.hostedBuild.create({
-        data: {
-          applicationId: app.id,
-          branch,
-          commit: '',
-          generation: app.generation,
-          status: 'FAILED',
-          error:
-            'Workflow installation needs a writable branch. Use Install / repair workflow, then merge it into the default branch on GitHub.',
-        },
-      });
-    }
-    res.status(201).json(
-      await serialize(
-        await prisma.hostedApplication.findUniqueOrThrow({
-          where: { id: app.id },
-          include,
-        }),
-        req,
-      ),
-    );
   });
   router.get('/api/hosted-applications/:id', async (req, res) => {
     const { app } = await applicationAccess(req, String(req.params.id));
@@ -773,38 +605,45 @@ export function createHostingRouter() {
   });
   router.get('/api/hosted-applications/:id/health', async (req, res) => {
     const { app, userId } = await applicationAccess(req, String(req.params.id));
-    if(app.sourceKind==='artifact'){
-      const preview=app.builds.find(build=>build.id===app.previewBuildId);
-      res.json({state:preview?.status==='READY'?'READY':'PREVIEW_REQUIRED',message:preview?.status==='READY'?'Validated catalog content is ready.':'Create or retry the catalog preview in Skycapp.'});return;
+    if (app.sourceKind === 'artifact') {
+      const deployment = app.builds.find(
+        (build) => build.id === app.publishedBuildId,
+      );
+      res.json({
+        state: deployment?.status === 'READY' ? 'READY' : 'DEPLOYMENT_REQUIRED',
+        message:
+          deployment?.status === 'READY'
+            ? 'Validated catalog content is ready.'
+            : 'Create or retry the catalog deployment in your catalog platform.',
+      });
+      return;
     }
-    const { token, repo, base } = await repositoryForUser(
+    const { token, base } = await repositoryForUser(
       userId,
       app.repositoryId,
       cfg,
     );
     await installationToken(app.installationId, app.repositoryId, cfg);
-    try {
-      const workflow = await github<{ state: string; html_url: string }>(
-        token,
-        `${base}/actions/workflows/${encodeURIComponent(workflowPath(app.id))}`,
+    const head = await github<{ sha: string }>(
+      token,
+      `${base}/commits/${encodeURIComponent(app.branch)}`,
+    );
+    const staticDirectory = repositoryStaticDirectory(app);
+    const entries = await github<unknown>(
+      token,
+      `${base}/contents${staticDirectory === '.' ? '' : `/${staticDirectory.split('/').map(encodeURIComponent).join('/')}`}?ref=${encodeURIComponent(head.sha)}`,
+    );
+    if (!Array.isArray(entries))
+      throw new HostingError(
+        400,
+        'Static assets path must reference a repository directory.',
       );
-      res.json({
-        state: workflow.state === 'active' ? 'READY' : 'ACTIONS_DISABLED',
-        message:
-          workflow.state === 'active'
-            ? `GitHub access and managed workflow are ready. Deployment branch: ${app.branch}. Default branch: ${repo.default_branch}.`
-            : 'Enable the managed workflow in GitHub Actions, then rebuild.',
-        url: workflow.html_url,
-      });
-    } catch (error) {
-      if (error instanceof HostingError && error.status === 409)
-        res.json({
-          state: 'WORKFLOW_SETUP_REQUIRED',
-          message:
-            'Install or repair the workflow on a writable branch and merge it to the default branch on GitHub. Check that Actions is enabled for this repository.',
-        });
-      else throw error;
-    }
+    res.json({
+      state: 'READY',
+      message: `Repository access is ready. Static assets: ${staticDirectory} on ${app.branch}.`,
+      commit: head.sha,
+      staticDirectory,
+    });
   });
   router.get('/api/hosted-applications/:id/source', async (req, res) => {
     const { app, userId } = await applicationAccess(req, String(req.params.id));
@@ -828,6 +667,11 @@ export function createHostingRouter() {
       'develop',
     );
     const body = req.body as Body;
+    if (body.preview === true)
+      throw new HostingError(
+        410,
+        'Save source changes separately, then deploy the static assets from committed static files.',
+      );
     const { token, base } = await repositoryForUser(
       userId,
       app.repositoryId,
@@ -843,59 +687,10 @@ export function createHostingRouter() {
       filesFrom(body),
       text(body, 'message', 'Edit application in FHIR Studio'),
     );
-    if (body.preview === true)
-      await prisma.$transaction(async (tx) => {
-        await lockHostingAllocation(tx, [app.ownerUserId, userId]);
-        await lockApplication(tx, app.id);
-        await assertDeploymentPermission(tx, userId);
-        const current = await tx.hostedApplication.findUniqueOrThrow({
-          where: { id: app.id },
-        });
-        if (
-          current.repositoryId !== app.repositoryId ||
-          current.generation !== app.generation
-        )
-          throw new HostingError(
-            409,
-            `Saved ${commit} to GitHub, but the application configuration changed. Refresh before requesting a preview.`,
-            'conflict',
-          );
-        await assertCurrentCapability(
-          tx,
-          app.id,
-          userId,
-          'develop',
-          req.effectivePermissions?.global_manage,
-        );
-        // A fast webhook may already have bound the push to this exact commit.
-        const matched = await tx.hostedBuild.findFirst({
-          where: {
-            applicationId: app.id,
-            branch,
-            commit,
-            generation: current.generation,
-            status: { notIn: ['CANCELLED', 'FAILED'] },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-        const row =
-          matched ||
-          (await tx.hostedBuild.create({
-            data: {
-              applicationId: app.id,
-              branch,
-              commit,
-              generation: current.generation,
-              requestedByUserId: userId,
-              requestEvent: 'push',
-            },
-          }));
-        await tx.hostedApplication.update({
-          where: { id: app.id },
-          data: { desiredBuildId: row.id, lastDeveloperActivityAt: new Date() },
-        });
-      });
-    await prisma.hostedApplication.update({ where: { id: app.id }, data: { lastDeveloperActivityAt: new Date() } });
+    await prisma.hostedApplication.update({
+      where: { id: app.id },
+      data: { lastDeveloperActivityAt: new Date() },
+    });
     await audit(app.id, userId, 'SOURCE_SAVED');
     res.json({ commit });
   });
@@ -919,34 +714,13 @@ export function createHostingRouter() {
     res.json({ created: true });
   });
   router.post('/api/hosted-applications/:id/workflow', async (req, res) => {
-    const { app, userId } = await applicationAccess(
-      req,
-      String(req.params.id),
-      'publish',
-    );
-    const { token, base } = await repositoryForUser(
-      userId,
-      app.repositoryId,
-      cfg,
-      true,
-    );
-    const branch = branchName(text(req.body as Body, 'branch', app.branch));
-    const head = await github<{ sha: string }>(
-      token,
-      `${base}/commits/${encodeURIComponent(branch)}`,
-    );
-    await commitFiles(
-      token,
-      base,
-      branch,
-      head.sha,
-      [{ path: workflowPath(app.id), content: managedWorkflow(app) }],
-      'Install or repair FHIR Studio build workflow',
-    );
-    res.json({
-      installed: true,
-      mergeUrl: `https://github.com/${app.repository}/compare/${branch}`,
-    });
+    await applicationAccess(req, String(req.params.id), 'publish');
+    res
+      .status(410)
+      .json({
+        error:
+          'Managed build workflows are no longer used. Deploy the committed static assets directory instead.',
+      });
   });
   router.post('/api/hosted-applications/:id/repository', async (req, res) => {
     const { app, userId } = await applicationAccess(
@@ -959,7 +733,7 @@ export function createHostingRouter() {
     const installationId = text(body, 'installationId');
     if (!/^\d+$/.test(repositoryId) || !/^\d+$/.test(installationId))
       throw new HostingError(400, 'Invalid repository or installation ID.');
-    const { repo } = await repositoryForUser(userId, repositoryId, cfg, true);
+    const { repo } = await repositoryForUser(userId, repositoryId, cfg);
     await installationToken(installationId, repositoryId, cfg);
     await prisma.$transaction(async (tx) => {
       await lockApplication(tx, app.id);
@@ -971,12 +745,10 @@ export function createHostingRouter() {
           repository: repo.full_name,
           installationId,
           branch: repo.default_branch,
-          previewBuildId: null,
           desiredBuildId: null,
           templateCommit: null,
           isTemplate: false,
-          autoPublish: false,
-          publishingPaused: true,
+
           generation: { increment: 1 },
           lastDeveloperActivityAt: new Date(),
           policyUpdatedAt: new Date(),
@@ -992,89 +764,47 @@ export function createHostingRouter() {
       throw new HostingError(403, 'Platform administration required.');
     const suspended = (req.body as Body).suspended !== false;
     const reason = text(req.body as Body, 'reason').trim();
-    if (!reason || reason.length > 2000) throw new HostingError(400, 'An administrative reason is required (1–2000 characters).');
-    await performHostingAction(app.id, { ids: [app.id], action: suspended ? 'suspend' : 'resume', reason, expectedGenerations: { [app.id]: app.generation } }, userId);
+    if (!reason || reason.length > 2000)
+      throw new HostingError(
+        400,
+        'An administrative reason is required (1–2000 characters).',
+      );
+    await performHostingAction(
+      app.id,
+      {
+        ids: [app.id],
+        action: suspended ? 'suspend' : 'resume',
+        reason,
+        expectedGenerations: { [app.id]: app.generation },
+      },
+      userId,
+    );
     res.json({ suspended });
   });
-  router.post('/api/hosted-applications/:id/builds', async (req, res) => {
-    const { app, userId } = await applicationAccess(
-      req,
-      String(req.params.id),
-      'develop',
-    );
-    if (app.suspended) throw new HostingError(409, 'Application is suspended.');
-    const { token, base } = await repositoryForUser(
-      userId,
-      app.repositoryId,
-      cfg,
-      true,
-    );
-    const branch = branchName(text(req.body as Body, 'branch', app.branch));
-    const head = await github<{ sha: string }>(
-      token,
-      `${base}/commits/${encodeURIComponent(branch)}`,
-    );
-    const build = await prisma.$transaction(async (tx) => {
-      await lockApplication(tx, app.id);
-      await assertCurrentCapability(
-        tx,
+  router.post(
+    [
+      '/api/hosted-applications/:id/deployments',
+      '/api/hosted-applications/:id/builds',
+    ],
+    async (req, res) => {
+      const { app, userId } = await applicationAccess(
+        req,
+        String(req.params.id),
+        'publish',
+      );
+      const branch = branchName(text(req.body as Body, 'branch', app.branch));
+      const deployment = await queueRepositoryDeployment(
         app.id,
         userId,
-        'develop',
-        req.effectivePermissions?.global_manage,
+        branch,
+        cfg,
+        { integrationGrantId: null },
       );
-      const current = await tx.hostedApplication.findUniqueOrThrow({
-        where: { id: app.id },
-      });
-      if (
-        current.repositoryId !== app.repositoryId ||
-        current.generation !== app.generation
-      )
-        throw new HostingError(
-          409,
-          'Application configuration changed. Refresh before building.',
-        );
-      const row = await tx.hostedBuild.create({
-        data: {
-          applicationId: app.id,
-          branch,
-          commit: head.sha,
-          generation: current.generation,
-          runtimeContract: current.runtimeContract || undefined,
-          publicConfiguration: current.publicConfiguration || {},
-          integrationGrantId: null,
-          requestedByUserId: userId,
-          requestEvent: 'workflow_dispatch',
-        },
-      });
-      await tx.hostedApplication.update({
-        where: { id: app.id },
-        data: { desiredBuildId: row.id, lastDeveloperActivityAt: new Date() },
-      });
-      return row;
-    });
-    try {
-      await github(
-        token,
-        `${base}/actions/workflows/${encodeURIComponent(workflowPath(app.id))}/dispatches`,
-        'POST',
-        { ref: branch, inputs: { studio_request_id: build.id } },
-      );
-    } catch (error) {
-      await prisma.hostedBuild.update({
-        where: { id: build.id },
-        data: {
-          status: 'FAILED',
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Workflow dispatch failed. Merge the workflow to the default branch.',
-        },
-      });
-      throw error;
-    }
-    res.status(202).json({ buildId: build.id });
-  });
+      res
+        .status(202)
+        .json({ deploymentId: deployment.id, buildId: deployment.id });
+    },
+  );
   router.post(
     '/api/hosted-applications/:id/builds/:buildId/cancel',
     async (req, res) => {
@@ -1090,7 +820,6 @@ export function createHostingRouter() {
         userId,
         app.repositoryId,
         cfg,
-        true,
       );
       await prisma.$transaction(async (tx) => {
         await lockApplication(tx, app.id);
@@ -1105,7 +834,7 @@ export function createHostingRouter() {
           data: {
             desiredBuildId: null,
             generation: { increment: 1 },
-          lastDeveloperActivityAt: new Date(),
+            lastDeveloperActivityAt: new Date(),
             policyUpdatedAt: new Date(),
           },
         });
@@ -1136,20 +865,32 @@ export function createHostingRouter() {
       const { app, userId } = await applicationAccess(
         req,
         String(req.params.id),
-        'develop',
+        'publish',
       );
-      if(app.sourceKind==='repository') await repositoryForUser(userId, app.repositoryId, cfg, true);
       const build = await prisma.hostedBuild.findFirstOrThrow({
         where: { id: String(req.params.buildId), applicationId: app.id },
       });
       if (
+        app.sourceKind === 'repository' &&
+        build.requestEvent !== REPOSITORY_DEPLOYMENT_EVENT
+      )
+        throw new HostingError(
+          410,
+          'This deployment workflow is no longer supported. Deploy the committed static files again.',
+        );
+      if (app.sourceKind === 'repository')
+        await repositoryForUser(userId, app.repositoryId, cfg);
+      if (
         app.desiredBuildId !== build.id ||
         build.generation !== app.generation ||
-        !build.runId ||
+        (!build.runId && build.requestEvent !== REPOSITORY_DEPLOYMENT_EVENT) ||
         !build.jobId ||
         build.status !== 'FAILED'
       )
-        throw new HostingError(409, 'Build the current source again.');
+        throw new HostingError(
+          409,
+          'Deploy the committed static assets again.',
+        );
       await queueImport(build);
       res.status(202).json({ queued: true });
     },
@@ -1164,15 +905,17 @@ export function createHostingRouter() {
       userId,
       app.repositoryId,
       cfg,
-      true,
     );
-    const runs = await github<{ workflow_runs: Array<{ id: number }> }>(
+    await installationToken(app.installationId, app.repositoryId, cfg);
+    const head = await github<{ sha: string }>(
       token,
-      `${base}/actions/workflows/${encodeURIComponent(workflowPath(app.id))}/runs?per_page=10`,
+      `${base}/commits/${encodeURIComponent(app.branch)}`,
     );
-    for (const run of runs.workflow_runs.reverse())
-      await reconcileRun(app, String(run.id), cfg);
-    res.json({ synchronized: true });
+    res.json({
+      synchronized: true,
+      commit: head.sha,
+      staticDirectory: repositoryStaticDirectory(app),
+    });
   });
   router.patch('/api/hosted-applications/:id', async (req, res) => {
     const { app, userId, rights } = await applicationAccess(
@@ -1189,17 +932,35 @@ export function createHostingRouter() {
         403,
         'Only platform administrators can suspend applications.',
       );
-    if (body.suspended !== undefined) throw new HostingError(400, 'Use the suspension endpoint with an administrative reason.');
-    if (app.sourceKind==='artifact') throw new HostingError(409,'Use the catalog runtime-configuration controls to update artifact applications.');
+    if (body.suspended !== undefined)
+      throw new HostingError(
+        400,
+        'Use the suspension endpoint with an administrative reason.',
+      );
+    if (app.sourceKind === 'artifact')
+      throw new HostingError(
+        409,
+        'Use the catalog runtime-configuration controls to update artifact applications.',
+      );
     const { repo } = await repositoryForUser(userId, app.repositoryId, cfg);
     if (body.templateVisibility === 'PUBLIC' && repo.private)
       throw new HostingError(
         400,
         'Public templates require a public GitHub repository.',
       );
-    const nodeVersion = text(body, 'nodeVersion', app.nodeVersion);
-    if (!/^\d{1,2}(?:\.\d{1,2})?$/.test(nodeVersion))
-      throw new HostingError(400, 'Invalid Node runtime version.');
+    const staticDirectory = normalizeStaticDirectory(
+      body.staticDirectory === undefined
+        ? body.projectDirectory !== undefined ||
+          body.outputDirectory !== undefined
+          ? [
+              text(body, 'projectDirectory', app.projectDirectory),
+              text(body, 'outputDirectory', app.outputDirectory),
+            ]
+              .filter((part) => part && part !== '.')
+              .join('/')
+          : repositoryStaticDirectory(app)
+        : text(body, 'staticDirectory'),
+    );
     safeAssetPath(text(body, 'launchPath', app.launchPath));
     safeAssetPath(text(body, 'callbackPath', app.callbackPath));
     if (
@@ -1210,23 +971,31 @@ export function createHostingRouter() {
         400,
         'Hosted public clients do not support system or filtered scopes.',
       );
-    managedWorkflow({
-      id: app.id,
-      nodeVersion,
-      projectDirectory: text(body, 'projectDirectory', app.projectDirectory),
-      outputDirectory: text(body, 'outputDirectory', app.outputDirectory),
-      buildCommand: text(body, 'buildCommand', app.buildCommand),
-    });
-    const existingContract = app.runtimeContract as unknown as StaticSmartRuntimeContract | null;
-    const nextContract = existingContract ? {
-      ...existingContract,
-      launch_path: text(body, 'launchPath', app.launchPath),
-      callback_paths: [text(body, 'callbackPath', app.callbackPath), ...existingContract.callback_paths.slice(1)].filter((path,index,all)=>all.indexOf(path)===index),
-      scopes: text(body, 'scope', app.scope).split(/\s+/).filter(Boolean),
-    } : null;
-    if(nextContract){
-      const errors=deploymentProfileErrors({name:app.name,artifact_id:'installed-content',runtime_contract:nextContract,source_project:null});
-      if(Object.keys(errors).length)throw new HostingError(400,'Catalog applications require static HTML callbacks and supported SMART scopes.');
+    const existingContract =
+      app.runtimeContract as unknown as StaticSmartRuntimeContract | null;
+    const nextContract = existingContract
+      ? {
+          ...existingContract,
+          launch_path: text(body, 'launchPath', app.launchPath),
+          callback_paths: [
+            text(body, 'callbackPath', app.callbackPath),
+            ...existingContract.callback_paths.slice(1),
+          ].filter((path, index, all) => all.indexOf(path) === index),
+          scopes: text(body, 'scope', app.scope).split(/\s+/).filter(Boolean),
+        }
+      : null;
+    if (nextContract) {
+      const errors = deploymentProfileErrors({
+        name: app.name,
+        artifact_id: 'installed-content',
+        runtime_contract: nextContract,
+        source_project: null,
+      });
+      if (Object.keys(errors).length)
+        throw new HostingError(
+          400,
+          'Catalog applications require static HTML callbacks and supported SMART scopes.',
+        );
     }
     const templateCommit =
       body.isTemplate === true
@@ -1254,26 +1023,22 @@ export function createHostingRouter() {
           name: text(body, 'name', app.name),
           description: text(body, 'description', app.description),
           branch: branchName(text(body, 'branch', app.branch)),
-          projectDirectory: repositoryPath(
-            text(body, 'projectDirectory', app.projectDirectory),
-            true,
-          ),
-          buildCommand: text(body, 'buildCommand', app.buildCommand),
-          outputDirectory: repositoryPath(
-            text(body, 'outputDirectory', app.outputDirectory),
-          ),
-          nodeVersion,
+          projectDirectory: '',
+          outputDirectory: staticDirectory,
+          buildCommand: '',
+          nodeVersion: '',
           launchPath: repositoryPath(text(body, 'launchPath', app.launchPath)),
           callbackPath: repositoryPath(
             text(body, 'callbackPath', app.callbackPath),
           ),
           scope: text(body, 'scope', app.scope),
-          ...(nextContract ? {runtimeContract:JSON.parse(JSON.stringify(nextContract)),integrationGrantId:null}:{}),
-          autoPublish:
-            app.integrationClientId ? false : typeof body.autoPublish === 'boolean'
-              ? body.autoPublish
-              : app.autoPublish,
-          publishingPaused: body.resume === true ? false : app.publishingPaused,
+          ...(nextContract
+            ? {
+                runtimeContract: JSON.parse(JSON.stringify(nextContract)),
+                integrationGrantId: null,
+              }
+            : {}),
+
           isTemplate:
             typeof body.isTemplate === 'boolean'
               ? body.isTemplate
@@ -1300,54 +1065,6 @@ export function createHostingRouter() {
     await audit(app.id, userId, 'SETTINGS_UPDATED');
     res.json({ updated: true, own: rights.own });
   });
-  router.post('/api/hosted-applications/:id/publish', async (req, res) => {
-    const { app, userId } = await applicationAccess(
-      req,
-      String(req.params.id),
-      'publish',
-    );
-    const expected = text(req.body as Body, 'buildId');
-    await prisma.$transaction(async (tx) => {
-      await lockApplication(tx, app.id);
-      await assertCurrentCapability(
-        tx,
-        app.id,
-        userId,
-        'publish',
-        req.effectivePermissions?.global_manage,
-      );
-      const current = await tx.hostedApplication.findUniqueOrThrow({
-        where: { id: app.id },
-      });
-      const build = await tx.hostedBuild.findUnique({
-        where: { id: expected },
-      });
-      if (
-        current.suspended ||
-        current.deletedAt ||
-        current.generation !== app.generation ||
-        current.previewBuildId !== expected ||
-        !build?.directory ||
-        build.status !== 'READY' ||
-        build.applicationId !== app.id
-      )
-        throw new HostingError(
-          409,
-          'The preview changed or is unavailable. Review the current preview first.',
-        );
-      if (current.integrationClientId) {
-        const review = await tx.integrationReview.findUnique({where:{applicationId_userId:{applicationId:app.id,userId}}});
-        if (review?.buildId !== expected || review.revisionDigest !== build.revisionDigest) throw new HostingError(409, 'Mark this exact preview reviewed before publishing.');
-      }
-      const published = await tx.hostedApplication.update({
-        where: { id: app.id },
-        data: { publishedBuildId: expected },
-      });
-      await provisionClients(published, cfg, tx);
-    });
-    await audit(app.id, userId, 'PUBLISHED');
-    res.json({ published: true });
-  });
   router.post('/api/hosted-applications/:id/unpublish', async (req, res) => {
     const { app, userId, rights } = await applicationAccess(
       req,
@@ -1372,7 +1089,7 @@ export function createHostingRouter() {
         where: { id: app.id },
         data: {
           publishedBuildId: null,
-          publishingPaused: true,
+
           generation: { increment: 1 },
           lastDeveloperActivityAt: new Date(),
           policyUpdatedAt: new Date(),
@@ -1444,8 +1161,11 @@ export function createHostingRouter() {
       });
       await tx.hostedApplication.update({
         where: { id: app.id },
-        data: { generation: { increment: 1 },
-          lastDeveloperActivityAt: new Date(), policyUpdatedAt: new Date() },
+        data: {
+          generation: { increment: 1 },
+          lastDeveloperActivityAt: new Date(),
+          policyUpdatedAt: new Date(),
+        },
       });
     });
     await audit(app.id, req.sessionAuth!.userId, 'COLLABORATOR_CHANGED');
@@ -1499,8 +1219,11 @@ export function createHostingRouter() {
         });
         await tx.hostedApplication.update({
           where: { id: app.id },
-          data: { generation: { increment: 1 },
-          lastDeveloperActivityAt: new Date(), policyUpdatedAt: new Date() },
+          data: {
+            generation: { increment: 1 },
+            lastDeveloperActivityAt: new Date(),
+            policyUpdatedAt: new Date(),
+          },
         });
       });
       await audit(app.id, req.sessionAuth!.userId, 'COLLABORATOR_REMOVED');
@@ -1555,7 +1278,8 @@ export function createHostingRouter() {
         },
       });
       if (!app) throw new HostingError(404, 'No pending transfer.');
-      if(app.sourceKind==='repository') await repositoryForUser(userId, app.repositoryId, cfg, true);
+      if (app.sourceKind === 'repository')
+        await repositoryForUser(userId, app.repositoryId, cfg);
       await prisma.$transaction(async (tx) => {
         await lockHostingAllocation(tx, [app.ownerUserId, userId]);
         await lockApplication(tx, app.id);
@@ -1573,15 +1297,24 @@ export function createHostingRouter() {
             409,
             'The transfer invitation or repository changed.',
           );
-        const allocation = await tx.hostedBuild.aggregate({ where: { applicationId: app.id }, _sum: { byteSize: true } });
-        await assertOwnerQuota(tx, cfg, userId, 1, allocation._sum.byteSize ?? 0n);
+        const allocation = await tx.hostedBuild.aggregate({
+          where: { applicationId: app.id },
+          _sum: { byteSize: true },
+        });
+        await assertOwnerQuota(
+          tx,
+          cfg,
+          userId,
+          1,
+          allocation._sum.byteSize ?? 0n,
+        );
         await tx.hostedApplication.update({
           where: { id: app.id },
           data: {
             ownerUserId: userId,
             transferToUserId: null,
             generation: { increment: 1 },
-          lastDeveloperActivityAt: new Date(),
+            lastDeveloperActivityAt: new Date(),
             policyUpdatedAt: new Date(),
           },
         });
@@ -1672,7 +1405,7 @@ export function createHostingRouter() {
           deletedAt: new Date(),
           deleteAfter: new Date(Date.now() + 30 * 86400000),
           desiredBuildId: null,
-          publishingPaused: true,
+
           generation: { increment: 1 },
           lastDeveloperActivityAt: new Date(),
           policyUpdatedAt: new Date(),
@@ -1682,7 +1415,7 @@ export function createHostingRouter() {
     await prisma.smartAuthSession.updateMany({
       where: {
         clientId: {
-          in: [`hosted-${app.id}-preview`, `hosted-${app.id}-published`],
+          in: [`hosted-${app.id}-published`],
         },
       },
       data: { isRevoked: true },

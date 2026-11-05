@@ -6,6 +6,21 @@ import type { HostingConfig } from './config.js';
 export const workflowPath = (id: string) =>
   `.github/workflows/fhir-studio-${id}.yml`;
 
+export function normalizeStaticDirectory(value: string): string {
+  if (value.trim().startsWith('/')) throw new HostingError(400, 'Use a relative repository directory.');
+  const directory = value.trim().replace(/\/+$/, '');
+  if (!directory || directory === '.') return '.';
+  repositoryPath(directory);
+  if (directory.split('/').some(part => !part))
+    throw new HostingError(400, 'Use a relative static assets directory without empty path segments.');
+  return directory;
+}
+
+/** Existing applications stored the static path as a project/output pair. */
+export function repositoryStaticDirectory(app: { projectDirectory: string; outputDirectory: string }): string {
+  return normalizeStaticDirectory([app.projectDirectory, app.outputDirectory].filter(part => part && part !== '.').join('/'));
+}
+
 /** An explicit static root works for community examples and custom framework builds. */
 export function configuredStaticDirectory(manifest: unknown): string | undefined {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return undefined;
@@ -14,7 +29,7 @@ export function configuredStaticDirectory(manifest: unknown): string | undefined
   const directory = (settings as Record<string, unknown>).staticDirectory;
   if (directory === undefined) return undefined;
   if (typeof directory !== 'string') throw new HostingError(400, 'fhirStudio.staticDirectory must be a relative directory.');
-  return repositoryPath(directory);
+  return normalizeStaticDirectory(directory);
 }
 
 export async function commitFiles(
@@ -80,28 +95,6 @@ export async function commitFiles(
     { sha: commit.sha, force: false },
   );
   return commit.sha;
-}
-export function managedWorkflow(app: {
-  id: string;
-  projectDirectory: string;
-  buildCommand: string;
-  outputDirectory: string;
-  nodeVersion: string;
-}): string {
-  const q = JSON.stringify;
-  if (
-    [
-      app.projectDirectory,
-      app.buildCommand,
-      app.outputDirectory,
-      app.nodeVersion,
-    ].some((v) => v.includes('${{'))
-  )
-    throw new HostingError(
-      400,
-      'GitHub expression interpolation is prohibited in build configuration.',
-    );
-  return `name: FHIR Studio ${app.id}\nrun-name: \${{ github.event_name == 'workflow_dispatch' && format('Studio preview {0}', inputs.studio_request_id) || github.event.head_commit.message }}\non:\n  push:\n  workflow_dispatch:\n    inputs:\n      studio_request_id:\n        description: Studio build request\n        required: true\n        type: string\npermissions:\n  contents: read\nconcurrency:\n  group: studio-${app.id}-\${{ github.ref }}\n  cancel-in-progress: true\njobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n        with:\n          persist-credentials: false\n      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38\n        with:\n          node-version: ${q(app.nodeVersion)}\n      - name: Build static application\n        working-directory: ${q(app.projectDirectory || '.')}\n        run: ${q(app.buildCommand)}\n      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f\n        with:\n          name: studio-${app.id}-\${{ github.run_id }}-\${{ github.run_attempt }}\n          path: ${q([app.projectDirectory, app.outputDirectory].filter(Boolean).join('/'))}\n          if-no-files-found: error\n          retention-days: 3\n          include-hidden-files: false\n`;
 }
 export async function sourceSnapshot(
   userId: string,

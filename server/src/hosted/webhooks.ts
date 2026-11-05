@@ -72,10 +72,12 @@ export function createGitHubWebhookRouter() {
         validId(event.installation?.id) &&
         ((kind === 'installation' &&
           ['deleted', 'suspend'].includes(event.action || '')) ||
-        (kind === 'installation_repositories' &&
-          Array.isArray(event.repositories_removed) &&
-          event.repositories_removed.length > 0 &&
-          event.repositories_removed.every((repository) => validId(repository.id))))
+          (kind === 'installation_repositories' &&
+            Array.isArray(event.repositories_removed) &&
+            event.repositories_removed.length > 0 &&
+            event.repositories_removed.every((repository) =>
+              validId(repository.id),
+            )))
       ) {
         const apps = await prisma.hostedApplication.findMany({
           where: {
@@ -96,7 +98,6 @@ export function createGitHubWebhookRouter() {
             await tx.hostedApplication.update({
               where: { id: app.id },
               data: {
-                publishingPaused: true,
                 generation: { increment: 1 },
                 policyUpdatedAt: new Date(),
               },
@@ -117,7 +118,10 @@ export function createGitHubWebhookRouter() {
       }
       if (kind === 'repository' && validId(event.repository?.id)) {
         const apps = await prisma.hostedApplication.findMany({
-          where: { sourceKind: 'repository', repositoryId: String(event.repository!.id) },
+          where: {
+            sourceKind: 'repository',
+            repositoryId: String(event.repository!.id),
+          },
         });
         for (const app of apps)
           await prisma.$transaction(async (tx) => {
@@ -131,7 +135,6 @@ export function createGitHubWebhookRouter() {
                   : {}),
                 ...(event.action === 'transferred' || event.action === 'deleted'
                   ? {
-                      publishingPaused: true,
                       generation: { increment: 1 },
                       policyUpdatedAt: new Date(),
                     }

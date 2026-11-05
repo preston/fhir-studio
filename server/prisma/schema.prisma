@@ -291,8 +291,6 @@ model HostedApplication {
   launchPath String @default("index.html") @map("launch_path")
   callbackPath String @default("index.html") @map("callback_path")
   scope String @default("launch launch/patient openid fhirUser patient/*.rs")
-  autoPublish Boolean @default(false) @map("auto_publish")
-  publishingPaused Boolean @default(false) @map("publishing_paused")
   suspended Boolean @default(false)
   deletedAt DateTime? @map("deleted_at")
   generation Int @default(0)
@@ -305,7 +303,6 @@ model HostedApplication {
   suspendedAt DateTime? @map("suspended_at")
   deleteAfter DateTime? @map("delete_after")
   cleanupProtected Boolean @default(false) @map("cleanup_protected")
-  previewBuildId String? @map("preview_build_id") @db.Uuid
   publishedBuildId String? @map("published_build_id") @db.Uuid
   desiredBuildId String? @map("desired_build_id") @db.Uuid
   isTemplate Boolean @default(false) @map("is_template")
@@ -731,16 +728,6 @@ model IntegrationOperation {
   @@unique([clientId,userId,requestId])
   @@index([applicationId])
   @@map("integration_operations")
-}
-
-model IntegrationReview {
-  applicationId String @map("application_id") @db.Uuid
-  userId String @map("user_id") @db.Uuid
-  buildId String @map("build_id") @db.Uuid
-  revisionDigest String? @map("revision_digest")
-  reviewedAt DateTime @default(now()) @map("reviewed_at")
-  @@id([applicationId,userId])
-  @@map("integration_reviews")
 }
 
 model IntegrationRetiredToken {

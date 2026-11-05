@@ -2,6 +2,7 @@ import { apiUsage } from '../hosted/usage.js';
 // Author: Preston Lee
 
 import express, { type Request, type Response, type Router } from 'express';
+import type { SmartLaunchContextResponse } from '@fhir-studio/core';
 import { v4 as uuidv4 } from 'uuid';
 import { getPrisma } from '../db/prisma.js';
 import { isFhirReleaseEnabled } from '../hapi/partition_client.js';
@@ -16,7 +17,7 @@ import {
 } from './crypto.js';
 
 import { routeParam } from '../http/routeParam.js';
-import { HostingError, sandboxAccess, applicationAccess } from '../hosted/access.js';
+import { HostingError, sandboxAccess } from '../hosted/access.js';
 import { parseSmartV2Scopes, isSmartScopePermitted } from './scopes.js';
 import crypto from 'node:crypto';
 import { loadStudioOrigin } from '../hosted/config.js';
@@ -181,9 +182,8 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
     if (userPersonaId && !persona) throw new HostingError(400, 'Persona does not belong to this sandbox.');
     if (client.hostedApplication) {
       const app = client.hostedApplication;
-      if (client.hostedChannel === 'preview') await applicationAccess(req, app.id);
-      if (app.deletedAt || app.suspended || (client.hostedChannel === 'preview' ? !app.previewBuildId : !app.publishedBuildId)) throw new HostingError(403, 'Hosted application channel is unavailable.');
-      if (client.hostedChannel === 'published' && !await prisma.hostedSandbox.findUnique({ where: { applicationId_sandboxId: { applicationId: app.id, sandboxId: sandbox.id } } })) throw new HostingError(403, 'Enable this published application in the sandbox first.');
+      if (app.deletedAt || app.suspended || (client.hostedChannel !== 'published' || !app.publishedBuildId)) throw new HostingError(403, 'Hosted application is unavailable.');
+      if (!await prisma.hostedSandbox.findUnique({ where: { applicationId_sandboxId: { applicationId: app.id, sandboxId: sandbox.id } } })) throw new HostingError(403, 'Enable this published application in the sandbox first.');
     }
 
     const launchId = uuidv4();
@@ -209,9 +209,10 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
 
     res.status(201).json({
       launch: launchId,
+      iss: `${studioOrigin}/api/sandboxes/${encodeURIComponent(sandbox.sandboxId)}/fhir/${sandbox.fhirVersion.toLowerCase()}`,
       sandboxId,
       expiresIn: 900,
-    });
+    } satisfies SmartLaunchContextResponse);
   });
 
   // 5. GET /oauth/authorize (SMART Authorize Endpoint)
@@ -245,7 +246,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       if (!code_challenge || !/^[A-Za-z0-9_-]{43}$/.test(code_challenge) || code_challenge_method !== 'S256' || !state) { res.status(400).send('State and PKCE S256 are required.'); return; }
       if (!scopesWithin(scope, application.scope)) { res.status(400).send('Requested scopes exceed registration.'); return; }
       const hosted = application.hostedApplication;
-      if (hosted && (hosted.deletedAt || hosted.suspended || (application.hostedChannel === 'preview' ? !hosted.previewBuildId : !hosted.publishedBuildId))) { res.status(403).send('Application unavailable.'); return; }
+      if (hosted && (hosted.deletedAt || hosted.suspended || (application.hostedChannel !== 'published' || !hosted.publishedBuildId))) { res.status(403).send('Application unavailable.'); return; }
 
       // Determine target sandbox
       let targetSandboxId = 'default';
@@ -286,7 +287,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
             },
           });
           if (consumed.count !== 1) { res.status(400).send('Launch context has already been consumed.'); return; }
-          if (hosted) apiUsage.record({ applicationId: hosted.id, channel: application.hostedChannel === 'preview' ? 'preview' : 'published', launch: true });
+          if (hosted) apiUsage.record({ applicationId: hosted.id, channel: 'published', launch: true });
         }
       } else {
         if (hosted) { res.status(400).send('Launch this hosted application from Studio to grant sandbox context.'); return; }
@@ -354,7 +355,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       if (!registeredClient) { res.status(401).json({ error: 'invalid_client' }); return; }
       if (registeredClient.tokenEndpointAuthMethod === 'private_key_jwt' && (client_assertion_type !== 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer' || typeof client_assertion !== 'string')) { res.status(401).json({ error: 'invalid_client' }); return; }
       const hostedClient = registeredClient.hostedApplication;
-      if (hostedClient && (hostedClient.deletedAt || hostedClient.suspended || (registeredClient.hostedChannel === 'preview' ? !hostedClient.previewBuildId : !hostedClient.publishedBuildId))) { res.status(401).json({ error: 'invalid_client' }); return; }
+      if (hostedClient && (hostedClient.deletedAt || hostedClient.suspended || (registeredClient.hostedChannel !== 'published' || !hostedClient.publishedBuildId))) { res.status(401).json({ error: 'invalid_client' }); return; }
       const suppliedSecret = authHeader?.startsWith('Basic ') ? Buffer.from(authHeader.slice(6), 'base64').toString().split(':').slice(1).join(':') : req.body.client_secret;
       const secretMatches = typeof suppliedSecret === 'string' && !!registeredClient.clientSecret && Buffer.byteLength(suppliedSecret) === Buffer.byteLength(registeredClient.clientSecret) && crypto.timingSafeEqual(Buffer.from(suppliedSecret), Buffer.from(registeredClient.clientSecret));
       const needsSecret = ['client_secret_basic', 'client_secret_post'].includes(registeredClient.tokenEndpointAuthMethod) && !registeredClient.isSample;

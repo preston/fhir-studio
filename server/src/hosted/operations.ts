@@ -81,15 +81,10 @@ export function validateLifecycle(
 export async function revokeHostedSessions(
   tx: Prisma.TransactionClient,
   id: string,
-  publishedOnly = false,
 ): Promise<void> {
   await tx.smartAuthSession.updateMany({
     where: {
-      clientId: {
-        in: publishedOnly
-          ? [`hosted-${id}-published`]
-          : [`hosted-${id}-preview`, `hosted-${id}-published`],
-      },
+      clientId: `hosted-${id}-published`,
     },
     data: { isRevoked: true },
   });
@@ -111,7 +106,7 @@ export async function performHostingAction(
     config = loadHostingConfig(request.action === 'purge' ? 'worker' : 'api');
   await db.$transaction(
     async (tx) => {
-      if(options.authorize)await options.authorize(tx);
+      if (options.authorize) await options.authorize(tx);
       await lockHostingAllocation(tx);
       await lockApplication(tx, id);
       if (options.job) {
@@ -166,29 +161,22 @@ export async function performHostingAction(
         case 'suspend':
           data.suspended = true;
           data.suspendedAt = app.suspendedAt ?? new Date();
-          data.publishingPaused = true;
           break;
         case 'resume':
           data.suspended = false;
           data.suspendedAt = null;
-          data.publishingPaused = true;
           break;
         case 'unpublish':
           data.publishedBuildId = null;
-          data.publishingPaused = true;
           break;
         case 'trash':
           data.deletedAt = new Date();
           data.deleteAfter = new Date(Date.now() + 30 * 86400000);
-          data.publishingPaused = true;
           break;
         case 'restore': {
           await assertOwnerQuota(tx, config, app.ownerUserId, 1);
-          for (const buildId of new Set(
-            [app.previewBuildId, app.publishedBuildId].filter(
-              (v): v is string => !!v,
-            ),
-          )) {
+          if (app.publishedBuildId) {
+            const buildId = app.publishedBuildId;
             const build = await tx.hostedBuild.findFirst({
               where: {
                 id: buildId,
@@ -225,7 +213,6 @@ export async function performHostingAction(
           // Storage is already charged to this owner, including while in trash.
           data.deletedAt = null;
           data.deleteAfter = null;
-          data.publishingPaused = true;
           data.lastDeveloperActivityAt = new Date();
           break;
         }
@@ -256,7 +243,6 @@ export async function performHostingAction(
           );
           data.owner = { connect: { id: ownerId } };
           data.transferToUserId = null;
-          data.publishingPaused = true;
           data.lastDeveloperActivityAt = new Date();
           await tx.hostedCollaborator.deleteMany({
             where: { applicationId: id, userId: ownerId },
@@ -323,7 +309,7 @@ export async function performHostingAction(
           },
           data: { status: 'CANCELLED' },
         });
-        await revokeHostedSessions(tx, id, request.action === 'unpublish');
+        await revokeHostedSessions(tx, id);
       }
       await tx.hostedApplication.update({ where: { id }, data });
       await tx.hostedAudit.create({

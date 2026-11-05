@@ -1,23 +1,29 @@
 # GitHub-backed application hosting
 
 Hosting is enabled with `FHIR_STUDIO_HOSTING_ENABLED=true`. Access requires `Role.permission_applications_deployment`,
-which defaults to false. The existing `global_manage` bypass applies. Studio never runs
-repository builds locally. GitHub Actions produces artifacts; existing workers import
-them onto a bind-mounted filesystem; one static service serves all application hosts.
+which defaults to false. The existing `global_manage` bypass applies. Studio imports
+ready-to-serve static files from a selected repository directory at a pinned commit.
+Developers build their own applications and commit the resulting static files before
+deploying. Studio does not run build commands, install dependencies, or install or
+dispatch GitHub Actions workflows. Workers import the files onto a bind-mounted
+filesystem; one static service serves all application hosts.
 There is no S3 dependency or per-application container.
 
 ## Operator configuration
 
 Register a GitHub App for this Studio instance. Enable expiring user tokens; request
-Contents read/write, Actions read/write, Workflows write, Repository creation write,
-and implicit Metadata read. Repository Administration is not needed just to create repos.
+Contents read and implicit Metadata read for repository deployment. Optional catalog
+source-copy/repository-creation operations require Contents write and Repository creation
+write; consuming existing Actions artifacts through catalog integrations requires Actions
+read. Workflow write and Actions dispatch permissions are not required for static deployment.
 Organization policy may require owner approval. Configure:
 
 - Callback: `https://studio.example.org/api/github/callback`
 - Setup URL: `https://studio.example.org/api/github/setup`
 - Webhook: `https://studio.example.org/api/github/webhook`
-- Events: workflow_run, installation, installation_repositories, repository. GitHub also
-  sends github_app_authorization revocations.
+- Subscribe to the repository event. GitHub automatically sends
+  installation, installation_repositories, and github_app_authorization lifecycle
+  events; do not include those three in a manifest's default_events.
 
 Set `FHIR_STUDIO_HOSTING_ENABLED=true` and complete the required hosting variables from `server/.env.example` in the operator's API
 and worker environment. Generate an independent encryption key with
@@ -69,6 +75,26 @@ existing deployed files remain on disk.
 Local development of the host uses `npm run host --workspace=@fhir-studio/server`, with
 the same operator-controlled HTTPS proxy arrangement.
 
+Hosted apps allow iframe launches from `FHIR_STUDIO_HOSTING_STUDIO_ORIGIN`. In
+development, the static host also permits exact origins listed in
+`FHIR_STUDIO_SERVER_CORS_ORIGINS`, so the simulator can embed apps from an Angular
+development server such as `http://localhost:4200` while SMART endpoints use
+`https://localhost`. Supply the same CORS settings to the API and static host and
+restart the host after changes. Wildcards, URLs with paths or credentials, and
+origins inside the hosted application sub-zone are rejected. Production permits
+framing only from the canonical Studio origin.
+
+For a local Caddy HTTPS proxy, keep the instance-specific configuration and certificates
+in the ignored `server/private/local-hosting/` directory, with the configuration named
+`Caddyfile`. With Caddy installed on your PATH, start the proxy from the repository root:
+
+```bash
+npm run start:https
+```
+
+The command uses `sudo` to bind HTTPS port 443 on macOS. Enter your administrator
+password in that terminal and leave it running alongside the API, UI, worker, and app host.
+
 ## Developer workflow
 
 A role must grant `permission_applications_deployment` before a user can access
@@ -79,16 +105,16 @@ Seeding does not overwrite an operator's deployment permission grants.
 
 This feature permission is additional to application ownership/collaborator roles and
 the acting user's GitHub repository permissions. `applications_register` is still required
-to create applications/repositories. A Developer can edit/build but cannot publish; an
-Owner without deployment permission cannot manage hosting. Application roles never grant
+to create applications/repositories. Owners and Administrators can deploy directly to the
+public application. Developers can edit source but cannot deploy. An Owner without deployment
+permission cannot manage hosting. Application roles never grant
 the deployment permission. Users without it can still launch enabled published applications
 through normal sandbox/SMART authorization and access public static files.
 
 Removing deployment permission immediately blocks subsequent hosting/linking operations,
-personal token use/refresh, and activation of that user's queued build requests. Imports
-recheck authorization before activating files; automatic publication rechecks both actors.
-Repository automation initiated by an unlinked identity/bot uses the owner's current
-deployment authority for previews only. Existing preview/published files remain available,
+personal token use/refresh, and activation of that user's queued deployment requests. Imports
+recheck publishing permission before activating files. Repository workflow events do not
+deploy or publish content. Existing published files remain available,
 and other authorized collaborators retain their application access. Personal credentials
 remain encrypted for later reconnection/use if access is restored; users can revoke the
 GitHub App directly in GitHub Settings while Studio connections are inaccessible.
@@ -97,96 +123,93 @@ Use **GitHub connection** (`/profile/connections`) in the profile menu to author
 GitHub, reconnect, disconnect, and manage repository installations. Personal authorization and repository installation are
 independent. Token renewal is automatic, protected by a cross-process database lock.
 Disconnect removes personal credentials, not shared installations or deployed files.
-Installation removal pauses imports/publication. Existing content survives GitHub outages.
+Installation removal invalidates queued deployments. Existing content survives GitHub outages.
 
 **Connected applications** (`/profile/connected-applications`) manages access granted
 to catalog platforms. Start those connections from the catalog platform. This screen
 also links to GitHub connection and Application Studio when deployment is available,
 or explains whether instance hosting or account permissions prevent access.
 
-Use **SMART Applications → Application Studio** (`/applications/hosted`) to connect
-an existing repository or populate a new, empty repository from a curated/community template. Repositories belong
-to the developer or their organization. For selected-repository installations, add a
-newly created repository to the installation before connecting it. Public builds normally
-use free standard GitHub runners; private builds consume the repository owner's allowance.
+Use **SMART Applications → Application Studio** (`/applications/hosted`) to create
+an application referencing an existing GitHub repository. Choose an installation,
+repository, branch, and **Static assets directory**, relative to the repository root.
+Use `.` for files at the repository root. The selected directory must already contain
+the complete browser application, including its launch and callback HTML files.
 
-Confirm build runtime, project subdirectory, command, and output directory. Studio adds
-a dedicated workflow without overwriting existing CI. If protected, install on a writable
-branch and merge on GitHub. The workflow must reach the default branch before manual
-workflow dispatch is available. Use Install / repair workflow after build-setting changes.
-Detect build settings inspects the selected project directory; review the result before
-creating the app. Custom templates carry their build and SMART defaults into the wizard.
+Creating the application records its settings. Select **Deploy** to resolve
+the selected branch to an immutable commit and import only that directory. Studio
+does not change the repository or run a build. A successful deployment immediately publishes
+that revision at the application URL. Subsequent repository changes become available after another deployment.
+For projects requiring compilation, run the build in your own environment or CI and
+commit the finished static assets before deploying.
 
 ### Community examples and monorepo projects
 
 The repository's `apps/` directory contains independently maintained community examples;
-it is excluded from Studio workspaces and Docker images. Applications can build directly
-from a subdirectory of a GitHub repository. For Viet's EHR, choose project directory
-`apps/viets-ehr`, build command `npm ci && npm run build`, Node `26`, and output directory
-`public`. Launch and callback paths are both `index.html`; configure scopes as
-`launch launch/patient patient/*.crus user/Questionnaire.rs` before building.
+it is excluded from Studio workspaces and Docker images. For Viet's EHR, select the
+static assets directory `apps/viets-ehr/public`. Launch and callback paths are both
+`index.html`; configure scopes as
+`launch launch/patient patient/*.crus user/Questionnaire.rs` before deploying.
 
-Build detection honors a project's `package.json` `fhirStudio.staticDirectory` before
-framework defaults. The managed workflow runs the command in the selected project
-directory and uploads that directory's configured static output. React/Vite projects
-typically use `dist`; Angular projects typically use `dist/<project>/browser`.
-The launch/callback paths are relative to that final output, not the repository root.
+React/Vite developers typically commit static output under `dist`; Angular developers
+typically use `dist/<project>/browser`. The path must exist in the selected repository
+revision. Launch/callback paths are relative to the selected static directory.
 
 `fhir-studio.json` records public contribution metadata and the existing static SMART
 runtime contract. It does not automatically change a GitHub application's registered
-launch paths or scopes. Framework builds share the same runtime configuration endpoint
+launch paths or scopes. Framework applications share the same runtime configuration endpoint
 and PKCE launch flow as plain JavaScript apps. Real HTML callbacks, locally included
 scripts, and the hosting CSP apply to every framework.
 
 See [the community application contract](../apps/README.md) for contribution requirements
 and optional release packaging. The helper produces a ZIP from already built static
-assets; Application Studio continues to deploy these examples through GitHub Actions.
+assets; Application Studio deploys the committed static directory directly.
 There is no local ZIP upload interface.
 
-The editor saves multiple files as one commit without force-pushing. Drafts stay in the
-current tab through failed saves/reconnects. Download the recovery patch before closing
-the tab or discarding edits. Use a local editor for binary/large source files. Template
-copying preserves ordinary source assets from a recorded commit while excluding secret
-configuration and source workflow files; new apps receive fresh managed workflows and IDs.
-Public template listing requires a public repository. Studio sharing never grants GitHub
-repository access.
+Edit and build the application in your own development environment. Commit the files
+you intend to deploy, then deploy again. Studio sharing never grants GitHub
+repository access. Catalog source-copy operations retain source files while excluding
+secret configuration and workflow files; they do not install a build workflow.
 
-Preview and published files, including source maps from private repositories, are public.
-Never include credentials or real patient data. Use **Test preview in sandbox** with
+Hosted files, including source maps from private repositories, are public.
+Never include credentials or real patient data. Use **Launch → Test a SMART launch** with
 patient search, encounter selection, and persona selection. Runtime configuration at `/_studio/config.json` supplies
 the public client ID and callbacks; the portable starters use PKCE S256 with credentialless
 FHIR requests. Hosted apps start from a Studio launch context. Application collaborators
 gain no sandbox data access. Enable a published app only in sandboxes you manage.
 Each validated build records its callbacks and SMART scopes. Future settings changes
-do not change the launch configuration of an existing preview or publication.
-Review the current preview before publishing. Studio pins that review to a build ID;
-if a collaborator replaces the preview, review the replacement before publishing.
+do not change the launch configuration of an existing publication. Enable the application in a sandbox you manage before launching it.
 
-Only Owners/Administrators publish. Auto-promotion defaults off, targets the configured
-branch, and checks both the original GitHub actor and rerun initiator against current
-Studio roles and GitHub access. Bots and Developers remain preview-only. Unpublish pauses
-auto-promotion; queued attempts cannot reactivate a disabled/deleted/relinked app.
+Only Owners/Administrators deploy and publish. Successful repository and catalog deployments
+activate the complete immutable revision, including its public configuration and SMART callbacks.
+Failed or superseded deployments preserve the current publication. Queued attempts cannot reactivate a disabled,
+deleted, or relinked application.
 
 ## Filesystem lifecycle
 
 Imports extract into private `.staging` attempt directories, validate, and rename into
 generated app/build directories on the same filesystem. Database activation occurs only
 after files exist. Orphaned directories from crashes are cleaned without affecting
-active preview/published builds or live job leases. A ten-minute completed-file cleanup
+active published builds or live job leases. A ten-minute completed-file cleanup
 grace period and one-hour abandoned-staging threshold provide safe transitions, not
 historical retention or rollback. Very old tabs may need reloading after lazy assets
 have been removed.
 
-Defaults: 20 MB compressed, 50 MB expanded, 1,000 ZIP entries, 10 applications per owner,
+Defaults: 20 MB compressed, 50 MB expanded, 1,000 deployed static files, 10 applications per owner,
 and 10 GB content budget. Limits are configurable. A free-space reserve protects imports.
+Repository downloads use GitHub's full-repository ZIP, so the compressed limit applies
+to that archive; expanded-size and static-file limits apply to the selected directory.
 No old file versions are kept once unreferenced and past cleanup grace. PostgreSQL keeps
-small build/audit metadata; full build logs/history remain on GitHub.
+small deployment/audit metadata; repository commit history remains on GitHub.
 
 Back up PostgreSQL and content consistently by pausing workers or coordinating snapshots.
 Restore both together. Monitor disk space/permissions, import errors, and GitHub health.
-Retry import when the artifact still exists; rebuild after expiration. Do not manually
-edit or serve staging directories. Archive links, special files, traversal, duplicate
-paths, unsupported files, integrity errors, and oversized output are rejected.
+Retry import when the pinned source still exists, or deploy a newer revision. Do not manually
+edit or serve staging directories. Repository imports select only the configured
+directory and omit hidden paths, `node_modules`, and files with unsupported static
+extensions, such as README Markdown or TypeScript source. Links and special files
+within the selected directory, traversal, duplicate paths, integrity errors, and
+oversized output are rejected. Catalog artifact ZIPs additionally reject unsupported files.
 Allowed output types are HTML, CSS, JS/MJS, JSON, source maps, TXT, PNG/JPEG/GIF/WebP/ICO/SVG,
 WOFF/WOFF2, and TTF. All hidden paths and the reserved `_studio` path are prohibited.
 SPAs must provide real launch/callback HTML files; arbitrary fallback routing, SSR,
@@ -211,21 +234,21 @@ uniquely named disposable PostgreSQL database. Set `FHIR_STUDIO_TEST_ADMIN_DATAB
 to a local database-creation connection if it differs from the documented development
 stack. Run the monorepo build after changes.
 
-Real OAuth, organization policy, GitHub Actions, and wildcard HTTPS require an operator
+Real OAuth, organization policy, repository archive access, and wildcard HTTPS require an operator
 acceptance test with a real GitHub App. They are not simulated by a successful local build.
 
 Before enabling public access, exercise authorization, installation approval, private
-repository creation, protected-branch workflow setup, a successful Actions build/import,
-both preview and published launches in two sandboxes, and revocation/reconnection against
+repository access approval, a static-directory deployment at a pinned commit,
+published launches in two sandboxes, and revocation/reconnection against
 the operator's real GitHub App. Verify wildcard DNS and certificate coverage with generated
-preview/published hostnames, and verify hostile-origin requests in a signed-in browser.
+application hostnames, and verify hostile-origin requests in a signed-in browser.
 Apply the generated migration with `npm run prisma:deploy --workspace=@fhir-studio/server`.
 Local automated tests migrate only their own disposable database; the developer database
 is not migrated as a side effect of the implementation or tests.
 
 ## Hosting administration and usage
 
-**Administration → Application Hosting** provides inventory, channel-separated traffic,
+**Administration → Application Hosting** provides inventory, traffic reports,
 health, storage inspection, owner quotas, audit history, and trash. Search and sort the
 inventory, inspect an application, select one or several applications, enter an
 administrative reason, and preview the exact versions and allocated storage before
@@ -235,8 +258,7 @@ applications changed since preview require another review. CSV exports support u
 
 Administrators can suspend/resume, unpublish, protect/unprotect from stale policies,
 reassign Studio ownership, move to trash, restore, and permanently purge trash.
-Reassignment preserves explicit collaborators, clears pending transfers/build activation,
-and pauses automatic publication. It does not move the GitHub repository or grant its
+Reassignment preserves explicit collaborators and clears pending transfers/build activation. It does not move the GitHub repository or grant its
 new Studio owner repository access. Recipients must be active Studio users with deployment
 permission. Ordinary accepted ownership transfers enforce the same allocation limits.
 
@@ -247,12 +269,11 @@ counts exclude trash and are checked again on restoration. Lowering a quota does
 existing serving. Import reservations, transfers, reassignment, creation, and restoration
 share allocation locks to prevent concurrent quota bypass.
 
-Trash immediately blocks serving and SMART launches, revokes sessions, pauses publication,
-and prevents queued imports from activating. Assigned preview/published files remain
+Trash immediately blocks serving and SMART launches, revokes sessions,
+and prevents queued imports from activating. Assigned published files remain
 protected from orphan cleanup for 30 days. Restore validates the retained launch/callback
-files and active application quota, then restores the previous channel assignments and
-suspension state. Existing sandbox associations survive; revoked sessions stay revoked and
-automatic publication stays paused. Expired trash is permanently removed by a worker job;
+files and active application quota, then restores the previous publication and
+suspension state. Existing sandbox associations survive; revoked sessions stay revoked. Queued deployments remain invalidated. Expired trash is permanently removed by a worker job;
 an administrator may explicitly purge it earlier. Files are removed before application
 metadata, so interrupted purges can be retried. Historical traffic and audit records survive
 application purge. Old soft-deleted records created before this lifecycle have no guaranteed
@@ -263,7 +284,7 @@ retained files and are not automatically assigned a new recovery window.
 Application Studio's **Usage** tab is available to owners and existing read collaborators.
 It reports requests, successful HTML GET document responses, response bytes, status classes,
 rate limits, aborted responses, known bot requests, server response duration, and consumed
-SMART launches. Preview and published traffic are separate. HTML responses include callback
+SMART launches. HTML responses include callback
 pages and are not SPA page views; browser-cache hits, client-side navigation, and browser
 execution time are not observed. Response bytes describe completed response bodies at the
 origin host (HEAD/304/aborted responses count zero body bytes), not edge compression or
@@ -282,7 +303,7 @@ also affect coverage. There is no fingerprint fallback or cross-host visitor lin
 Only 1,024-register visitor sketches and fixed hourly counters are persisted, not visitor
 records or raw cookies. Merging sketches estimates unique browsers within one hostname
 and date range, with approximately 3.3% standard error. Do not sum unique counts across
-hours, channels, or applications. No IP, user agent, request path/query, referrer, token,
+hours or applications. No IP, user agent, request path/query, referrer, token,
 FHIR context, or browsing history is stored by this feature. Existing reverse proxy access
 logs are outside this collector.
 
@@ -338,7 +359,7 @@ each suite creates/removes its own uniquely named PostgreSQL database. Neither m
 developer database. Run `npm run build` after changes.
 
 For operator acceptance, use the real wildcard HTTPS setup: verify the cookie is isolated
-between applications and preview/published hosts, HttpOnly and Secure flags, normal and
+between application hosts, HttpOnly and Secure flags, normal and
 iframe SMART launches, collector flushing, an administrator bulk-action preview, restored
 publication with fresh SMART authorization, and schedule history/UTC-to-local display.
 
@@ -353,12 +374,27 @@ Deploy the generated Prisma migrations, API, worker, UI, and static host togethe
 
 Register each Skycapp instance under Administration → Integration clients. Copy its client ID and one-time secret to the approved-instance settings in Skycapp and register the exact Skycapp UI callback URL. Authorization uses independent opaque integration tokens, PKCE S256, rotating refresh tokens, and issuer-bound callbacks. These tokens cannot call SMART/FHIR or general control-plane endpoints. Scope grants cover only applications created by that integration client and currently accessible to the linked user. Users can revoke grants under Profile → Connected applications even when the integration flag is disabled. Client secret rotation revokes existing grants and requires reconnecting.
 
-The public capability endpoint is `/api/integration/v1/capabilities`; OAuth metadata is `/.well-known/oauth-authorization-server/integration`. The delegated API provides account, sandbox metadata, preflight, deployments, applications, and durable operations. Submit deployments with a stable `Idempotency-Key`; a repeated key with changed input is rejected. Only Studio handles clinical launch context. Mark the immutable preview reviewed in Studio before publishing; publication and its selected sandbox binding commit together.
+The public capability endpoint is `/api/integration/v1/capabilities`; OAuth metadata is `/.well-known/oauth-authorization-server/integration`. The delegated API provides account, sandbox metadata, preflight, deployments, applications, and durable operations. Submit deployments with a stable `Idempotency-Key`; a repeated key with changed input is rejected. Only Studio handles clinical launch context. Deployments require both write and publication consent. Successful imports publish directly; the selected sandbox is enabled by the deployment request. Public configuration updates reuse validated content and activate a new immutable revision without a review step.
 
 Catalog artifacts declare a digest and static SMART contract. Public HTTPS ZIPs and GitHub release/Actions artifacts share archive validation, hosting isolation, quotas, and worker activation. GitHub downloads use the linked actor's authorization. Signed URLs and source credentials are never saved in catalog metadata. Private-source content becomes publicly accessible after import; the deployment flow requires acknowledgement. Configuration revisions keep immutable runtime values and reference existing validated content; they do not retain additional historical content for rollback. Reinstalling an older catalog release requires its source still to exist and remain accessible.
 
-Editable projects copy a pinned snapshot into a new user-owned repository without source secrets or workflows, then install Studio's own build workflow. A deterministic operation marker permits recovery if repository creation completed before the server response. Failed setup retains the repository and application for retry. Initial delegated activation is revoked with its grant; later explicit Studio builds use the developer's current Studio authority. Repository ownership, installation approval, and GitHub permissions remain independent of Skycapp account linking.
+Editable projects copy a pinned snapshot into a new user-owned repository without source secrets or workflows, then deploy the existing static directory. They do not install or dispatch build workflows. A deterministic operation marker permits recovery if repository creation completed before the server response. Failed setup retains the repository and application for retry. Initial delegated activation is revoked with its grant; later explicit Studio deployments use the developer's current Studio authority. Repository ownership, installation approval, and GitHub permissions remain independent of Skycapp account linking.
 
 Back up the database and `FHIR_STUDIO_HOSTING_ENCRYPTION_KEY` together in the operator's secret store. Integration client secrets and bearer tokens are stored only as hashes; recover by rotating/reconnecting, not exporting secrets. For hosting-key rotation, configure the previous key in `FHIR_STUDIO_HOSTING_ENCRYPTION_KEY_PREVIOUS`, deploy the new primary key across API and workers, and reconnect/re-encrypt remaining GitHub authorizations before removing the previous key. Do not rotate analytics/session keys using the hosting key. Never include encryption keys, bearer tokens, or signed download URLs in logs or backups of public configuration.
 
 Before pilot enablement, run `test:hosting`, `test:hosting:integration`, `test:catalog`, and `test:catalog:integration` against disposable databases, then validate a real public product and a private GitHub product end to end. Monitor worker failures, queue delays, source authorization failures, reconciliation errors, and application/storage quotas. Turning the flag off prevents new delegated operations while already accepted jobs and hosted applications retain their normal lifecycle.
+
+
+### Removing deployment previews
+
+Deploy API, worker, and static-host processes together after applying the generated
+`remove_hosted_previews` migration. It removes preview assignments, review records,
+and automatic-publication settings. Existing published build IDs, URLs, SMART client
+IDs, and sandbox bindings are preserved. Unpublished builds are not automatically
+promoted, and queued requests from the retired workflow must be resubmitted. Preview hostnames and SMART clients stop working; deploy the application
+and use its published URL instead. Unreferenced preview files are reclaimed by normal
+storage cleanup. Usage reports include only published traffic.
+
+Catalog updates use `POST /api/integration/v1/applications/:id/deployments`.
+The former preview, publish, and review endpoints have been removed. Launch handoffs
+open the **Launch** tab without selecting a deployment channel.

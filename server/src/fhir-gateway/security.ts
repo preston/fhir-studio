@@ -57,9 +57,7 @@ export async function verifySandboxAccess(
       app &&
       (app.deletedAt ||
         app.suspended ||
-        (client.hostedChannel === 'preview'
-          ? !app.previewBuildId
-          : !app.publishedBuildId))
+        (client.hostedChannel !== 'published' || !app.publishedBuildId))
     )
       return { authorized: false, reason: 'Hosted application is unavailable' };
     const scopes = parseSmartV2Scopes(session.scope);

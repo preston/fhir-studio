@@ -26,6 +26,9 @@ await build({
     contents: `
       export { EhrSimulatorComponent } from './ehr-simulator/ehr-simulator.component.ts';
       export { ScenariosManagerComponent } from './scenarios/scenarios-manager.component.ts';
+      export { HostedApplicationsComponent } from './applications/hosted-applications.component.ts';
+      export { HostingService } from './core/services/hosting.service.ts';
+      export { AuthService } from './core/services/auth.service.ts';
       export { SandboxService } from './core/services/sandbox.service.ts';
       export { ApplicationsService } from './core/services/applications.service.ts';
       export { PersonasService } from './core/services/personas.service.ts';
@@ -54,6 +57,13 @@ afterEach(() => {
 });
 
 const sandbox = { sandboxId: 'launch-test', fhirVersion: 'R4B' };
+const browserOrigin = 'http://localhost:4200';
+const launchContext = {
+  launch: 'launch-token',
+  iss: 'https://localhost/api/sandboxes/launch-test/fhir/r4b',
+  sandboxId: sandbox.sandboxId,
+  expiresIn: 900,
+};
 const applications = [
   { id: 'default-app', clientId: 'default-client', scope: 'launch patient/*.rs', launchUri: '/default/launch' },
   { id: 'saved-app', clientId: 'saved-client', scope: 'launch patient/Observation.rs', launchUri: '/saved/launch?theme=dark' },
@@ -70,10 +80,11 @@ function setup(Component, options = {}) {
   const windows = [];
   const navigations = [];
   const fhirRequests = [];
+  const hostingRequests = [];
   const activeSandbox = signal(sandbox);
   const queryParams = new BehaviorSubject(convertToParamMap({ sandbox: sandbox.sandboxId, scenario: scenario.id }));
   globalThis.window = {
-    location: { origin: 'https://studio.test' },
+    location: { origin: browserOrigin },
     open: (...args) => {
       if (options.blockPopup) return null;
       const popup = { args, opener: {}, closed: false, url: null };
@@ -89,6 +100,13 @@ function setup(Component, options = {}) {
     { provide: Router, useValue: { navigate: (...args) => { navigations.push(args); return Promise.resolve(true); } } },
     { provide: DomSanitizer, useValue: { bypassSecurityTrustResourceUrl: (url) => url } },
     { provide: components.SandboxService, useValue: { activeSandbox, sandboxes: signal([sandbox]) } },
+    { provide: components.AuthService, useValue: {} },
+    { provide: components.HostingService, useValue: {
+      post: async (path, data) => {
+        hostingRequests.push({ path, data });
+        return launchContext;
+      },
+    } },
     { provide: components.ApplicationsService, useValue: { getSandboxApplications: () => options.applications || of({ applications }) } },
     { provide: components.PersonasService, useValue: { getPersonas: () => options.personas || of({ personas }) } },
     { provide: components.ScenariosService, useValue: {
@@ -111,7 +129,7 @@ function setup(Component, options = {}) {
   ] });
   const component = TestBed.runInInjectionContext(() => new Component());
   TestBed.tick();
-  return { component, launches, windows, errors, navigations, fhirRequests, activeSandbox, queryParams };
+  return { component, launches, windows, errors, navigations, fhirRequests, hostingRequests, activeSandbox, queryParams };
 }
 
 function reply(subject, value) {
@@ -135,9 +153,9 @@ function assertSavedLaunch(launch) {
 
 function assertLaunchUrl(value) {
   const url = new URL(value);
-  assert.equal(url.origin + url.pathname, 'https://studio.test/saved/launch');
+  assert.equal(url.origin + url.pathname, `${browserOrigin}/saved/launch`);
   assert.equal(url.searchParams.get('theme'), 'dark');
-  assert.equal(url.searchParams.get('iss'), 'https://studio.test/api/sandboxes/launch-test/fhir/r4b');
+  assert.equal(url.searchParams.get('iss'), launchContext.iss);
   assert.equal(url.searchParams.get('launch'), 'launch-token');
 }
 
@@ -167,10 +185,12 @@ test('EHR waits for scenario, application, and persona lookups before launching 
   assert.equal(state.component.selectedEncounter().id, scenario.encounterFhirId);
   assert.equal(state.component.selectedLocation().id, scenario.locationFhirId);
   assert.equal(state.launches.length, 1);
-  reply(state.launches[0].response, { launch: 'launch-token' });
+  reply(state.launches[0].response, launchContext);
   assertLaunchUrl(state.component.rawLaunchUrl());
   assert.equal(state.component.iframeSrc(), state.component.rawLaunchUrl());
   assert.equal(state.component.launching(), false);
+  assert.equal(state.component.simulatedIdTokenPayload().iss, 'https://localhost');
+  assert.ok(state.component.simulatedTimelineEvents()[1].detail.includes(launchContext.iss));
   assert.deepEqual(state.errors, []);
 });
 
@@ -211,7 +231,7 @@ test('a late launch response from the previous sandbox cannot populate the curre
   assert.equal(state.launches.length, 1);
   state.activeSandbox.set({ ...sandbox, sandboxId: 'other-sandbox' });
   TestBed.tick();
-  reply(state.launches[0].response, { launch: 'old-token' });
+  reply(state.launches[0].response, { ...launchContext, launch: 'old-token' });
   assert.equal(state.component.rawLaunchUrl(), null);
   assert.equal(state.launches.length, 1);
 });
@@ -228,7 +248,7 @@ test('standalone opens a tab during the click, mints the saved context, and navi
   state.component.launchStandalone(scenario);
   assert.equal(state.windows.length, 1);
   assert.equal(state.launches.length, 1);
-  reply(state.launches[0].response, { launch: 'launch-token' });
+  reply(state.launches[0].response, launchContext);
   assertLaunchUrl(state.windows[0].url);
   assert.equal(state.component.launchingScenarioId(), null);
   assert.deepEqual(state.navigations, []);
@@ -260,4 +280,33 @@ test('standalone does not substitute a default application when the saved applic
   assert.equal(state.windows[0].closed, true);
   assert.match(state.errors[0], /application is unavailable/);
   assert.equal(state.component.launchingScenarioId(), null);
+});
+
+test('Application Studio uses the canonical launch issuer when opened on the UI development origin', async () => {
+  const state = setup(components.HostedApplicationsComponent);
+  state.component.app.set({
+    id: 'hosted-app', publishedBuildId: 'published-build',
+    publishedUrl: 'https://app-hosted.user.localhost/index.html?theme=dark',
+    scope: 'launch patient/*.rs',
+    builds: [{ id: 'published-build', scope: 'launch launch/patient patient/Observation.rs' }],
+  });
+  state.component.test = {
+    sandbox: sandbox.sandboxId, patient: 'saved-patient', encounter: 'saved-encounter', persona: 'saved-persona',
+  };
+
+  await state.component.launch();
+
+  assert.deepEqual(state.hostingRequests, [{
+    path: `/api/sandboxes/${sandbox.sandboxId}/launch-context`,
+    data: {
+      clientId: 'hosted-hosted-app-published', scope: 'launch launch/patient patient/Observation.rs',
+      patientFhirId: 'saved-patient', encounterFhirId: 'saved-encounter', userPersonaId: 'saved-persona',
+    },
+  }]);
+  const url = new URL(state.component.launchSrc());
+  assert.equal(url.origin + url.pathname, 'https://app-hosted.user.localhost/index.html');
+  assert.equal(url.searchParams.get('theme'), 'dark');
+  assert.equal(url.searchParams.get('iss'), launchContext.iss);
+  assert.equal(url.searchParams.get('launch'), launchContext.launch);
+  assert.equal(state.component.error(), '');
 });

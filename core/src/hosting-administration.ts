@@ -1,4 +1,4 @@
-export type HostedChannel = 'preview' | 'published';
+export type HostedChannel = 'published';
 export type HostingAction =
   | 'suspend'
   | 'resume'
@@ -28,7 +28,7 @@ export interface HostingUsagePoint {
 export interface HostingUsageReport {
   points: HostingUsagePoint[];
   totals: Omit<HostingUsagePoint, 'hour' | 'channel'>;
-  visitors: { preview: number; published: number } | null;
+  visitors: { published: number } | null;
   averageResponseMs: number;
   p95ResponseMs: number | null;
   collectors: Array<{
@@ -53,7 +53,6 @@ export interface HostingInventoryItem {
   deletedAt: string | null;
   deleteAfter: string | null;
   cleanupProtected: boolean;
-  previewBuildId: string | null;
   publishedBuildId: string | null;
   lastDeveloperActivityAt: string;
   lastServedAt: string | null;

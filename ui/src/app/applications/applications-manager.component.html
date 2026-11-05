@@ -8,7 +8,7 @@
       <a routerLink="/applications/hosted" class="btn btn-outline-primary"><i class="bi bi-github me-2"></i>Application Studio</a>
     }
     @if (auth.hasPermission('applications_register')) {
-      <button class="btn btn-primary d-flex align-items-center gap-1" (click)="formError.set(null); showRegisterModal.set(true)">
+      <button class="btn btn-primary d-flex align-items-center gap-1" (click)="openRegisterApplication()" [disabled]="saving()">
         <i class="bi bi-plus-circle-fill"></i>
         <span>Register New Application</span>
       </button>
@@ -34,8 +34,9 @@
   <div class="row g-4">
     @for (application of applications(); track application.id) {
       @let builtInPath = builtInApplicationPath(application);
+      @let hostedApplicationId = application.hostedApplicationId;
       <div class="col-md-6 col-xl-4">
-        <div class="card h-100 card-hover border-top border-4" [ngClass]="builtInPath ? 'border-success' : (application.isSample ? 'border-info' : 'border-primary')">
+        <div class="card h-100 card-hover border-top border-4" [ngClass]="builtInPath ? 'border-success' : (hostedApplicationId ? 'border-warning' : (application.isSample ? 'border-info' : 'border-primary'))">
           <div class="card-body d-flex flex-column">
             <div class="d-flex justify-content-between align-items-start mb-2">
               <h5 class="card-title fw-bold mb-0 text-truncate" [title]="application.clientName">
@@ -43,6 +44,8 @@
               </h5>
               @if (builtInPath) {
                 <span class="badge bg-success">Built-in Application</span>
+              } @else if (hostedApplicationId) {
+                <span class="badge bg-warning text-dark">Studio Managed</span>
               } @else if (application.isSample) {
                 <span class="badge bg-info text-dark">Sample Application</span>
               } @else {
@@ -64,18 +67,29 @@
               </div>
             </div>
 
-            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top">
               <span class="small text-muted">{{ application.author || 'FHIR Community' }}</span>
-              <div class="d-flex gap-1 align-items-center">
+              <div class="d-flex flex-wrap gap-1 align-items-center">
                 @if (builtInPath) {
                   <a [routerLink]="builtInPath" class="btn btn-sm btn-outline-success d-flex align-items-center gap-1">
                     <i class="bi bi-box-arrow-up-right"></i>
                     <span>Open Application</span>
                   </a>
                 }
-                @if (!application.isSample && !builtInPath) {
-                  <button class="btn btn-sm btn-outline-danger" (click)="deleteApplication(application)">
-                    <i class="bi bi-trash"></i>
+                @if (hostedApplicationId) {
+                  @if (auth.hasPermission('applications_deployment')) {
+                    <a routerLink="/applications/hosted" [queryParams]="{ app: hostedApplicationId }" class="btn btn-sm btn-warning d-flex align-items-center gap-1" [attr.aria-label]="'Manage ' + application.clientName + ' in Application Studio'">
+                      <i class="bi bi-tools" aria-hidden="true"></i>
+                      <span>Manage in Application Studio</span>
+                    </a>
+                  }
+                } @else if (canEditApplication(application)) {
+                  <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" (click)="openEditApplication(application)" [disabled]="saving()" [attr.aria-label]="'Edit ' + application.clientName">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                    <span>Edit</span>
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline-danger" (click)="deleteApplication(application)" [attr.aria-label]="'Delete ' + application.clientName">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
                   </button>
                 }
               </div>
@@ -87,14 +101,14 @@
   </div>
 }
 
-<!-- Register Application Modal -->
-@if (showRegisterModal()) {
-  <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+<!-- Register / Edit Application Modal -->
+@if (showApplicationModal()) {
+  <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="application-modal-title" style="background: rgba(0,0,0,0.5);">
     <div class="modal-dialog modal-dialog-centered modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title fw-bold">Register SMART on FHIR Application</h5>
-          <button type="button" class="btn-close" (click)="showRegisterModal.set(false)"></button>
+          <h5 id="application-modal-title" class="modal-title fw-bold">{{ editingApplicationId() ? 'Edit' : 'Register' }} SMART on FHIR Application</h5>
+          <button type="button" class="btn-close" aria-label="Close" (click)="closeApplicationModal()" [disabled]="saving()"></button>
         </div>
         <div class="modal-body">
           @if (formError()) {
@@ -103,37 +117,37 @@
           <div class="row g-3 mb-3">
             <div class="col-md-6">
               <label class="form-label fw-semibold">Application / Client Name <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" [(ngModel)]="newApplication.clientName" placeholder="e.g. My SMART Growth Application">
+              <input type="text" class="form-control" [(ngModel)]="applicationForm.clientName" placeholder="e.g. My SMART Growth Application">
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Author / Organization</label>
-              <input type="text" class="form-control" [(ngModel)]="newApplication.author" placeholder="e.g. Acme Health Tech">
+              <input type="text" class="form-control" [(ngModel)]="applicationForm.author" placeholder="e.g. Acme Health Tech">
             </div>
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Launch URI <span class="text-danger">*</span></label>
-            <input type="text" class="form-control font-monospace" [(ngModel)]="newApplication.launchUri" placeholder="https://myapplication.example.com/launch.html">
+            <input type="text" class="form-control font-monospace" [(ngModel)]="applicationForm.launchUri" placeholder="https://myapplication.example.com/launch.html">
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">OAuth2 Redirect URIs (One per line)</label>
-            <textarea class="form-control font-monospace" rows="2" [(ngModel)]="newApplication.redirectUrisText" placeholder="https://myapplication.example.com/callback"></textarea>
+            <textarea class="form-control font-monospace" rows="2" [(ngModel)]="applicationForm.redirectUrisText" placeholder="https://myapplication.example.com/callback"></textarea>
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Requested Scopes</label>
-            <input type="text" class="form-control font-monospace" [(ngModel)]="newApplication.scope" placeholder="launch/patient patient/*.read openid profile">
+            <input type="text" class="form-control font-monospace" [(ngModel)]="applicationForm.scope" placeholder="launch/patient patient/*.read openid profile">
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Brief Description</label>
-            <textarea class="form-control" rows="2" [(ngModel)]="newApplication.briefDescription" placeholder="Clinical application summary..."></textarea>
+            <textarea class="form-control" rows="2" [(ngModel)]="applicationForm.briefDescription" placeholder="Clinical application summary..."></textarea>
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" (click)="showRegisterModal.set(false)">Cancel</button>
-          <button type="button" class="btn btn-primary" (click)="registerApplication()">Save & Register</button>
+          <button type="button" class="btn btn-secondary" (click)="closeApplicationModal()" [disabled]="saving()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="saveApplication()" [disabled]="saving()">{{ saving() ? 'Saving…' : (editingApplicationId() ? 'Save Changes' : 'Save & Register') }}</button>
         </div>
       </div>
     </div>

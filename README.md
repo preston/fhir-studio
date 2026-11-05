@@ -1,7 +1,7 @@
 # FHIR Studio
 
-[GitHub-backed application hosting](doc/application-hosting.md) supports repository
-editing, SMART starters, collaborators, and filesystem-hosted previews/publication.
+[GitHub-backed application hosting](doc/application-hosting.md) deploys committed
+static assets from a repository directory, with collaborators and direct publication.
 
 FHIR Studio is a modern, open healthcare developer platform for FHIR sandboxes, simulated EHR application launching, SMART on FHIR v2 development, and CDS Hooks 2.0 testing. It is functionally inspired by the original Logica Sandbox architecture, but re-architected and implemented in modern TypeScript.
 

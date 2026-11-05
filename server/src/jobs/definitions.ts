@@ -9,12 +9,12 @@ export const jobDefinitions: ScheduledJobType[] = [
   },
   {
     jobType: 'HOSTED_RECONCILE_ALL',
-    description: 'Reconcile a fair batch of GitHub builds',
+    description: 'Refresh repository metadata for a fair batch of hosted applications',
     defaults: {},
   },
   {
     jobType: 'HOSTED_STORAGE_INSPECT',
-    description: 'Inspect deployed files, storage and missing builds',
+    description: 'Inspect deployed files, storage and missing deployment content',
     defaults: {},
   },
   {

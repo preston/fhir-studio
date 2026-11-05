@@ -212,7 +212,7 @@ async function deployed(name: string) {
   await db().hostedBuild.update({ where: { id: b.id }, data: { directory } });
   await db().hostedApplication.update({
     where: { id: a.id },
-    data: { previewBuildId: b.id, publishedBuildId: b.id },
+    data: { publishedBuildId: b.id },
   });
   return { a, b, directory };
 }
@@ -338,7 +338,7 @@ test('collector flushes merge concurrent producers, deduplicate ambiguous retrie
   });
   one.record({
     applicationId: a.id,
-    channel: 'preview',
+    channel: 'published',
     at,
     status: 200,
     aborted: true,
@@ -355,7 +355,7 @@ test('collector flushes merge concurrent producers, deduplicate ambiguous retrie
       },
     },
   });
-  assert.equal(hour.requests, 5);
+  assert.equal(hour.requests, 6);
   assert.equal(hour.documents, 4);
   assert.equal(hour.bytes, 200n);
   assert.equal(hour.bots, 1);
@@ -388,7 +388,7 @@ test('collector flushes merge concurrent producers, deduplicate ambiguous retrie
         },
       })
     ).requests,
-    5,
+    6,
   );
   const fresh = await db().hostedApplication.findUniqueOrThrow({
     where: { id: a.id },
@@ -487,7 +487,6 @@ test('trash preserves assigned files, restores publication and keeps tokens revo
   });
   assert.equal(restored.publishedBuildId, b.id);
   assert.equal(restored.deletedAt, null);
-  assert.ok(restored.publishingPaused);
   assert.ok(
     (
       await db().smartAuthSession.findUniqueOrThrow({
@@ -639,7 +638,6 @@ test('quotas serialize concurrent allocations, charge trash/reservations, and va
     where: { id: source.id },
   });
   assert.equal(moved.ownerUserId, other);
-  assert.ok(moved.publishingPaused);
   assert.equal(
     await db().hostedCollaborator.count({
       where: { applicationId: source.id, userId: stranger },

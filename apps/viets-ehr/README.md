@@ -10,29 +10,24 @@ Studio container images.
 
 In **SMART Applications → Application Studio**, connect your GitHub account and
 grant the instance's GitHub App access to this repository (or your fork). Choose
-**Existing repository**, select its branch, and use:
+the repository, select its branch, and use:
 
 | Setting           | Value                                                        |
 | ----------------- | ------------------------------------------------------------ |
 | Name              | `Viet's EHR`                                                 |
-| Project directory | `apps/viets-ehr`                                             |
-| Node version      | `26`                                                         |
-| Build command     | `npm ci && npm run build`                                    |
-| Output directory  | `public`                                                     |
+| Static assets directory | `apps/viets-ehr/public`                                  |
 | Launch path       | `index.html`                                                 |
 | Callback path     | `index.html`                                                 |
 | SMART scopes      | `launch launch/patient patient/*.crus user/Questionnaire.rs` |
 
-Paths to the project are relative to the repository root; output paths are
-relative to that project. **Detect build settings** reads this project's
-`fhirStudio.staticDirectory` setting. Review launch/callback paths and scopes in
-the wizard. `fhir-studio.json` also records the runtime contract for contributors
+The static assets directory is relative to the repository root. Launch and callback
+paths are relative to that directory. Review those paths and SMART scopes when
+creating the application. `fhir-studio.json` also records the runtime contract for contributors
 and packaging tools; GitHub hosting currently uses the wizard's explicit SMART
 settings rather than importing the manifest.
 
-Install the managed workflow, build a preview, and use **Test preview in sandbox**
-with a patient from any sandbox you can access. Review the result, publish it, and
-enable it in the desired sandbox. Future launches use that sandbox's FHIR endpoint
+Create the application and select **Deploy** to publish it. Enable it in a sandbox
+you manage, then use the **Launch** tab to test with a patient from that sandbox. Future launches use that sandbox's FHIR endpoint
 and context. No code changes or environment variables are required when moving
 between instances, sandboxes, or R4/R4B/R5 servers.
 
@@ -100,7 +95,7 @@ node --test test/*.test.mjs
 
 The app uses browser JavaScript modules checked with strict TypeScript/JSDoc and
 needs no transpilation. `public/` is the complete deployable static output.
-Editing files under `public/` changes the next GitHub build. A plain local static
+Commit edits under `public/` and deploy again to update the hosted application. A plain local static
 server can display the launch guidance, but an authenticated session requires
 Studio's runtime configuration and SMART launch; there is no offline fake-data
 mode.
@@ -114,6 +109,6 @@ npm run package
 This writes `dist/viets-ehr.zip` containing the static files and a root
 `fhir-studio.json`. The helper is shared at `scripts/package-example-app.mjs`.
 GitHub deployment publishes `public/` directly and does not need this ZIP. Studio
-currently accepts GitHub build artifacts and connected catalog artifacts, not
+currently deploys committed GitHub static directories and connected catalog artifacts, not
 local ZIP uploads. See the [contribution and packaging guide](../README.md) for
 framework examples and the recommended common contract.

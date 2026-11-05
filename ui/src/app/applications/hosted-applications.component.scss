@@ -1,0 +1,260 @@
+:host {
+  display: block;
+}
+
+// Materia's outline secondary color is too light against its card background.
+.btn-outline-secondary {
+  --bs-btn-color: var(--bs-body-color);
+  --bs-btn-border-color: var(--bs-secondary-color);
+  --bs-btn-hover-color: var(--bs-body-color);
+  --bs-btn-hover-bg: var(--bs-secondary-bg);
+  --bs-btn-hover-border-color: var(--bs-body-color);
+  --bs-btn-active-color: var(--bs-body-color);
+  --bs-btn-active-bg: var(--bs-secondary-bg);
+  --bs-btn-active-border-color: var(--bs-body-color);
+  --bs-btn-disabled-color: var(--bs-secondary-color);
+  --bs-btn-disabled-border-color: var(--bs-border-color);
+}
+
+.btn-primary {
+  --bs-btn-color: var(--bs-body-bg);
+  --bs-btn-bg: var(--bs-primary-text-emphasis);
+  --bs-btn-border-color: var(--bs-primary-text-emphasis);
+  --bs-btn-hover-color: var(--bs-body-bg);
+  --bs-btn-hover-bg: color-mix(
+    in srgb,
+    var(--bs-primary-text-emphasis) 88%,
+    var(--bs-body-color)
+  );
+  --bs-btn-hover-border-color: var(--bs-btn-hover-bg);
+  --bs-btn-active-color: var(--bs-body-bg);
+  --bs-btn-active-bg: color-mix(
+    in srgb,
+    var(--bs-primary-text-emphasis) 80%,
+    var(--bs-body-color)
+  );
+  --bs-btn-active-border-color: var(--bs-btn-active-bg);
+  --bs-btn-disabled-color: var(--bs-body-bg);
+  --bs-btn-disabled-bg: var(--bs-primary-text-emphasis);
+  --bs-btn-disabled-border-color: var(--bs-primary-text-emphasis);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--bs-primary-text-emphasis);
+  --bs-btn-border-color: var(--bs-primary-text-emphasis);
+  --bs-btn-hover-color: var(--bs-primary-text-emphasis);
+  --bs-btn-hover-bg: var(--bs-primary-bg-subtle);
+  --bs-btn-hover-border-color: var(--bs-primary-text-emphasis);
+  --bs-btn-active-color: var(--bs-primary-text-emphasis);
+  --bs-btn-active-bg: var(--bs-primary-bg-subtle);
+  --bs-btn-active-border-color: var(--bs-primary-text-emphasis);
+}
+
+.btn-success {
+  --bs-btn-color: var(--bs-body-bg);
+  --bs-btn-bg: var(--bs-success-text-emphasis);
+  --bs-btn-border-color: var(--bs-success-text-emphasis);
+  --bs-btn-hover-color: var(--bs-body-bg);
+  --bs-btn-hover-bg: var(--bs-success-text-emphasis);
+  --bs-btn-hover-border-color: var(--bs-success-text-emphasis);
+  --bs-btn-active-color: var(--bs-body-bg);
+  --bs-btn-active-bg: var(--bs-success-text-emphasis);
+  --bs-btn-active-border-color: var(--bs-success-text-emphasis);
+  --bs-btn-disabled-color: var(--bs-body-bg);
+  --bs-btn-disabled-bg: var(--bs-success-text-emphasis);
+  --bs-btn-disabled-border-color: var(--bs-success-text-emphasis);
+}
+
+.btn-outline-warning {
+  --bs-btn-color: var(--bs-warning-text-emphasis);
+  --bs-btn-border-color: var(--bs-warning-text-emphasis);
+  --bs-btn-hover-color: var(--bs-warning-text-emphasis);
+  --bs-btn-hover-bg: var(--bs-warning-bg-subtle);
+  --bs-btn-hover-border-color: var(--bs-warning-text-emphasis);
+  --bs-btn-active-color: var(--bs-warning-text-emphasis);
+  --bs-btn-active-bg: var(--bs-warning-bg-subtle);
+  --bs-btn-active-border-color: var(--bs-warning-text-emphasis);
+}
+
+// Override Materia's literal color/background declarations as well as Bootstrap vars.
+.btn-outline-secondary,
+.btn-primary,
+.btn-outline-primary,
+.btn-success,
+.btn-outline-warning {
+  color: var(--bs-btn-color);
+  background-color: var(--bs-btn-bg, transparent);
+  border-color: var(--bs-btn-border-color);
+
+  &:hover,
+  &:focus {
+    color: var(--bs-btn-hover-color);
+    background-color: var(--bs-btn-hover-bg);
+    border-color: var(--bs-btn-hover-border-color);
+  }
+
+  &:active,
+  &.active,
+  &:active:hover {
+    color: var(--bs-btn-active-color);
+    background-color: var(--bs-btn-active-bg);
+    border-color: var(--bs-btn-active-border-color);
+  }
+
+  &:disabled,
+  &.disabled {
+    color: var(--bs-btn-disabled-color);
+    background-color: var(--bs-btn-disabled-bg, transparent);
+    border-color: var(--bs-btn-disabled-border-color);
+  }
+}
+
+code {
+  color: var(--bs-emphasis-color);
+}
+
+a:not(.btn),
+.btn-link {
+  color: var(--bs-primary-text-emphasis);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--bs-primary-text-emphasis);
+    text-decoration: underline;
+  }
+}
+
+.badge.text-bg-primary {
+  color: var(--bs-primary-text-emphasis) !important;
+  background-color: var(--bs-primary-bg-subtle) !important;
+}
+
+.badge.text-bg-success {
+  color: var(--bs-success-text-emphasis) !important;
+  background-color: var(--bs-success-bg-subtle) !important;
+}
+
+.studio-layout {
+  align-items: flex-start;
+}
+
+.studio-main,
+.application-heading {
+  min-width: 0;
+}
+
+.application-sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.application-list {
+  max-height: 65vh;
+  overflow-y: auto;
+
+  .list-group-item {
+    --bs-list-group-active-color: var(--bs-primary-text-emphasis);
+    --bs-list-group-active-bg: var(--bs-primary-bg-subtle);
+    --bs-list-group-active-border-color: var(--bs-primary-border-subtle);
+    padding: 0.85rem 0.75rem;
+    border-radius: 0.35rem;
+    text-align: left;
+  }
+
+  .application-list-status {
+    opacity: 0.8;
+  }
+}
+
+.application-tabs {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+.application-tab {
+  flex-shrink: 0;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font: inherit;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--bs-primary-text-emphasis);
+    background: var(--bs-tertiary-bg);
+  }
+
+  &.active {
+    color: var(--bs-primary-text-emphasis);
+    border-bottom-color: var(--bs-primary-text-emphasis);
+    font-weight: 600;
+  }
+}
+
+.source-details {
+  dt {
+    color: var(--bs-secondary-color);
+    font-weight: 500;
+  }
+
+  dd {
+    margin-bottom: 0.75rem;
+  }
+}
+
+.deployment-url {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+
+.connection-prompt,
+.public-assets-note {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-tertiary-bg);
+}
+
+.repository-help {
+  margin-top: 0.65rem;
+  font-size: 0.875rem;
+}
+
+.smart-settings {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+summary {
+  cursor: pointer;
+}
+
+.application-frame {
+  min-height: 42rem;
+  background: var(--bs-body-bg);
+}
+
+@media (max-width: 991.98px) {
+  .application-sidebar {
+    position: static;
+  }
+
+  .application-list {
+    max-height: 15rem;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .studio-main .card-body.p-4 {
+    padding: 1.1rem !important;
+  }
+
+  .application-frame {
+    min-height: 32rem;
+  }
+}

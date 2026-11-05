@@ -1,3 +1,4 @@
+import { provisionClients } from "../src/hosted/builds.js";
 // Author: Preston Lee
 
 import assert from 'node:assert/strict';
@@ -214,26 +215,34 @@ test('preflights and queues public static releases without GitHub credentials, p
   assert.equal((await request(`/api/integration/v1/applications/${applicationId}`, { token: differentClientGrant.access_token })).status, 404);
 });
 
-test('publishes only an explicitly reviewed revision and atomically enables its managed sandbox', async () => {
+test('retired preview and review endpoints are unavailable; deployed content has a single client', async () => {
   const db = getPrisma(); const build = await db.hostedBuild.findFirstOrThrow({ where: { applicationId } });
   const content = path.join(root, 'apps', applicationId, build.id);
   await mkdir(content, { recursive: true });
   for (const file of ['index.html', 'callback.html', 'finish.html']) await writeFile(path.join(content, file), '<html>Test app</html>');
   await db.hostedBuild.update({ where: { id: build.id }, data: { status: 'READY', directory: content } });
-  await db.hostedApplication.update({ where: { id: applicationId }, data: { previewBuildId: build.id } });
-  const payload = { buildId: build.id, sandboxId: sandboxSlug };
-  assert.equal((await request(`/api/integration/v1/applications/${applicationId}/publish`, { method: 'POST', token: ownerToken.access_token, body: payload })).status, 409);
-  assert.equal((await request(`/api/integration/applications/${applicationId}/review`, { method: 'POST', user: ids.owner, body: { revision_id: build.id } })).status, 200);
-  const published = await request(`/api/integration/v1/applications/${applicationId}/publish`, { method: 'POST', token: ownerToken.access_token, body: payload });
-  assert.equal(published.status, 200, await published.clone().text());
+  const app = await db.hostedApplication.update({ where: { id: applicationId }, data: { publishedBuildId: build.id } });
+  await provisionClients(app, loadHostingConfig());
+  for (const endpoint of [`/api/integration/v1/applications/${applicationId}/preview`, `/api/integration/v1/applications/${applicationId}/publish`, `/api/integration/applications/${applicationId}/review`])
+    assert.equal((await request(endpoint, {method: 'POST', token: ownerToken.access_token, user: ids.owner, body: {buildId: build.id}})).status, 404);
   assert.equal(await db.hostedSandbox.count({ where: { applicationId, sandboxId: ids.sandbox } }), 1);
   const registered = await db.application.findMany({ where: { hostedApplicationId: applicationId } });
-  assert.ok(registered.every(client => (client.redirectUris as string[]).some(uri => uri.endsWith('/finish.html'))), 'All declared callbacks must be registered.');
-  const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: applicationId } });
-  assert.equal(app.publishedBuildId, build.id);
+  assert.equal(registered.length, 1);
+  assert.ok((registered[0].redirectUris as string[]).some(uri => uri.endsWith('/finish.html')));
+  const response = await request(`/api/integration/v1/applications/${applicationId}`, {token: ownerToken.access_token});
+  const serialized = await response.json();
+  for (const field of ['preview_build_id', 'reviewed_preview_id', 'preview_url']) assert.equal(field in serialized, false);
 });
 
-test('configuration revisions reuse validated content at quota, preserve publication, and require a new exact review', async () => {
+test('queued catalog previews cannot acquire publication authority after the workflow changes', async () => {
+  const db=getPrisma();
+  const app=await db.hostedApplication.findUniqueOrThrow({where:{id:applicationId}});
+  const legacy=await db.hostedBuild.create({data:{applicationId,branch:'catalog',commit:'legacy',generation:app.generation,status:'IMPORTING'}});
+  await assert.rejects(importCatalogArtifact({job:{input:{buildId:legacy.id}}} as JobExecutionContext),/workflow changed/);
+  assert.equal((await db.hostedApplication.findUniqueOrThrow({where:{id:applicationId}})).publishedBuildId,app.publishedBuildId);
+});
+
+test('configuration deployments reuse validated content at quota and immediately update the publication', async () => {
   const db = getPrisma();
   const previous = await db.hostedApplication.findUniqueOrThrow({ where: { id: applicationId } });
   const original = await db.hostedBuild.findUniqueOrThrow({ where: { id: previous.publishedBuildId! } });
@@ -244,19 +253,16 @@ test('configuration revisions reuse validated content at quota, preserve publica
     const preflight = await request('/api/integration/v1/preflight', { method: 'POST', token: ownerToken.access_token, body });
     assert.equal(preflight.status, 200); assert.equal((await preflight.json() as { ready: boolean }).ready, true, 'Updating an application does not consume another application slot.');
     const invalid = { ...body, runtime_contract: { ...(body.runtime_contract as Record<string, unknown>), callback_paths: ['callback.html', 'missing.html'] } };
-    assert.equal((await request(`/api/integration/v1/applications/${applicationId}/preview`, { method: 'POST', token: ownerToken.access_token, body: invalid, key: crypto.randomUUID() })).status, 400);
+    assert.equal((await request(`/api/integration/v1/applications/${applicationId}/deployments`, { method: 'POST', token: ownerToken.access_token, body: invalid, key: crypto.randomUUID() })).status, 400);
     assert.equal((await db.hostedApplication.findUniqueOrThrow({ where: { id: applicationId } })).publishedBuildId, original.id);
-    const response = await request(`/api/integration/v1/applications/${applicationId}/preview`, { method: 'POST', token: ownerToken.access_token, body, key: crypto.randomUUID() });
+    const response = await request(`/api/integration/v1/applications/${applicationId}/deployments`, { method: 'POST', token: ownerToken.access_token, body, key: crypto.randomUUID() });
     assert.equal(response.status, 202, await response.clone().text());
     const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: applicationId } });
-    assert.equal(app.publishedBuildId, original.id); assert.notEqual(app.previewBuildId, original.id);
-    const preview = await db.hostedBuild.findUniqueOrThrow({ where: { id: app.previewBuildId! } });
-    assert.equal(preview.status, 'READY'); assert.equal(preview.directory, original.directory); assert.equal(preview.contentBuildId, original.id);
-    assert.deepEqual(preview.publicConfiguration, { greeting: 'Updated greeting' });
+    assert.notEqual(app.publishedBuildId, original.id);
+    const deployment = await db.hostedBuild.findUniqueOrThrow({ where: { id: app.publishedBuildId! } });
+    assert.equal(deployment.status, 'READY'); assert.equal(deployment.directory, original.directory); assert.equal(deployment.contentBuildId, original.id);
+    assert.deepEqual(deployment.publicConfiguration, { greeting: 'Updated greeting' });
     assert.deepEqual((await db.hostedBuild.findUniqueOrThrow({ where: { id: original.id } })).publicConfiguration, { greeting: 'Hello' });
-    assert.equal((await request(`/api/integration/v1/applications/${applicationId}/publish`, { method: 'POST', token: ownerToken.access_token, body: { buildId: preview.id, sandboxId: sandboxSlug } })).status, 409);
-    assert.equal((await request(`/api/integration/applications/${applicationId}/review`, { method: 'POST', user: ids.owner, body: { revision_id: preview.id } })).status, 200);
-    assert.equal((await request(`/api/integration/v1/applications/${applicationId}/publish`, { method: 'POST', token: ownerToken.access_token, body: { buildId: preview.id, sandboxId: sandboxSlug } })).status, 200);
     const old = new Date(Date.now() - 20 * 60_000); await utimes(original.directory!, old, old);
     await cleanupStorage(loadHostingConfig());
     await access(path.join(original.directory!, 'index.html'));
@@ -272,7 +278,6 @@ test('reducing the registered client scopes immediately restricts existing grant
     assert.equal((await request('/api/integration/v1/account', { token: delegated.access_token })).status, 200);
     assert.equal((await request('/api/integration/v1/source-options', { token: delegated.access_token })).status, 403);
     const current = await getPrisma().hostedApplication.findUniqueOrThrow({ where: { id: applicationId } });
-    assert.equal((await request(`/api/integration/v1/applications/${applicationId}/publish`, { method: 'POST', token: delegated.access_token, body: { buildId: current.previewBuildId, sandboxId: sandboxSlug } })).status, 403);
     const refresh = await token({ grant_type: 'refresh_token', refresh_token: delegated.refresh_token });
     assert.equal(refresh.status, 200);
     const refreshed = await refresh.json() as { scope: string; access_token: string };
@@ -297,30 +302,50 @@ test('imports a validated public archive through the real worker without GitHub 
     return request;
   });
   try {
-    for (const outcome of ['valid', 'digest', 'scope', 'revoked']) {
+    for (const outcome of ['valid', 'digest', 'scope', 'sandbox', 'revoked']) {
       const body = deploymentBody(); body.artifact.sha256 = outcome === 'digest' ? 'b'.repeat(64) : hash;
       const response = await request('/api/integration/v1/deployments', { method: 'POST', token: delegated.access_token, body, key: crypto.randomUUID() });
       assert.equal(response.status, 202, await response.clone().text()); const op = await response.json() as { id: string; application_id: string };
       const operation = await db.integrationOperation.findUniqueOrThrow({ where: { id: op.id } });
       const job = await db.job.update({ where: { id: operation.jobId! }, data: { status: 'in_progress', lockedBy: 'integration-test-worker', leaseExpiresAt: new Date(Date.now() + 300_000) } });
       const context = { job, signal: new AbortController().signal, prisma: db, updateProgress: async (progress: number) => {
+        if (outcome === 'sandbox' && progress === 40) await db.sandbox.update({where:{id:ids.sandbox},data:{createdByUserId:ids.stranger}});
         if (outcome === 'revoked' && progress === 40) await db.integrationGrant.update({ where: { refreshTokenHash: digest(delegated.refresh_token) }, data: { revokedAt: new Date() } });
-        if (outcome === 'scope' && progress === 40) await db.integrationClient.update({ where: { id: client.id }, data: { scopes: integrationScopes.filter(scope => scope !== 'applications:write') } });
+        if (outcome === 'scope' && progress === 40) await db.integrationClient.update({ where: { id: client.id }, data: { scopes: integrationScopes.filter(scope => scope !== 'applications:publish') } });
       }, isCancelled: async () => false } as JobExecutionContext;
       if (outcome === 'valid') {
         await importCatalogArtifact(context);
         const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: op.application_id } });
-        assert.ok(app.previewBuildId); const build = await db.hostedBuild.findUniqueOrThrow({ where: { id: app.previewBuildId! } });
+        assert.ok(app.publishedBuildId); const build = await db.hostedBuild.findUniqueOrThrow({ where: { id: app.publishedBuildId! } });
         assert.equal(build.status, 'READY'); assert.equal(await readFile(path.join(build.directory!, 'index.html'), 'utf8'), '<html>Launch</html>');
       } else {
-        await assert.rejects(importCatalogArtifact(context), outcome === 'digest' ? /integrity/ : /revoked|required scope/);
-        const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: op.application_id } }); assert.equal(app.previewBuildId, null);
+        await assert.rejects(importCatalogArtifact(context), outcome === 'digest' ? /integrity/ : outcome === 'sandbox' ? /currently manage/ : /revoked|required scope/);
+        const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: op.application_id } }); assert.equal(app.publishedBuildId, null);
         assert.equal((await db.hostedBuild.findFirstOrThrow({ where: { applicationId: app.id } })).status, 'FAILED');
       }
+      if (outcome === 'sandbox') await db.sandbox.update({where:{id:ids.sandbox},data:{createdByUserId:ids.owner}});
       if (outcome === 'scope') await db.integrationClient.update({ where: { id: client.id }, data: { scopes: integrationScopes } });
     }
-    assert.equal(download.mock.callCount(), 4);
+    assert.equal(download.mock.callCount(), 5);
   } finally { await db.integrationClient.update({ where: { id: client.id }, data: { scopes: integrationScopes } }); download.mock.restore(); lookup.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test('unpublishing invalidates queued catalog deployments before they can activate', async () => {
+  const db=getPrisma();
+  const queued=await request('/api/integration/v1/deployments',{method:'POST',token:ownerToken.access_token,body:deploymentBody(),key:crypto.randomUUID()});
+  assert.equal(queued.status,202);
+  const op=await queued.json() as {id:string;application_id:string};
+  const app=await db.hostedApplication.findUniqueOrThrow({where:{id:op.application_id}});
+  const build=await db.hostedBuild.findUniqueOrThrow({where:{id:app.desiredBuildId!}});
+  const job=await db.job.update({where:{id:build.jobId!},data:{status:'in_progress',lockedBy:'unpublish-worker',leaseExpiresAt:new Date(Date.now()+60000)}});
+  const response=await request(`/api/integration/v1/applications/${app.id}/unpublish`,{method:'POST',token:ownerToken.access_token,body:{}});
+  assert.equal(response.status,200);
+  const stopped=await db.hostedApplication.findUniqueOrThrow({where:{id:app.id}});
+  assert.equal(stopped.publishedBuildId,null);
+  assert.equal(stopped.desiredBuildId,null);
+  assert.ok(stopped.generation>app.generation);
+  assert.equal((await db.job.findUniqueOrThrow({where:{id:job.id}})).status,'cancelled');
+  await assert.rejects(importCatalogArtifact({job,signal:new AbortController().signal} as JobExecutionContext),/superseded/);
 });
 
 test('disabling integration preserves metadata, browser revocation, and hosted applications', async () => {
@@ -344,7 +369,7 @@ test('revocation blocks queued activation and subsequent operations while retain
   const operation = await db.integrationOperation.findUniqueOrThrow({ where: { id: op.id } }); const job = await db.job.findUniqueOrThrow({ where: { id: operation.jobId! } });
   const revoke = await fetch(`${origin}/integration/revoke`, { method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${client.id}:${client.client_secret}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: ownerToken.refresh_token }) }); assert.equal(revoke.status, 200);
   await assert.rejects(importCatalogArtifact({ job, signal: new AbortController().signal, prisma: db, updateProgress: async () => {}, isCancelled: async () => false } as JobExecutionContext));
-  const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: op.application_id } }); assert.equal(app.previewBuildId, null);
+  const app = await db.hostedApplication.findUniqueOrThrow({ where: { id: op.application_id } }); assert.equal(app.publishedBuildId, null);
   assert.equal((await request(`/api/integration/v1/operations/${operationId}`, { token: ownerToken.access_token })).status, 403);
   assert.ok((await db.hostedApplication.findUniqueOrThrow({ where: { id: applicationId } })).publishedBuildId);
 });

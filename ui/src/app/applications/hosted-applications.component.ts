@@ -1,48 +1,50 @@
-import { HostingUsageComponent } from './hosting-usage.component.js';
 import {
   Component,
   DestroyRef,
   OnInit,
-  inject,
-  effect,
-  signal,
   computed,
-} from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { RouterLink, ActivatedRoute } from '@angular/router';
-import { KeyValuePipe } from '@angular/common';
-import { firstValueFrom } from 'rxjs';
-import { HttpErrorResponse } from '@angular/common/http';
-import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+  effect,
+  inject,
+  signal,
+} from "@angular/core";
+import { DatePipe, KeyValuePipe } from "@angular/common";
+import { FormsModule } from "@angular/forms";
+import { RouterLink, ActivatedRoute } from "@angular/router";
+import { HttpErrorResponse } from "@angular/common/http";
+import { DomSanitizer, type SafeResourceUrl } from "@angular/platform-browser";
+import { firstValueFrom } from "rxjs";
 import type {
   GitHubConnectionStatus,
   HostedApplication,
-  RepositorySnapshot,
-} from '@fhir-studio/core';
+  SmartLaunchContextResponse,
+} from "@fhir-studio/core";
 import {
   HostingService,
-  type AppTemplate,
   type GitHubRepository,
-} from '../core/services/hosting.service.js';
-import { SandboxService } from '../core/services/sandbox.service.js';
-import { AuthService } from '../core/services/auth.service.js';
-import type { UserPersona } from '../core/services/personas.service.js';
-import { HostedEditorState } from './hosted-editor-state.js';
+} from "../core/services/hosting.service.js";
+import { SandboxService } from "../core/services/sandbox.service.js";
+import { AuthService } from "../core/services/auth.service.js";
+import type { UserPersona } from "../core/services/personas.service.js";
+import { HostingUsageComponent } from "./hosting-usage.component.js";
+
 interface LaunchResource {
   id?: string;
   name?: Array<{ text?: string; given?: string[]; family?: string }>;
   status?: string;
 }
-import {
-  CodeEditorComponent,
-  type CodeEditorLanguage,
-} from '../shared/code-editor/code-editor.component.js';
 
 @Component({
-  selector: 'app-hosted-applications',
+  selector: "app-hosted-applications",
   standalone: true,
-  imports: [FormsModule, RouterLink, CodeEditorComponent, HostingUsageComponent, KeyValuePipe],
-  templateUrl: './hosted-applications.component.html',
+  imports: [
+    FormsModule,
+    RouterLink,
+    HostingUsageComponent,
+    DatePipe,
+    KeyValuePipe,
+  ],
+  templateUrl: "./hosted-applications.component.html",
+  styleUrl: "./hosted-applications.component.scss",
 })
 export class HostedApplicationsComponent implements OnInit {
   readonly api = inject(HostingService);
@@ -53,6 +55,81 @@ export class HostedApplicationsComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly wizardReady = signal(false);
   private initialized = false;
+
+  readonly apps = signal<HostedApplication[]>([]);
+  readonly app = signal<HostedApplication | null>(null);
+  readonly connection = signal<GitHubConnectionStatus | null>(null);
+  readonly githubReady = computed(
+    () => this.connection()?.status === "CONNECTED",
+  );
+  readonly artifactBacked = computed(
+    () => this.app()?.sourceKind === "artifact",
+  );
+  readonly integrationManaged = computed(() => !!this.app()?.integrationOrigin);
+  readonly publishedRevision = computed(() =>
+    this.app()?.builds.find(
+      (revision) => revision.id === this.app()?.publishedBuildId,
+    ),
+  );
+  readonly applicationTabs = computed(() =>
+    this.artifactBacked()
+      ? ["Overview", "Launch", "Deployments", "Usage", "Collaborators"]
+      : [
+          "Overview",
+          "Launch",
+          "Deployments",
+          "Usage",
+          "Collaborators",
+          "Settings",
+        ],
+  );
+  readonly repos = signal<GitHubRepository[]>([]);
+  readonly tab = signal("Overview");
+  readonly filter = signal("Owned");
+  readonly creating = signal(false);
+  readonly loaded = signal(false);
+  readonly error = signal("");
+  readonly notice = signal("");
+  readonly busy = signal(false);
+  readonly launchSrc = signal<SafeResourceUrl | null>(null);
+  readonly patients = signal<LaunchResource[]>([]);
+  readonly encounters = signal<LaunchResource[]>([]);
+  readonly personas = signal<UserPersona[]>([]);
+  readonly visibleApps = computed(() =>
+    this.apps().filter((application) =>
+      this.filter() === "Shared"
+        ? application.ownerUserId !== this.auth.currentUser()?.id
+        : application.ownerUserId === this.auth.currentUser()?.id,
+    ),
+  );
+
+  form = {
+    name: "",
+    repositoryId: "",
+    installationId: "",
+    branch: "main",
+    staticDirectory: "",
+    launchPath: "index.html",
+    callbackPath: "index.html",
+    scope: "launch launch/patient openid fhirUser patient/*.rs",
+  };
+  settings = {
+    name: "",
+    description: "",
+    branch: "",
+    staticDirectory: "",
+    launchPath: "",
+    callbackPath: "",
+    scope: "",
+  };
+  branch = "";
+  memberEmail = "";
+  memberRole = "READ_WRITE";
+  transferEmail = "";
+  patientSearch = "";
+  test = { sandbox: "", patient: "", encounter: "", persona: "" };
+  publicAcknowledged = false;
+
   constructor() {
     effect(() => {
       if (
@@ -66,126 +143,20 @@ export class HostedApplicationsComponent implements OnInit {
       }
     });
   }
-  readonly apps = signal<HostedApplication[]>([]);
-  readonly artifactBacked = computed(() => this.app()?.sourceKind === 'artifact');
-  readonly previewRevision = computed(() => this.app()?.builds.find(build => build.id === this.app()?.previewBuildId));
-  readonly integrationManaged = computed(() => !!this.app()?.integrationOrigin);
-  readonly applicationTabs = computed(() => this.artifactBacked() ? ['Preview', 'Build', 'Usage', 'Collaborators'] : ['Code', 'Preview', 'Build', 'Usage', 'Collaborators', 'Settings']);
-  readonly app = signal<HostedApplication | null>(null);
-  readonly connection = signal<GitHubConnectionStatus | null>(null);
-  readonly templates = signal<AppTemplate[]>([]);
-  readonly repos = signal<GitHubRepository[]>([]);
-  readonly tab = signal('Code');
-  readonly filter = signal('Owned');
-  readonly error = signal('');
-  readonly notice = signal('');
-  readonly busy = signal(false);
-  private readonly editorState = new HostedEditorState();
-  readonly snapshot = this.editorState.snapshot;
-  readonly drafts = this.editorState.drafts;
-  readonly selectedFile = this.editorState.selectedFile;
-  readonly editor = this.editorState.editor;
-  readonly previewSrc = signal<SafeResourceUrl | null>(null);
-  readonly launchChannel = signal<'preview' | 'published'>('preview');
-  readonly reviewedPreviewId = signal<string | null>(null);
-  readonly patients = signal<LaunchResource[]>([]);
-  readonly encounters = signal<LaunchResource[]>([]);
-  readonly personas = signal<UserPersona[]>([]);
-  patientSearch = '';
-  readonly visibleApps = computed(() =>
-    this.apps().filter((app) =>
-      this.filter() === 'Shared'
-        ? app.ownerUserId !== this.auth.currentUser()?.id
-        : app.ownerUserId === this.auth.currentUser()?.id,
-    ),
-  );
-  readonly language = computed<CodeEditorLanguage>(() => {
-    const extension = this.selectedFile().split('.').pop();
-    return extension === 'json'
-      ? 'json'
-      : extension === 'ts' || extension === 'tsx'
-        ? 'typescript'
-        : extension === 'js' || extension === 'jsx' || extension === 'mjs'
-          ? 'javascript'
-          : extension === 'html'
-            ? 'html'
-            : extension === 'css'
-              ? 'css'
-              : 'text';
-  });
-  form = {
-    name: '',
-    repositoryId: '',
-    installationId: '',
-    starter: '',
-    branch: 'main',
-    projectDirectory: '',
-    buildCommand: 'npm ci && npm run build',
-    outputDirectory: 'dist',
-    nodeVersion: '26',
-    launchPath: 'index.html',
-    callbackPath: 'index.html',
-    scope: 'launch launch/patient openid fhirUser patient/*.rs',
-  };
-  settings = {
-    name: '',
-    description: '',
-    branch: '',
-    projectDirectory: '',
-    buildCommand: '',
-    outputDirectory: '',
-    nodeVersion: '',
-    launchPath: '',
-    callbackPath: '',
-    scope: '',
-    autoPublish: false,
-    isTemplate: false,
-    templateVisibility: 'PRIVATE',
-  };
-  newRepo = { owner: '', name: '', private: true };
-  branch = '';
-  newBranch = '';
-  newFile = '';
-  memberEmail = '';
-  memberRole = 'READ_WRITE';
-  transferEmail = '';
-  relinkRepositoryId = '';
-  relinkInstallationId = '';
-  test = { sandbox: '', patient: '', encounter: '', persona: '' };
-  publicAcknowledged = false;
-  private get baseline(): Record<string, string> { return this.editorState.baseline; }
-  private set baseline(value: Record<string, string>) { this.editorState.baseline = value; }
-  setting(key: string): string {
-    const value = this.settings[key as keyof typeof this.settings];
-    return typeof value === 'string' ? value : '';
-  }
-  changeSetting(key: string, value: string): void {
-    const fields = this.settings as unknown as Record<string, string | boolean>;
-    if (typeof fields[key] === 'string') fields[key] = value;
-  }
-  async resume(): Promise<void> {
-    await this.action(async () => {
-      await this.api.patch(`/api/hosted-applications/${this.app()!.id}`, {
-        resume: true,
-      });
-      await this.refresh(this.app()!.id);
-    });
-  }
-  async selectProject(id: string): Promise<void> {
-    await this.action(() => this.open(id));
-  }
-  private readonly draftKey = () =>
-    `studio-app-draft:${this.auth.currentUser()?.id}:${this.app()?.id}`;
+
   ngOnInit(): void {
     try {
-      const draft = sessionStorage.getItem('studio-app-wizard');
-      if (draft)
-        this.form = {
-          ...this.form,
-          ...(JSON.parse(draft) as typeof this.form),
-        };
+      const draft = JSON.parse(
+        sessionStorage.getItem("studio-app-wizard") || "{}",
+      ) as Partial<typeof this.form>;
+      // Read only deployment fields from older wizard drafts.
+      for (const key of Object.keys(this.form) as Array<
+        keyof typeof this.form
+      >) {
+        if (typeof draft[key] === "string") this.form[key] = draft[key];
+      }
     } catch {
-      /* corrupted local draft */
+      /* Ignore an invalid local draft. */
     }
     this.wizardReady.set(true);
     this.sandbox.getSandboxes().subscribe();
@@ -195,18 +166,20 @@ export class HostedApplicationsComponent implements OnInit {
     }, 5000);
     this.destroy.onDestroy(() => clearInterval(timer));
   }
+
   private message(error: unknown): string {
     return error instanceof HttpErrorResponse
       ? error.error?.error || error.message
       : error instanceof Error
         ? error.message
-        : 'Operation failed.';
+        : "Operation failed. Please retry.";
   }
+
   async action(work: () => Promise<void>): Promise<void> {
     if (this.busy()) return;
     this.busy.set(true);
-    this.error.set('');
-    this.notice.set('');
+    this.error.set("");
+    this.notice.set("");
     try {
       await work();
     } catch (error) {
@@ -215,332 +188,248 @@ export class HostedApplicationsComponent implements OnInit {
       this.busy.set(false);
     }
   }
+
   async initialize(): Promise<void> {
     await this.action(async () => {
       this.apps.set((await this.api.list()).applications);
+      const selected = this.route.snapshot.queryParamMap.get("app");
+      const initial =
+        selected || this.visibleApps()[0]?.id || this.apps()[0]?.id;
+      if (initial) await this.open(initial);
+      else this.creating.set(true);
       this.connection.set(await this.api.connection());
-      const installed = this.route.snapshot.queryParamMap.get('installation');
-      if (installed) this.form.installationId = installed;
-      if (this.route.snapshot.queryParamMap.get('githubSetup') === 'pending')
-        this.notice.set(
-          'Repository installation is awaiting organization approval. Complete approval on GitHub, then refresh.',
+      const installed = this.route.snapshot.queryParamMap.get("installation");
+      if (installed) {
+        this.form.installationId = installed;
+        this.creating.set(true);
+      } else if (
+        !this.form.installationId &&
+        this.connection()?.installations?.length === 1
+      ) {
+        this.form.installationId = String(
+          this.connection()!.installations![0].id,
         );
-      const templates = await this.api.get<{
-        curated: AppTemplate[];
-        community: AppTemplate[];
-      }>('/api/application-templates');
-      this.templates.set([
-        ...templates.curated.map((t) => ({
-          ...t,
-          name: `Curated · ${t.name}`,
-        })),
-        ...templates.community.map((t) => ({
-          ...t,
-          name: `Community · ${t.name}`,
-        })),
-      ]);
-      const selected = this.route.snapshot.queryParamMap.get('app');
-      if (selected) {
-        await this.open(selected);
-        const channel = this.route.snapshot.queryParamMap.get('channel');
-        const targetSandbox = this.route.snapshot.queryParamMap.get('sandbox');
-        if (channel === 'preview' || channel === 'published') {
-          if (this.sandbox.sandboxes().length === 0) {
-            await firstValueFrom(this.sandbox.getSandboxes());
-          }
-          if (targetSandbox && this.sandbox.sandboxes().some(item => item.sandboxId === targetSandbox)) {
-            this.test.sandbox = targetSandbox;
-          }
-          this.launchChannel.set(channel);
-          this.tab.set('Preview');
-          this.notice.set('Choose patient, encounter, and persona context, then launch this application. Clinical context stays in Studio.');
-        }
+      }
+      if (this.route.snapshot.queryParamMap.get("githubSetup") === "pending") {
+        this.notice.set(
+          "Repository access is awaiting organization approval. Complete approval on GitHub, then refresh this page.",
+        );
+      }
+      const launchRequested =
+        this.route.snapshot.queryParamMap.get("tab") === "Launch";
+      const targetSandbox = this.route.snapshot.queryParamMap.get("sandbox");
+      if (selected && launchRequested) {
+        if (!this.sandbox.sandboxes().length)
+          await firstValueFrom(this.sandbox.getSandboxes());
+        if (
+          targetSandbox &&
+          this.sandbox
+            .sandboxes()
+            .some((item) => item.sandboxId === targetSandbox)
+        )
+          this.test.sandbox = targetSandbox;
+        this.tab.set("Launch");
+        this.notice.set(
+          "Choose patient, encounter, and persona context, then launch this application. Clinical context stays in Studio.",
+        );
       }
     });
-    if (this.form.installationId) await this.repositories();
-    const channel = this.route.snapshot.queryParamMap.get('channel');
-    if ((channel === 'preview' || channel === 'published') && this.app() && this.test.sandbox) {
+    this.loaded.set(true);
+    if (this.form.installationId && this.githubReady())
+      await this.repositories();
+    const launchRequested =
+      this.route.snapshot.queryParamMap.get("tab") === "Launch";
+    if (launchRequested && this.app() && this.test.sandbox)
       await this.launchChoices();
-      this.notice.set('Choose patient, encounter, and persona context, then launch this application. Clinical context stays in Studio.');
-    }
   }
+
+  startCreate(): void {
+    this.creating.set(true);
+    this.launchSrc.set(null);
+    this.error.set("");
+    this.notice.set("");
+  }
+
   rememberWizard(): void {
-    sessionStorage.setItem('studio-app-wizard', JSON.stringify(this.form));
+    sessionStorage.setItem("studio-app-wizard", JSON.stringify(this.form));
   }
-  starterChanged(): void {
-    const template = this.templates().find(
-      (item) => item.id === this.form.starter,
-    );
-    this.form.buildCommand = this.form.starter
-      ? 'npm install --ignore-scripts && npm run build'
-      : 'npm ci && npm run build';
-    this.form.outputDirectory =
-      this.form.starter === 'angular' ? 'dist/browser' : 'dist';
-    for (const field of [
-      'projectDirectory',
-      'buildCommand',
-      'outputDirectory',
-      'nodeVersion',
-      'launchPath',
-      'callbackPath',
-      'scope',
-    ] as const)
-      if (template?.[field] !== undefined) this.form[field] = template[field];
+
+  async installationChanged(): Promise<void> {
+    this.form.repositoryId = "";
+    this.repos.set([]);
     this.rememberWizard();
+    if (this.form.installationId) await this.repositories();
   }
+
   async repositories(): Promise<void> {
+    if (!this.form.installationId || !this.githubReady()) return;
     this.rememberWizard();
     await this.action(async () => {
       const repositories: GitHubRepository[] = [];
       for (let page = 1; page <= 100; page++) {
-        const result = (
-          await this.api.get<{ repositories: GitHubRepository[] }>(
-            `/api/github/repositories?installation=${this.form.installationId}&page=${page}`,
-          )
-        ).repositories;
-        repositories.push(...result);
-        if (result.length < 100) break;
+        const result = await this.api.get<{ repositories: GitHubRepository[] }>(
+          `/api/github/repositories?installation=${encodeURIComponent(this.form.installationId)}&page=${page}`,
+        );
+        repositories.push(...result.repositories);
+        if (result.repositories.length < 100) break;
       }
       this.repos.set(repositories);
+      if (
+        this.form.repositoryId &&
+        !repositories.some((repo) => String(repo.id) === this.form.repositoryId)
+      )
+        this.form.repositoryId = "";
     });
   }
+
   repositoryChanged(): void {
-    const repo = this.repos().find(
-      (r) => String(r.id) === String(this.form.repositoryId),
+    const repository = this.repos().find(
+      (repo) => String(repo.id) === this.form.repositoryId,
     );
-    if (repo) {
-      this.form.branch = repo.default_branch;
-      if (!this.form.name) this.form.name = repo.full_name.split('/')[1];
+    if (repository) {
+      this.form.branch = repository.default_branch;
+      if (!this.form.name) this.form.name = repository.full_name.split("/")[1];
     }
     this.rememberWizard();
   }
-  async detectDefaults(): Promise<void> {
-    await this.action(async () => {
-      const defaults = await this.api.get<{
-        buildCommand: string;
-        outputDirectory: string;
-        nodeVersion: string;
-        note: string;
-      }>(
-        `/api/github/build-defaults?repositoryId=${this.form.repositoryId}&projectDirectory=${encodeURIComponent(this.form.projectDirectory)}&branch=${encodeURIComponent(this.form.branch)}`,
-      );
-      this.form.buildCommand = defaults.buildCommand;
-      this.form.outputDirectory = defaults.outputDirectory;
-      this.form.nodeVersion = defaults.nodeVersion;
-      this.notice.set(defaults.note);
-      this.rememberWizard();
-    });
-  }
-  async createRepository(): Promise<void> {
-    await this.action(async () => {
-      const repo = await this.api.post<GitHubRepository>(
-        '/api/github/repositories',
-        this.newRepo,
-      );
-      this.repos.update((repos) => [repo, ...repos]);
-      this.form.repositoryId = String(repo.id);
-      this.form.branch = repo.default_branch;
-      this.form.name ||= this.newRepo.name;
-      this.rememberWizard();
-      this.notice.set(
-        `Created ${repo.full_name}. Add it to the Studio GitHub App installation, then refresh the repository list.`,
-      );
-    });
-  }
+
   async create(): Promise<void> {
     await this.action(async () => {
-      const app = await this.api.post<HostedApplication>(
-        '/api/hosted-applications',
+      const application = await this.api.post<HostedApplication>(
+        "/api/hosted-applications",
         this.form,
       );
-      sessionStorage.removeItem('studio-app-wizard');
-      await this.open(app.id);
+      await this.open(application.id);
       this.apps.set((await this.api.list()).applications);
+      this.form = {
+        name: "",
+        repositoryId: "",
+        installationId: this.form.installationId,
+        branch: "main",
+        staticDirectory: "",
+        launchPath: "index.html",
+        callbackPath: "index.html",
+        scope: "launch launch/patient openid fhirUser patient/*.rs",
+      };
+      this.publicAcknowledged = false;
+      sessionStorage.removeItem("studio-app-wizard");
       this.notice.set(
-        'Application created. Install its workflow on a writable branch, merge to the default branch on GitHub if necessary, then build.',
+        "Application created. Select Deploy to copy the committed static files from your repository.",
       );
     });
   }
+
+  async selectProject(id: string): Promise<void> {
+    await this.action(() => this.open(id));
+  }
+
+  async open(id: string): Promise<void> {
+    const application = await this.api.application(id);
+    this.app.set(application);
+    this.creating.set(false);
+    this.branch = application.branch;
+    this.launchSrc.set(null);
+    this.settings = {
+      name: application.name,
+      description: application.description,
+      branch: application.branch,
+      staticDirectory: this.staticDirectory(application),
+      launchPath: application.launchPath,
+      callbackPath: application.callbackPath,
+      scope: application.scope,
+    };
+    this.test.sandbox = this.sandbox.activeSandbox()?.sandboxId || "";
+    this.tab.set("Overview");
+  }
+
   async refresh(id: string): Promise<void> {
     try {
-      const app = await this.api.application(id);
-      if (this.app()?.id === id) this.app.set(app);
+      const application = await this.api.application(id);
+      if (this.app()?.id === id) {
+        if (application.publishedBuildId !== this.app()?.publishedBuildId) {
+          this.launchSrc.set(null);
+        }
+        this.app.set(application);
+      }
+      this.apps.update((applications) =>
+        applications.map((item) => (item.id === id ? application : item)),
+      );
     } catch {
-      /* keep the working editor through temporary outages */
+      /* Preserve the current view during a temporary outage. */
     }
   }
-  async open(id: string): Promise<void> {
+
+  staticDirectory(application: HostedApplication): string {
+    return (
+      application.staticDirectory ??
+      [application.projectDirectory, application.outputDirectory]
+        .filter(Boolean)
+        .join("/")
+    );
+  }
+
+  applicationStatus(application: HostedApplication): string {
+    if (application.suspended) return "Suspended";
+    const current = application.builds.find(
+      (revision) => revision.id === application.desiredBuildId,
+    );
     if (
-      Object.keys(this.drafts()).length &&
-      !confirm(
-        'Switch application? Your edits will remain in this tab’s recovery draft.',
-      )
+      current &&
+      ["WAITING", "BUILDING", "IMPORTING"].includes(current.status)
     )
-      return;
-    const app = await this.api.application(id);
-    this.app.set(app);
-    this.branch = app.branch;
-    this.selectedFile.set('');
-    this.editor.set('');
-    this.snapshot.set(null);
-    this.previewSrc.set(null);
-    this.reviewedPreviewId.set(null);
-    this.baseline = {};
-    this.settings = {
-      name: app.name,
-      description: app.description,
-      branch: app.branch,
-      projectDirectory: app.projectDirectory,
-      buildCommand: app.buildCommand,
-      outputDirectory: app.outputDirectory,
-      nodeVersion: app.nodeVersion,
-      launchPath: app.launchPath,
-      callbackPath: app.callbackPath,
-      scope: app.scope,
-      autoPublish: app.autoPublish,
-      isTemplate: app.isTemplate,
-      templateVisibility: app.templateVisibility,
-    };
-    try {
-      const recovery = JSON.parse(
-        sessionStorage.getItem(this.draftKey()) || '{}',
-      ) as {
-        files?: Record<string, string>;
-        baseline?: Record<string, string>;
-        snapshot?: RepositorySnapshot;
-      };
-      this.drafts.set(recovery.files || {});
-      this.baseline = recovery.baseline || {};
-      if (recovery.snapshot) {
-        this.snapshot.set(recovery.snapshot);
-        this.branch = recovery.snapshot.branch;
-      }
-    } catch {
-      this.drafts.set({});
-    }
-    this.test.sandbox = this.sandbox.activeSandbox()?.sandboxId || '';
-    this.tab.set(app.sourceKind === 'artifact' ? 'Preview' : 'Code');
+      return "Deploying";
+    if (application.publishedBuildId) return "Published";
+    if (current?.status === "FAILED") return "Deployment failed";
+    return "Not deployed";
   }
-  async loadSource(): Promise<void> {
-    await this.action(async () => {
-      const snapshot = await this.api.snapshot(this.app()!.id, this.branch);
-      this.editorState.load(snapshot);
-      this.notice.set(
-        'Source loaded. Unsaved edits remain in this tab until saved or discarded.',
-      );
-    });
-  }
-  async file(path: string): Promise<void> {
-    await this.action(async () => {
-      const app = this.app()!;
-      const commit = this.snapshot()?.commit;
-      if (!commit) throw Error('Load the branch first.');
-      const response = await this.api.get<{ content: string }>(
-        `/api/hosted-applications/${app.id}/source?branch=${encodeURIComponent(this.branch)}&commit=${encodeURIComponent(commit)}&path=${encodeURIComponent(path)}`,
-      );
-      this.baseline[path] = response.content;
-      this.selectedFile.set(path);
-      this.editor.set(this.drafts()[path] ?? response.content);
-    });
-  }
-  edit(content: string): void {
-    this.editorState.edit(content);
-    this.rememberDraft();
-  }
-  private rememberDraft(): void {
-    try {
-      sessionStorage.setItem(
-        this.draftKey(),
-        JSON.stringify({
-          files: this.drafts(),
-          baseline: this.baseline,
-          snapshot: this.snapshot(),
-        }),
-      );
-    } catch {
-      this.error.set(
-        'Tab storage is full. Download your recovery patch before leaving this page.',
-      );
-    }
-  }
-  addFile(): void {
-    if (!this.newFile || this.busy()) return;
-    if (this.snapshot()?.files.some(file => file.path === this.newFile) || Object.hasOwn(this.drafts(), this.newFile)) {
-      this.error.set('That file already exists. Select the existing file to edit it.');
-      return;
-    }
-    this.selectedFile.set(this.newFile);
-    this.editor.set('');
-    this.baseline[this.newFile] = '';
-    this.edit('');
-    this.newFile = '';
-  }
-  async save(preview = false): Promise<void> {
-    await this.action(async () => {
-      const app = this.app()!;
-      if (!this.snapshot()) throw Error('Load the branch before saving.');
-      if (this.snapshot()!.branch !== this.branch) throw Error('Load the selected branch before saving. Your draft has been preserved.');
-      const files = Object.entries(this.drafts()).map(([path, content]) => ({
-        path,
-        content,
-      }));
-      if (!files.length) {
-        if (preview)
-          await this.api.post(`/api/hosted-applications/${app.id}/builds`, {
-            branch: this.branch,
-          });
-        return;
-      }
-      const result = await this.api.post<{ commit: string }>(
-        `/api/hosted-applications/${app.id}/source`,
+
+  deploymentStatus(status: string): string {
+    return (
+      (
         {
-          branch: this.branch,
-          expectedCommit: this.snapshot()!.commit,
-          files,
-          preview,
-        },
+          WAITING: "Queued",
+          BUILDING: "Preparing files",
+          IMPORTING: "Deploying",
+          READY: "Ready",
+          FAILED: "Failed",
+          CANCELED: "Cancelled",
+        } as Record<string, string>
+      )[status] || status
+    );
+  }
+
+  deploymentBadge(status: string): string {
+    return status === "READY"
+      ? "text-bg-success"
+      : status === "FAILED"
+        ? "text-bg-danger"
+        : ["WAITING", "BUILDING", "IMPORTING"].includes(status)
+          ? "text-bg-primary"
+          : "text-bg-secondary";
+  }
+
+  revisionLabel(id: string | null): string {
+    const revision = this.app()?.builds.find((item) => item.id === id);
+    return revision
+      ? `${revision.branch} · ${revision.commit.slice(0, 8) || "Pending"} · ${this.deploymentStatus(revision.status)}`
+      : "No deployment yet";
+  }
+
+  async deploy(): Promise<void> {
+    await this.action(async () => {
+      const application = this.app()!;
+      await this.api.post(
+        `/api/hosted-applications/${application.id}/deployments`,
+        { branch: this.branch || application.branch },
       );
-      this.editorState.saved(result.commit, files);
-      if (Object.keys(this.drafts()).length) this.rememberDraft();
-      else sessionStorage.removeItem(this.draftKey());
+      await this.refresh(application.id);
+      this.tab.set("Deployments");
       this.notice.set(
-        `Saved commit ${result.commit.slice(0, 8)}. ${Object.keys(this.drafts()).length ? 'Newer edits remain unsaved in this tab. ' : ''}${preview ? 'Waiting for its GitHub build.' : ''}`,
+        "Deployment queued. Studio is copying the static files from the selected repository revision.",
       );
-      await this.refresh(app.id);
     });
   }
-  recovery(): void {
-    const patch = Object.entries(this.drafts())
-      .map(([path, content]) => {
-        const original = this.baseline[path] || '';
-        const before = original.match(/[^\n]*\n|[^\n]+$/g) || [];
-        const after = content.match(/[^\n]*\n|[^\n]+$/g) || [];
-        const lines = (prefix: string, items: string[]) =>
-          items
-            .map(
-              (line) =>
-                prefix +
-                line +
-                (line.endsWith('\n') ? '' : '\n\\ No newline at end of file\n'),
-            )
-            .join('');
-        return `--- ${Object.hasOwn(this.baseline, path) && this.snapshot()?.files.some((file) => file.path === path) ? 'a/' + path : '/dev/null'}\n+++ b/${path}\n@@ -${before.length ? 1 : 0},${before.length} +${after.length ? 1 : 0},${after.length} @@\n${lines('-', before)}${lines('+', after)}`;
-      })
-      .join('');
-    const url = URL.createObjectURL(new Blob([patch], { type: 'text/plain' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'studio-recovery.patch';
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-  discard(): void {
-    if (confirm('Discard this tab’s pending edits?')) {
-      this.drafts.set({});
-      sessionStorage.removeItem(this.draftKey());
-      this.editor.set(this.baseline[this.selectedFile()] || '');
-    }
-  }
+
   async operation(endpoint: string, body: unknown = {}): Promise<void> {
     await this.action(async () => {
       await this.api.post(
@@ -548,23 +437,10 @@ export class HostedApplicationsComponent implements OnInit {
         body,
       );
       await this.refresh(this.app()!.id);
-      this.notice.set('Operation completed.');
+      this.notice.set("Application updated.");
     });
   }
-  async createBranch(): Promise<void> {
-    await this.operation('branches', {
-      branch: this.newBranch,
-      commit: this.snapshot()?.commit,
-    });
-    if (!this.error()) {
-      this.branch = this.newBranch;
-      this.newBranch = '';
-      this.snapshot.update((snapshot) =>
-        snapshot ? { ...snapshot, branch: this.branch } : null,
-      );
-      this.rememberDraft();
-    }
-  }
+
   async saveSettings(): Promise<void> {
     await this.action(async () => {
       await this.api.patch(
@@ -572,59 +448,51 @@ export class HostedApplicationsComponent implements OnInit {
         this.settings,
       );
       await this.refresh(this.app()!.id);
+      this.branch = this.settings.branch;
+      this.apps.set((await this.api.list()).applications);
       this.notice.set(
-        'Settings saved. Repair the workflow after changing build configuration.',
+        "Settings saved. Deploy again to apply changes to hosted files and SMART launch settings.",
       );
     });
   }
+
   async checkSetup(): Promise<void> {
     await this.action(async () => {
-      const health = await this.api.get<{ state: string; message: string }>(
+      const result = await this.api.get<{ state: string; message: string }>(
         `/api/hosted-applications/${this.app()!.id}/health`,
       );
-      this.notice.set(`${health.state}: ${health.message}`);
+      this.notice.set(result.message);
     });
   }
-  buildLabel(id: string | null): string {
-    const build = this.app()?.builds.find((item) => item.id === id);
-    const user = this.app()?.collaborators.find(
-      (member) => member.userId === build?.requestedByUserId,
-    )?.user;
-    const label =
-      build?.requestedByUserId === this.auth.currentUser()?.id
-        ? 'you'
-        : user?.displayName ||
-          user?.email ||
-          (build?.githubActor
-            ? 'GitHub ' + build.githubActor
-            : build?.requestedByUserId);
-    return build
-      ? `${build.branch} · ${build.commit.slice(0, 8)} · ${build.status}${label ? ' · requested by ' + label : ''}`
-      : 'None';
-  }
+
   patientLabel(patient: LaunchResource): string {
     const name = patient.name?.[0];
-    return `${name?.text || [...(name?.given || []), name?.family].filter(Boolean).join(' ') || 'Patient'} (${patient.id})`;
+    return `${name?.text || [...(name?.given || []), name?.family].filter(Boolean).join(" ") || "Patient"} (${patient.id})`;
   }
+
   async launchChoices(): Promise<void> {
     await this.action(async () => {
       this.patients.set([]);
       this.encounters.set([]);
       this.personas.set([]);
-      this.test.patient = '';
-      this.test.encounter = '';
-      this.test.persona = '';
+      this.test.patient = "";
+      this.test.encounter = "";
+      this.test.persona = "";
       const sandbox = this.sandbox
         .sandboxes()
         .find((item) => item.sandboxId === this.test.sandbox);
       if (!sandbox) return;
-      const personas = await this.api.get<{ personas: UserPersona[] }>(
-        `/api/sandboxes/${sandbox.sandboxId}/personas`,
+      this.personas.set(
+        (
+          await this.api.get<{ personas: UserPersona[] }>(
+            `/api/sandboxes/${sandbox.sandboxId}/personas`,
+          )
+        ).personas,
       );
-      this.personas.set(personas.personas);
       await this.searchPatients();
     });
   }
+
   async searchPatients(): Promise<void> {
     const sandbox = this.sandbox
       .sandboxes()
@@ -633,13 +501,14 @@ export class HostedApplicationsComponent implements OnInit {
     const result = await this.api.get<{
       entry?: Array<{ resource: LaunchResource }>;
     }>(
-      `/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}/Patient?_count=50${this.patientSearch ? '&name=' + encodeURIComponent(this.patientSearch) : ''}`,
+      `/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}/Patient?_count=50${this.patientSearch ? "&name=" + encodeURIComponent(this.patientSearch) : ""}`,
     );
     this.patients.set((result.entry || []).map((item) => item.resource));
   }
+
   async patientChanged(): Promise<void> {
     await this.action(async () => {
-      this.test.encounter = '';
+      this.test.encounter = "";
       this.encounters.set([]);
       const sandbox = this.sandbox
         .sandboxes()
@@ -653,6 +522,7 @@ export class HostedApplicationsComponent implements OnInit {
       this.encounters.set((result.entry || []).map((item) => item.resource));
     });
   }
+
   async collaborator(): Promise<void> {
     await this.action(async () => {
       await this.api.put(
@@ -660,9 +530,10 @@ export class HostedApplicationsComponent implements OnInit {
         { email: this.memberEmail, role: this.memberRole },
       );
       await this.refresh(this.app()!.id);
-      this.memberEmail = '';
+      this.memberEmail = "";
     });
   }
+
   async removeCollaborator(userId: string): Promise<void> {
     await this.action(async () => {
       await this.api.delete(
@@ -671,10 +542,11 @@ export class HostedApplicationsComponent implements OnInit {
       await this.refresh(this.app()!.id);
     });
   }
+
   async remove(): Promise<void> {
     if (
       !confirm(
-        'Delete this application and stop hosting its preview and published files? The GitHub repository will remain.',
+        "Delete this application and stop hosting its files? The source repository or catalog release will remain.",
       )
     )
       return;
@@ -682,60 +554,36 @@ export class HostedApplicationsComponent implements OnInit {
       await this.api.delete(`/api/hosted-applications/${this.app()!.id}`);
       this.app.set(null);
       this.apps.set((await this.api.list()).applications);
+      this.creating.set(!this.apps().length);
     });
   }
-  notePreviewOpened(): void {
-    if (!this.integrationManaged()) this.reviewedPreviewId.set(this.app()?.previewBuildId ?? null);
-  }
-  async markPreviewReviewed(): Promise<void> {
-    const app = this.app();
-    if (!app?.previewBuildId || !this.integrationManaged()) return;
-    const revision = app.previewBuildId;
-    if (!confirm('Confirm that you reviewed this exact preview, its public configuration, SMART scopes, launch, and callbacks. Publishing will use this complete revision.')) return;
+
+  async launch(): Promise<void> {
     await this.action(async () => {
-      await this.api.post(`/api/integration/applications/${encodeURIComponent(app.id)}/review`, { revision_id: revision });
-      if (this.app()?.id !== app.id || this.app()?.previewBuildId !== revision) throw new Error('The preview changed. Review the current revision before publishing.');
-      this.reviewedPreviewId.set(revision);
-      this.notice.set('Preview review recorded. Return to Skycapp to publish this revision.');
-    });
-  }
-  async launch(channel: 'preview' | 'published' = 'preview'): Promise<void> {
-    await this.action(async () => {
-      const app = this.app()!;
+      const application = this.app()!;
       const sandbox = this.sandbox
         .sandboxes()
-        .find((s) => s.sandboxId === this.test.sandbox);
-      if (!sandbox) throw Error('Choose an accessible sandbox.');
-      const context = await this.api.post<{ launch: string }>(
+        .find((item) => item.sandboxId === this.test.sandbox);
+      if (!sandbox) throw new Error("Choose an accessible sandbox.");
+      const context = await this.api.post<SmartLaunchContextResponse>(
         `/api/sandboxes/${sandbox.sandboxId}/launch-context`,
         {
-          clientId: `hosted-${app.id}-${channel}`,
+          clientId: `hosted-${application.id}-published`,
           scope:
-            app.builds.find(
-              (build) =>
-                build.id ===
-                (channel === 'preview'
-                  ? app.previewBuildId
-                  : app.publishedBuildId),
-            )?.scope || app.scope,
+            application.builds.find(
+              (revision) => revision.id === application.publishedBuildId,
+            )?.scope || application.scope,
           patientFhirId: this.test.patient || null,
           encounterFhirId: this.test.encounter || null,
           userPersonaId: this.test.persona || null,
         },
       );
-      const url = new URL(
-        channel === 'preview' ? app.previewUrl : app.publishedUrl,
-      );
-      url.searchParams.set(
-        'iss',
-        `${window.location.origin}/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}`,
-      );
-      url.searchParams.set('launch', context.launch);
-      this.previewSrc.set(
+      const url = new URL(application.publishedUrl);
+      url.searchParams.set("iss", context.iss);
+      url.searchParams.set("launch", context.launch);
+      this.launchSrc.set(
         this.sanitizer.bypassSecurityTrustResourceUrl(url.toString()),
       );
-      this.launchChannel.set(channel);
-      if (channel === 'preview' && !this.integrationManaged()) this.reviewedPreviewId.set(app.previewBuildId);
     });
   }
 }

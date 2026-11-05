@@ -85,7 +85,7 @@
         <i class="bi bi-activity text-danger me-1"></i> Conditions & Diagnoses
       </div>
       <div class="d-flex flex-wrap gap-1">
-        @for (cond of patientConditions(); track cond) {
+        @for (cond of patientConditions(); track $index) {
           <span class="badge bg-light text-dark border">{{ cond }}</span>
         }
         @if (patientConditions().length === 0) {
@@ -99,7 +99,7 @@
         <i class="bi bi-exclamation-octagon text-warning me-1"></i> Allergies & Alerts
       </div>
       <div class="d-flex flex-wrap gap-1">
-        @for (allergy of patientAllergies(); track allergy) {
+        @for (allergy of patientAllergies(); track $index) {
           <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ allergy }}</span>
         }
         @if (patientAllergies().length === 0) {
@@ -259,7 +259,7 @@
       <p class="text-muted small fst-italic">No CDS cards returned for this hook evaluation.</p>
     } @else {
       <div class="d-flex flex-column gap-3">
-        @for (card of cdsCards(); track card.summary) {
+        @for (card of cdsCards(); track card.uuid ?? $index) {
           <div class="card border-start border-4" [ngClass]="{
             'border-danger': card.indicator === 'critical',
             'border-warning': card.indicator === 'warning',
@@ -282,14 +282,14 @@
               }
               @if (card.suggestions && card.suggestions.length > 0) {
                 <div class="d-flex gap-2 mt-2">
-                  @for (sug of card.suggestions; track sug.label) {
+                  @for (sug of card.suggestions; track sug.uuid ?? $index) {
                     <button class="btn btn-sm btn-outline-primary">{{ sug.label }}</button>
                   }
                 </div>
               }
               @if (card.links && card.links.length > 0) {
                 <div class="d-flex gap-2 mt-2">
-                  @for (link of card.links; track link.label) {
+                  @for (link of card.links; track $index) {
                     <a [href]="link.url" target="_blank" class="btn btn-sm btn-outline-info">
                       <i class="bi bi-box-arrow-up-right me-1"></i> {{ link.label }} ({{ link.type }})
                     </a>

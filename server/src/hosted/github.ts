@@ -240,6 +240,7 @@ export async function installationToken(
   installationId: string,
   repositoryId: string,
   config: HostingConfig,
+  permissions: { contents: 'read'; actions?: 'read' } = { contents: 'read' },
 ): Promise<string> {
   const encode = (value: unknown) =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -253,7 +254,7 @@ export async function installationToken(
       'POST',
       {
         repository_ids: [Number(repositoryId)],
-        permissions: { actions: 'read', contents: 'read' },
+        permissions,
       },
     )
   ).token;

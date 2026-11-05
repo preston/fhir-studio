@@ -1,3 +1,4 @@
+import { manageSandbox } from "./sandboxes.js";
 // Author: Preston Lee
 
 import { stat } from "node:fs/promises";
@@ -26,7 +27,11 @@ import {
 } from "../hosted/access.js";
 import { assertOwnerQuota, lockHostingAllocation } from "../hosted/quotas.js";
 import { github, userToken, lockApplication } from "../hosted/github.js";
-import { provisionClients } from "../hosted/builds.js";
+import {
+  provisionClients,
+  retireSupersededBuilds,
+  CATALOG_DEPLOYMENT_EVENT,
+} from "../hosted/builds.js";
 import {
   performHostingAction,
   revokeHostedSessions,
@@ -172,7 +177,7 @@ async function applicationFor(
 async function serialize(app: HostedApplication, grant: IntegrationGrant) {
   const db = getPrisma(),
     config = loadHostingConfig();
-  const [builds, bindings, review, members] = await Promise.all([
+  const [builds, bindings, members] = await Promise.all([
     db.hostedBuild.findMany({
       where: { applicationId: app.id },
       orderBy: { createdAt: "desc" },
@@ -186,22 +191,13 @@ async function serialize(app: HostedApplication, grant: IntegrationGrant) {
         },
       },
     }),
-    db.integrationReview.findUnique({
-      where: {
-        applicationId_userId: { applicationId: app.id, userId: grant.userId },
-      },
-    }),
     db.hostedCollaborator.findUnique({
       where: {
         applicationId_userId: { applicationId: app.id, userId: grant.userId },
       },
     }),
   ]);
-  const missingActive = [
-    app.previewBuildId,
-    app.publishedBuildId,
-    app.desiredBuildId,
-  ].filter(
+  const missingActive = [app.publishedBuildId, app.desiredBuildId].filter(
     (id): id is string => !!id && !builds.some((build) => build.id === id),
   );
   if (missingActive.length)
@@ -210,25 +206,15 @@ async function serialize(app: HostedApplication, grant: IntegrationGrant) {
         where: { applicationId: app.id, id: { in: missingActive } },
       })),
     );
-  const preview = app.previewBuildId
-    ? await db.hostedBuild.findUnique({ where: { id: app.previewBuildId } })
-    : null;
   return {
     id: app.id,
     name: app.name,
     source_kind: app.sourceKind,
     origin: app.integrationOrigin,
     repository: app.repository || null,
-    preview_build_id: app.previewBuildId,
     published_build_id: app.publishedBuildId,
     desired_build_id: app.desiredBuildId,
-    reviewed_preview_id:
-      review?.buildId === preview?.id &&
-      review?.revisionDigest === preview?.revisionDigest
-        ? review?.buildId
-        : null,
-    preview_url: appOrigin(config, app.id, "preview"),
-    published_url: appOrigin(config, app.id, "published"),
+    published_url: appOrigin(config, app.id),
     deleted_at: app.deletedAt,
     delete_after: app.deleteAfter,
     suspended: app.suspended,
@@ -252,7 +238,7 @@ async function serialize(app: HostedApplication, grant: IntegrationGrant) {
       configuration: b.publicConfiguration,
       revision_digest: b.revisionDigest,
     })),
-    handoff_url: `${config.studioOrigin}/integration/handoff?applicationId=${app.id}&channel=preview&subject=${grant.userId}`,
+    handoff_url: `${config.studioOrigin}/integration/handoff?applicationId=${app.id}&subject=${grant.userId}`,
   };
 }
 async function operationView(operation: IntegrationOperation) {
@@ -290,12 +276,12 @@ async function operationView(operation: IntegrationOperation) {
             : job?.status || "failed",
     progress: building ? 95 : job?.progress || 0,
     stage: building
-      ? "Building repository preview"
+      ? "Deploying repository assets"
       : job?.stage || "Operation unavailable",
     error: failedBuild
       ? sanitizeError(
           repositoryBuild.error ||
-            "Repository preview failed. Retry or open Studio.",
+            "Repository deployment failed. Retry or open Studio.",
         )
       : job?.error
         ? sanitizeError(job.error)
@@ -306,45 +292,6 @@ function sanitizeError(value: string): string {
   return value
     .replace(/https?:\/\/\S+/g, "[source URL redacted]")
     .slice(0, 2000);
-}
-async function manageSandbox(
-  tx: Prisma.TransactionClient,
-  userId: string,
-  slug: string,
-  contract?: StaticSmartRuntimeContract,
-) {
-  const sandbox = await tx.sandbox.findFirst({
-    where: {
-      OR: [
-        {
-          id: /^[a-f0-9-]{36}$/i.test(slug)
-            ? slug
-            : "00000000-0000-0000-0000-000000000000",
-        },
-        { sandboxId: slug },
-      ],
-    },
-    include: { collaborators: true },
-  });
-  if (
-    !sandbox ||
-    !(
-      sandbox.createdByUserId === userId ||
-      sandbox.collaborators.some(
-        (c) => c.userId === userId && ["MANAGE", "OWNER"].includes(c.role),
-      )
-    )
-  )
-    throw new HostingError(403, "Select a sandbox you currently manage.");
-  if (
-    !isFhirReleaseEnabled(sandbox.fhirVersion) ||
-    (contract && !contract.fhir_versions.includes(sandbox.fhirVersion as "R4"))
-  )
-    throw new HostingError(
-      409,
-      "The sandbox FHIR release is not supported by this application.",
-    );
-  return sandbox;
 }
 export function createIntegrationRouter(): Router {
   const router = express.Router(),
@@ -558,18 +505,17 @@ export function createIntegrationRouter(): Router {
     );
   });
   async function startDeployment(req: Request, existingId?: string) {
-    const g = await bearerGrant(req, "applications:write");
+    const g = await bearerGrant(req, "applications:publish");
+    await assertActiveGrant(db, g.id, "applications:write");
     let input = req.body;
     let existing: HostedApplication | undefined;
     if (existingId) {
-      existing = (await applicationFor(g, existingId, "develop")).app;
+      existing = (await applicationFor(g, existingId, "publish")).app;
       const active = await db.hostedBuild.findFirst({
         where: {
           applicationId: existing.id,
           id:
-            existing.previewBuildId ||
-            existing.publishedBuildId ||
-            "00000000-0000-0000-0000-000000000000",
+            existing.publishedBuildId || "00000000-0000-0000-0000-000000000000",
         },
       });
       input = {
@@ -628,6 +574,7 @@ export function createIntegrationRouter(): Router {
           return prior;
         }
         await assertActiveGrant(tx, g.id, "applications:write");
+        await assertActiveGrant(tx, g.id, "applications:publish");
         if (body.sandboxId || body.sandbox_id)
           await manageSandbox(
             tx,
@@ -644,7 +591,7 @@ export function createIntegrationRouter(): Router {
             userId: g.userId,
             requestId,
             requestDigest,
-            request: jsonValue(body),
+            request: jsonValue({ ...body, _publishes: true }),
           },
         });
         if (body.mode === "editable" && !existing) {
@@ -661,6 +608,7 @@ export function createIntegrationRouter(): Router {
             data: { jobId: job.id },
           });
         }
+        if (existing) await lockApplication(tx, existing.id);
         const app = existing
           ? await tx.hostedApplication.findUniqueOrThrow({
               where: { id: existing.id },
@@ -682,8 +630,12 @@ export function createIntegrationRouter(): Router {
               },
             });
         if (existing) {
-          await lockApplication(tx, app.id);
-          await assertCurrentCapability(tx, app.id, g.userId, "develop");
+          if (app.suspended || app.generation !== existing.generation)
+            throw new HostingError(
+              409,
+              "Application state changed. Refresh before deploying.",
+            );
+          await assertCurrentCapability(tx, app.id, g.userId, "publish");
           if (
             app.sourceKind === "repository" &&
             (body.mode !== "editable" ||
@@ -699,9 +651,35 @@ export function createIntegrationRouter(): Router {
               "Deployment mode cannot be changed after creation.",
             );
         }
-        const previous = app.previewBuildId
+        for (const binding of await tx.hostedSandbox.findMany({
+          where: { applicationId: app.id },
+          include: { sandbox: true },
+        }))
+          await manageSandbox(
+            tx,
+            g.userId,
+            binding.sandbox.sandboxId,
+            body.runtime_contract,
+          );
+        const sandbox = await manageSandbox(
+          tx,
+          g.userId,
+          body.sandboxId || body.sandbox_id!,
+          body.runtime_contract,
+        );
+        await tx.hostedSandbox.upsert({
+          where: {
+            applicationId_sandboxId: {
+              applicationId: app.id,
+              sandboxId: sandbox.id,
+            },
+          },
+          create: { applicationId: app.id, sandboxId: sandbox.id },
+          update: {},
+        });
+        const previous = app.publishedBuildId
           ? await tx.hostedBuild.findUnique({
-              where: { id: app.previewBuildId },
+              where: { id: app.publishedBuildId },
             })
           : null;
         const previousArtifact =
@@ -715,7 +693,7 @@ export function createIntegrationRouter(): Router {
         if (existing && app.sourceKind === "repository" && !reuse)
           throw new HostingError(
             409,
-            "Wait for an installed repository preview before changing its public configuration.",
+            "Wait for an installed repository deployment before changing its public configuration.",
           );
         if (reuse) {
           await assertArtifactAccess(body.artifact, g.userId, true);
@@ -747,6 +725,7 @@ export function createIntegrationRouter(): Router {
             commit: body.artifact.immutable_id,
             generation: app.generation,
             status: reuse ? "READY" : "IMPORTING",
+            requestEvent: CATALOG_DEPLOYMENT_EVENT,
             artifactSource: jsonValue(body.artifact),
             runtimeContract: jsonValue(body.runtime_contract),
             publicConfiguration: jsonValue(body.configuration),
@@ -779,7 +758,7 @@ export function createIntegrationRouter(): Router {
               ? {
                   status: "completed",
                   progress: 100,
-                  stage: "Configuration preview ready",
+                  stage: "Configuration deployed",
                   completedAt: new Date(),
                 }
               : {}),
@@ -789,6 +768,11 @@ export function createIntegrationRouter(): Router {
           where: { id: build.id },
           data: { jobId: job.id },
         });
+        if (reuse) {
+          await assertActiveGrant(tx, g.id, "applications:write");
+          await assertActiveGrant(tx, g.id, "applications:publish");
+          await assertCurrentCapability(tx, app.id, g.userId, "publish");
+        }
         const updated = await tx.hostedApplication.update({
           where: { id: app.id },
           data: {
@@ -801,7 +785,7 @@ export function createIntegrationRouter(): Router {
             launchPath: body.runtime_contract.launch_path,
             callbackPath: body.runtime_contract.callback_paths[0],
             scope: body.runtime_contract.scopes.join(" "),
-            ...(reuse ? { previewBuildId: build.id } : {}),
+            ...(reuse ? { publishedBuildId: build.id } : {}),
           },
         });
         if (reuse) await provisionClients(updated, loadHostingConfig(), tx);
@@ -818,7 +802,7 @@ export function createIntegrationRouter(): Router {
     res.status(202).json(await startDeployment(req));
   });
   router.post(
-    "/api/integration/v1/applications/:id/preview",
+    "/api/integration/v1/applications/:id/deployments",
     async (req, res) => {
       res
         .status(202)
@@ -852,28 +836,34 @@ export function createIntegrationRouter(): Router {
   });
   router.post("/api/integration/v1/operations/:id/retry", async (req, res) => {
     const { g, op } = await scopedOperation(req);
+    if ((op.request as Record<string, unknown>)._publishes !== true)
+      throw new HostingError(
+        409,
+        "Deployment workflow changed. Start a new deployment.",
+      );
+    await assertActiveGrant(db, g.id, "applications:publish");
     await assertActiveGrant(db, g.id, "applications:write");
-    if (op.applicationId) await applicationFor(g, op.applicationId, "develop");
+    if (op.applicationId) await applicationFor(g, op.applicationId, "publish");
     const updated = await db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`integration-retry:${op.id}`},0))`;
       const original = op.jobId
         ? await tx.job.findUnique({ where: { id: op.jobId } })
         : null;
-      const failedPreview = op.applicationId
+      const failedDeployment = op.applicationId
         ? await tx.hostedApplication.findUnique({
             where: { id: op.applicationId },
           })
         : null;
-      const preview = failedPreview?.desiredBuildId
+      const deployment = failedDeployment?.desiredBuildId
         ? await tx.hostedBuild.findUnique({
-            where: { id: failedPreview.desiredBuildId },
+            where: { id: failedDeployment.desiredBuildId },
           })
         : null;
       const retryEditableBuild =
         original?.jobType === "INTEGRATION_EDITABLE" &&
         original.status === "completed" &&
-        preview &&
-        ["FAILED", "CANCELLED"].includes(preview.status);
+        deployment &&
+        ["FAILED", "CANCELLED"].includes(deployment.status);
       if (
         !original ||
         (!["failed", "cancelled"].includes(original.status) &&
@@ -901,7 +891,7 @@ export function createIntegrationRouter(): Router {
         )
           throw new HostingError(
             409,
-            "Deployment superseded. Create a new preview.",
+            "Deployment superseded. Create a new deployment.",
           );
         await tx.hostedBuild.update({
           where: { id: build.id },
@@ -932,113 +922,6 @@ export function createIntegrationRouter(): Router {
     res.status(202).json(await operationView(updated));
   });
   router.post(
-    "/api/integration/v1/applications/:id/publish",
-    async (req, res) => {
-      const g = await bearerGrant(req, "applications:publish");
-      const id = routeParam(req.params.id),
-        expected = String(req.body?.buildId || req.body?.revision_id || "");
-      await applicationFor(g, id, "publish");
-      await db
-        .$transaction(async (tx) => {
-          await assertActiveGrant(tx, g.id, "applications:publish");
-          await lockApplication(tx, id);
-          const { app } = await applicationFor(g, id, "publish", false, tx);
-          await assertCurrentCapability(tx, id, g.userId, "publish");
-          const build = await tx.hostedBuild.findFirst({
-            where: {
-              id: expected,
-              applicationId: id,
-              status: "READY",
-              directory: { not: null },
-            },
-          });
-          const review = await tx.integrationReview.findUnique({
-            where: {
-              applicationId_userId: { applicationId: id, userId: g.userId },
-            },
-          });
-          if (
-            app.suspended ||
-            !build ||
-            app.previewBuildId !== expected ||
-            review?.buildId !== expected ||
-            review.revisionDigest !== build.revisionDigest
-          )
-            throw new HostingError(
-              409,
-              "Review the exact current preview in Studio before publishing.",
-            );
-          const affected = await tx.hostedSandbox.findMany({
-            where: { applicationId: id },
-            include: { sandbox: true },
-          });
-          for (const binding of affected)
-            await manageSandbox(
-              tx,
-              g.userId,
-              binding.sandbox.sandboxId,
-              build.runtimeContract as unknown as StaticSmartRuntimeContract,
-            );
-          const sandboxId = req.body?.sandboxId || req.body?.sandbox_id;
-          if (!sandboxId)
-            throw new HostingError(
-              400,
-              "Select a sandbox to enable this publication.",
-            );
-          const sandbox = sandboxId
-            ? await manageSandbox(
-                tx,
-                g.userId,
-                String(sandboxId),
-                build.runtimeContract as unknown as StaticSmartRuntimeContract,
-              )
-            : null;
-          const published = await tx.hostedApplication.update({
-            where: { id },
-            data: { publishedBuildId: expected, publishingPaused: false },
-          });
-          if (sandbox)
-            await tx.hostedSandbox.upsert({
-              where: {
-                applicationId_sandboxId: {
-                  applicationId: id,
-                  sandboxId: sandbox.id,
-                },
-              },
-              create: { applicationId: id, sandboxId: sandbox.id },
-              update: {},
-            });
-          await provisionClients(published, loadHostingConfig(), tx);
-          await tx.hostedAudit.create({
-            data: {
-              applicationId: id,
-              userId: g.userId,
-              action: "INTEGRATION_PUBLISHED",
-              detail: {
-                buildId: expected,
-                sandboxId: sandbox?.sandboxId || null,
-              },
-            },
-          });
-        })
-        .catch(async (error: unknown) => {
-          const current = await db.hostedApplication.findUnique({
-            where: { id },
-          });
-          if (
-            current?.publishedBuildId === expected &&
-            error instanceof HostingError
-          )
-            throw new HostingError(
-              error.status,
-              `This revision remains published; the sandbox binding could not be changed. ${error.message}`,
-            );
-          throw error;
-        });
-      res.json(await serialize((await applicationFor(g, id)).app, g));
-    },
-  );
-  router.post(
     "/api/integration/v1/applications/:id/unpublish",
     async (req, res) => {
       const g = await bearerGrant(req, "applications:publish");
@@ -1051,11 +934,16 @@ export function createIntegrationRouter(): Router {
         await assertActiveGrant(tx, g.id, "applications:publish");
         await lockApplication(tx, app.id);
         await assertCurrentCapability(tx, app.id, g.userId, "publish");
-        await tx.hostedApplication.update({
+        const updated = await tx.hostedApplication.update({
           where: { id: app.id },
-          data: { publishedBuildId: null, publishingPaused: true },
+          data: {
+            publishedBuildId: null,
+            generation: { increment: 1 },
+            policyUpdatedAt: new Date(),
+          },
         });
-        await revokeHostedSessions(tx, app.id, true);
+        await retireSupersededBuilds(tx, updated);
+        await revokeHostedSessions(tx, app.id);
       });
       res.json(await serialize((await applicationFor(g, app.id)).app, g));
     },
@@ -1104,7 +992,7 @@ export function createIntegrationRouter(): Router {
             ),
           ),
         );
-        await revokeHostedSessions(tx, app.id, true);
+        await revokeHostedSessions(tx, app.id);
         await tx.hostedSandbox.deleteMany({ where: { applicationId: app.id } });
         await tx.hostedSandbox.createMany({
           data: sandboxes.map((s) => ({
@@ -1186,7 +1074,6 @@ export function createIntegrationRouter(): Router {
       ).read
     )
       throw new HostingError(404, "Application unavailable.");
-    const channel = req.query.channel === "published" ? "published" : "preview";
     const sandbox =
       typeof req.query.sandboxId === "string"
         ? await sandboxAccess(req.sessionAuth.userId, req.query.sandboxId)
@@ -1196,62 +1083,13 @@ export function createIntegrationRouter(): Router {
       requireEnv("FHIR_STUDIO_SERVER_UI_BASE_URL", "UI_BASE_URL"),
     );
     target.searchParams.set("app", app.id);
-    target.searchParams.set("channel", channel);
     if (sandbox) target.searchParams.set("sandbox", sandbox.sandboxId);
-    target.searchParams.set("tab", "Preview");
+    target.searchParams.set("tab", "Launch");
     res.json({
       application_id: app.id,
-      channel,
       sandbox_id: sandbox?.sandboxId || null,
       launch_url: target.href,
     });
-  });
-  router.post("/api/integration/applications/:id/review", async (req, res) => {
-    if (!req.sessionAuth?.sessionId)
-      throw new HostingError(401, "Sign in to review previews.");
-    const userId = req.sessionAuth.userId;
-    const id = routeParam(req.params.id);
-    await db.$transaction(async (tx) => {
-      await lockApplication(tx, id);
-      await assertCurrentCapability(tx, id, userId, "publish");
-      const app = await tx.hostedApplication.findUniqueOrThrow({
-        where: { id },
-      });
-      const expected = String(req.body?.revision_id || "");
-      const build = await tx.hostedBuild.findFirst({
-        where: {
-          id: expected,
-          applicationId: id,
-          status: "READY",
-          directory: { not: null },
-        },
-      });
-      if (
-        !app.integrationClientId ||
-        app.suspended ||
-        app.previewBuildId !== expected ||
-        !build
-      )
-        throw new HostingError(
-          409,
-          "Preview changed. Review the current revision.",
-        );
-      await tx.integrationReview.upsert({
-        where: { applicationId_userId: { applicationId: id, userId } },
-        create: {
-          applicationId: id,
-          userId,
-          buildId: expected,
-          revisionDigest: build.revisionDigest,
-        },
-        update: {
-          buildId: expected,
-          revisionDigest: build.revisionDigest,
-          reviewedAt: new Date(),
-        },
-      });
-    });
-    res.json({ reviewed_preview_id: String(req.body.revision_id) });
   });
   return router;
 }

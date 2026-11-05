@@ -38,7 +38,7 @@ test('visitor cookies are signed, host-bound, expire, and require a returned coo
     now = Date.now();
   const initial = visitorCookie(
     key,
-    'preview-app.example.test',
+    'app-one.example.test',
     undefined,
     now,
   );
@@ -46,21 +46,21 @@ test('visitor cookies are signed, host-bound, expire, and require a returned coo
   assert.ok(initial.fresh);
   const returned = visitorCookie(
     key,
-    'preview-app.example.test',
+    'app-one.example.test',
     initial.token,
     now + 1000,
   );
   assert.ok(returned.visitor);
   assert.equal(returned.fresh, false);
   assert.equal(
-    visitorCookie(key, 'published-app.example.test', initial.token, now + 1000)
+    visitorCookie(key, 'app-two.example.test', initial.token, now + 1000)
       .visitor,
     null,
   );
   assert.equal(
     visitorCookie(
       key,
-      'preview-app.example.test',
+      'app-one.example.test',
       initial.token + 'x',
       now + 1000,
     ).visitor,
@@ -69,7 +69,7 @@ test('visitor cookies are signed, host-bound, expire, and require a returned coo
   assert.equal(
     visitorCookie(
       key,
-      'preview-app.example.test',
+      'app-one.example.test',
       initial.token,
       now + 91 * 86400000,
     ).visitor,

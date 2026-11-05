@@ -34,10 +34,10 @@ test("integration sign-in preserves the local authorization request and account-
 test("handoff accepts only the Studio hosted-app launcher and rejects remote destinations", () => {
   assert.equal(
     verifiedLauncherPath(
-      "/applications/hosted?app=abc&channel=preview",
+      "/applications/hosted?app=abc&tab=Launch",
       "https://studio.example",
     ),
-    "/applications/hosted?app=abc&channel=preview",
+    "/applications/hosted?app=abc&tab=Launch",
   );
   for (const value of [
     "https://evil.example/applications/hosted",

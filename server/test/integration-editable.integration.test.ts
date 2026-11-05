@@ -11,7 +11,6 @@ import { getPrisma, disconnectPrisma } from "../src/db/prisma.js";
 import { loadHostingConfig } from "../src/hosted/config.js";
 import { encrypt } from "../src/hosted/github.js";
 import { HostingError } from "../src/hosted/access.js";
-import { workflowPath } from "../src/hosted/source.js";
 import { createEditableProject } from "../src/integrations/artifacts.js";
 import { defaultStaticSmartContract } from "../src/integrations/catalog-contract.js";
 import { digest, integrationScopes } from "../src/integrations/oauth.js";
@@ -47,7 +46,6 @@ class FakeGitHub {
   readonly fullName = `actor/${this.name}`;
   exists = false;
   installed = true;
-  failure: "workflow" | null = null;
   beforeSourceMetadata: (() => Promise<void>) | null = null;
   readonly writes: Array<{
     path: string;
@@ -87,16 +85,21 @@ class FakeGitHub {
       "api.github.com",
       "No real network calls are permitted in this worker test.",
     );
-    assert.equal(
-      new Headers(init?.headers).get("authorization"),
-      "Bearer actor-test-token",
-    );
     const method = init?.method || "GET";
     const endpoint = url.pathname;
     const body = init?.body
       ? (JSON.parse(String(init.body)) as Record<string, unknown>)
       : {};
     if (method !== "GET") this.writes.push({ path: endpoint, method, body });
+    if (endpoint === "/app/installations/7/access_tokens" && method === "POST") {
+      assert.match(new Headers(init?.headers).get("authorization") || "", /^Bearer ey/);
+      assert.deepEqual(body.repository_ids, [this.repositoryId]);
+      return Response.json({ token: "installation-test-token" });
+    }
+    assert.equal(
+      new Headers(init?.headers).get("authorization"),
+      "Bearer actor-test-token",
+    );
     if (endpoint === "/user") return Response.json({ id: 123, login: "actor" });
     if (endpoint === "/user/installations")
       return Response.json({
@@ -164,6 +167,13 @@ class FakeGitHub {
       });
     }
     const base = `/repos/${this.fullName}`;
+    if (endpoint === `${base}/contents`) {
+      assert.equal(url.searchParams.get("ref"), this.head);
+      return Response.json([
+        { name: "index.html", path: "index.html", type: "file" },
+        { name: "callback.html", path: "callback.html", type: "file" },
+      ]);
+    }
     if (endpoint === `${base}/commits/main`)
       return Response.json({ sha: this.head });
     if (endpoint === `${base}/commits/${this.head}`)
@@ -184,17 +194,6 @@ class FakeGitHub {
     if (endpoint === `${base}/git/blobs` && method === "POST")
       return Response.json({ sha: `copied-${this.writes.length}` });
     if (endpoint === `${base}/git/trees` && method === "POST") {
-      const entries = body.tree as Array<{ path: string }>;
-      if (
-        this.failure === "workflow" &&
-        entries.some((entry) => entry.path.startsWith(".github/workflows/"))
-      ) {
-        this.failure = null;
-        return Response.json(
-          { error: "Temporary GitHub outage" },
-          { status: 503 },
-        );
-      }
       return Response.json({ sha: `tree-${this.writes.length}` });
     }
     if (endpoint === `${base}/git/commits` && method === "POST") {
@@ -209,12 +208,6 @@ class FakeGitHub {
     }
     if (endpoint === "/user/installations/7/repositories")
       return Response.json({ repositories: this.installed ? [this.repo] : [] });
-    if (
-      endpoint.startsWith(`${base}/actions/workflows/`) &&
-      endpoint.endsWith("/dispatches") &&
-      method === "POST"
-    )
-      return new Response(null, { status: 204 });
     throw new Error(`Unexpected fake GitHub operation: ${method} ${endpoint}`);
   }
   description = "";
@@ -228,6 +221,10 @@ before(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "studio-editable-worker-"));
   Object.assign(process.env, {
     NODE_ENV: "test",
+    FHIR_STUDIO_HAPI_R4_ENABLED: "true",
+    FHIR_STUDIO_HAPI_R4B_ENABLED: "false",
+    FHIR_STUDIO_HAPI_R5_ENABLED: "false",
+    FHIR_STUDIO_HAPI_R4_BASE_URL: "http://127.0.0.1:1/fhir",
     FHIR_STUDIO_SERVER_DATABASE_URL: databaseUrl,
     DATABASE_URL: databaseUrl,
     FHIR_STUDIO_INTEGRATION_ENABLED: "true",
@@ -273,6 +270,7 @@ before(async () => {
   await db.appointment.create({
     data: { entityType: "User", entityId: ids.user, roleId: ids.role },
   });
+  await db.sandbox.create({data:{sandboxId:`editable-${ids.user}`,name:"Editable sandbox",partitionId:987654,createdByUserId:ids.user,fhirVersion:"R4"}});
   await db.gitHubConnection.create({
     data: {
       userId: ids.user,
@@ -310,17 +308,21 @@ after(async () => {
       select: { id: true },
     })
   ).map((app) => app.id);
-  await db.integrationReview.deleteMany({
-    where: { applicationId: { in: appIds } },
+  const importJobs = await db.hostedBuild.findMany({
+    where: { applicationId: { in: appIds }, jobId: { not: null } },
+    select: { jobId: true },
   });
   await db.hostedAudit.deleteMany({ where: { applicationId: { in: appIds } } });
   await db.hostedApplication.deleteMany({ where: { id: { in: appIds } } });
   await db.integrationOperation.deleteMany({ where: { clientId: ids.client } });
-  await db.job.deleteMany({ where: { id: { in: jobIds } } });
+  await db.job.deleteMany({
+    where: { id: { in: [...jobIds, ...importJobs.flatMap((build) => build.jobId ? [build.jobId] : [])] } },
+  });
   await db.integrationClient.deleteMany({ where: { id: ids.client } });
   await db.hostedOwnerQuota.deleteMany({ where: { userId: ids.user } });
   await db.appointment.deleteMany({ where: { roleId: ids.role } });
   await db.role.deleteMany({ where: { id: ids.role } });
+  await db.sandbox.deleteMany({where:{createdByUserId:ids.user}});
   await db.user.deleteMany({ where: { id: ids.user } });
   await disconnectPrisma();
   if (root) await rm(root, { recursive: true, force: true });
@@ -351,6 +353,8 @@ async function fixture(
     { name: "greeting", label: "Greeting", type: "string", required: false },
   ];
   const request = {
+    _publishes: true,
+    sandboxId: `editable-${ids.user}`,
     name: remote.name,
     mode: "editable",
     source_project: {
@@ -358,10 +362,7 @@ async function fixture(
       owner: "publisher",
       repository: "source",
       commit: sourceCommit,
-      project_directory: "",
-      build_command: "npm ci && npm run build",
-      output_directory: "dist",
-      runtime: "26",
+      static_directory: ".",
     },
     runtime_contract: contract,
     configuration: { greeting: "Hello" },
@@ -434,7 +435,7 @@ async function fixture(
   return { db, remote, grant, operation, job, controller, ctx };
 }
 
-test("copies only pinned safe source, installs a fresh workflow, and provisions new public SMART clients", async () => {
+test("copies pinned safe source and queues static deployment without creating or dispatching workflows", async () => {
   const { db, remote, ctx, operation } = await fixture();
   const result = await createEditableProject(ctx);
   const app = await db.hostedApplication.findUniqueOrThrow({
@@ -467,25 +468,22 @@ test("copies only pinned safe source, installs a fresh workflow, and provisions 
       .sort(),
     ["callback.html", "index.html", "package.json"],
   );
-  const workflowTree = remote.writes.find(
-    (call) =>
-      call.path.endsWith("/git/trees") &&
-      (call.body.tree as Array<{ path: string }>).some(
-        (entry) => entry.path === workflowPath(app.id),
-      ),
-  )!;
-  assert.ok(workflowTree);
-  assert.match(
-    String((workflowTree.body.tree as Array<{ content: string }>)[0]!.content),
-    new RegExp(`name: FHIR Studio ${app.id}`),
-  );
+  assert.ok(remote.writes.every((call) => !call.path.includes("/actions/")));
+  assert.ok(remote.writes.filter((call) => call.path.endsWith("/git/trees")).every(
+    (call) => (call.body.tree as Array<{ path: string }>).every(
+      (entry) => !entry.path.startsWith(".github/workflows/"),
+    ),
+  ));
+  assert.equal(app.projectDirectory, "");
+  assert.equal(app.outputDirectory, ".");
+  assert.equal(app.buildCommand, "");
   const clients = await db.application.findMany({
     where: { hostedApplicationId: app.id },
   });
-  assert.equal(clients.length, 2);
+  assert.equal(clients.length, 1);
   assert.deepEqual(
     clients.map((client) => client.clientId).sort(),
-    [`hosted-${app.id}-preview`, `hosted-${app.id}-published`].sort(),
+    [`hosted-${app.id}-published`].sort(),
   );
   assert.ok(
     clients.every(
@@ -512,18 +510,41 @@ test("copies only pinned safe source, installs a fresh workflow, and provisions 
     build.runtimeContract,
     (operation.request as { runtime_contract: unknown }).runtime_contract,
   );
-  const dispatch = remote.writes.find((call) =>
-    call.path.endsWith("/dispatches"),
-  )!;
-  assert.deepEqual(dispatch.body.inputs, { studio_request_id: build.id });
+  assert.equal(build.requestEvent, "repository_static_publish");
+  assert.equal(build.runId, null);
+  assert.equal(build.status, "IMPORTING");
+  assert.deepEqual(build.artifactSource, {
+    kind: "repository",
+    repositoryId: String(remote.repositoryId),
+    installationId: "7",
+    staticDirectory: ".",
+  });
+  assert.ok(build.jobId);
+  const importJob = await db.job.findUniqueOrThrow({ where: { id: build.jobId! } });
+  jobIds.push(importJob.id);
+  assert.equal(importJob.jobType, "HOSTED_IMPORT");
+  assert.deepEqual(importJob.input, { buildId: build.id });
+  await createEditableProject(ctx);
+  assert.equal(await db.hostedBuild.count({ where: { applicationId: app.id } }), 1);
+  assert.equal(remote.writes.filter((call) => call.path === "/user/repos").length, 1);
 });
 
-test("resumes a workflow failure without recreating the repository, application, or copied source", async () => {
+test("retired editable preview operations cannot create a newly published application", async () => {
+  const {db, remote, ctx, operation}=await fixture();
+  const request={...operation.request as Record<string, unknown>};
+  delete request._publishes;
+  await db.integrationOperation.update({where:{id:operation.id},data:{request:request as Prisma.InputJsonValue}});
+  await assert.rejects(createEditableProject(ctx),/workflow changed/);
+  assert.equal(remote.writes.length,0);
+  assert.equal((await db.integrationOperation.findUniqueOrThrow({where:{id:operation.id}})).applicationId,null);
+});
+
+test("resumes repository installation approval without recreating the repository, application, or copied source", async () => {
   const { db, remote, ctx, operation } = await fixture();
-  remote.failure = "workflow";
+  remote.installed = false;
   await assert.rejects(
     createEditableProject(ctx),
-    (error) => error instanceof HostingError && error.status === 503,
+    (error) => error instanceof HostingError && error.status === 403,
   );
   const retained = await db.integrationOperation.findUniqueOrThrow({
     where: { id: operation.id },
@@ -547,6 +568,7 @@ test("resumes a workflow failure without recreating the repository, application,
   const copiedBlobs = remote.writes.filter((call) =>
     call.path.endsWith("/git/blobs"),
   ).length;
+  remote.installed = true;
   const result = await createEditableProject(ctx);
   assert.equal(result.applicationId, retained.applicationId);
   assert.equal(

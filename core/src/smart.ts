@@ -54,6 +54,14 @@ export interface SmartLaunchContext {
   expiresAt: string;
 }
 
+export interface SmartLaunchContextResponse {
+  launch: string;
+  /** Canonical sandbox FHIR URL to send as the SMART launch issuer. */
+  iss: string;
+  sandboxId: string;
+  expiresIn: number;
+}
+
 export interface SmartTokenResponse {
   access_token: string;
   token_type: 'Bearer';

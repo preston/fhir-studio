@@ -48,7 +48,7 @@ export function templateFiles(kind: string): RepositoryFile[] {
   const readme = {
     path: 'README.md',
     content:
-      '# SMART application\n\nBuilds are run by GitHub Actions. Hosted files and source maps are public. Use FHIR Studio to select a sandbox and patient, then launch the preview. No server or secrets are required.\n',
+      '# SMART application\n\nBuild with your own development tools or CI, then commit the ready-to-serve static files. In FHIR Studio, select that repository directory and deploy the static files. Studio does not run build commands or install workflows. Hosted files and source maps are public. Select a sandbox and patient to test the application. No application server or secrets are required.\n',
   };
   if (kind === 'javascript')
     return [

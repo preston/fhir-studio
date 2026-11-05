@@ -19,6 +19,8 @@ export interface HostedApplication {
   repository: string;
   installationId: string;
   branch: string;
+  /** Repository-relative directory containing ready-to-serve static assets; '.' is the repository root. */
+  staticDirectory?: string;
   projectDirectory: string;
   buildCommand: string;
   outputDirectory: string;
@@ -26,16 +28,12 @@ export interface HostedApplication {
   launchPath: string;
   callbackPath: string;
   scope: string;
-  autoPublish: boolean;
-  publishingPaused: boolean;
   suspended: boolean;
   isTemplate: boolean;
   templateVisibility: 'PRIVATE' | 'PUBLIC';
   templateCommit: string | null;
-  previewBuildId: string | null;
   publishedBuildId: string | null;
   desiredBuildId: string | null;
-  previewUrl: string;
   publishedUrl: string;
   capabilities: ApplicationCapabilities;
   collaborators: Array<{

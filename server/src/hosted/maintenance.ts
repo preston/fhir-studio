@@ -41,7 +41,7 @@ export async function storageInspection(
   const applications = await ctx.prisma.hostedApplication.findMany();
   const protectedIds = new Set(
     applications.flatMap((a) =>
-      [a.previewBuildId, a.publishedBuildId, a.desiredBuildId].filter(
+      [a.publishedBuildId, a.desiredBuildId].filter(
         (id): id is string => !!id,
       ),
     ),
@@ -256,13 +256,12 @@ export const maintenanceHandler: JobHandler = async (ctx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('hosted-storage', 0))`;
           const apps = await tx.hostedApplication.findMany({
             select: {
-              previewBuildId: true,
               publishedBuildId: true,
               desiredBuildId: true,
             },
           });
           const ids = apps.flatMap((a) =>
-            [a.previewBuildId, a.publishedBuildId, a.desiredBuildId].filter(
+            [a.publishedBuildId, a.desiredBuildId].filter(
               (v): v is string => !!v,
             ),
           );

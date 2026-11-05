@@ -55,10 +55,37 @@ export interface SourceProject {
   owner: string;
   repository: string;
   commit: string;
-  project_directory: string;
-  build_command: string;
-  output_directory: string;
-  runtime: string;
+  static_directory?: string;
+  /** Legacy relative path fields; combined only when static_directory is absent. */
+  project_directory?: string;
+  output_directory?: string;
+  /** Legacy metadata accepted for compatibility; Studio never executes it. */
+  build_command?: string;
+  runtime?: string;
+}
+
+/** Resolve a repository path without consulting or executing build metadata. */
+export function sourceStaticDirectory(project: {
+  static_directory?: unknown;
+  project_directory?: unknown;
+  output_directory?: unknown;
+}): string {
+  const validDirectory = (value: unknown): value is string =>
+    (value === "." || isArchivePath(value, true)) &&
+    typeof value === "string" &&
+    !value.includes(":") &&
+    !value.split("/").some((part) => part.startsWith(".git"));
+  if (project.static_directory !== undefined) {
+    if (!validDirectory(project.static_directory))
+      throw new Error("Provide a repository-relative static_directory.");
+    return project.static_directory || ".";
+  }
+  const parent = project.project_directory ?? "";
+  if (!validDirectory(parent) || !validDirectory(project.output_directory))
+    throw new Error("Provide a repository-relative static_directory.");
+  return [parent, project.output_directory]
+    .filter((part) => part && part !== ".")
+    .join("/") || ".";
 }
 
 export interface DeploymentProfile extends Resource {
@@ -335,16 +362,24 @@ export function deploymentProfileErrors(value: unknown): ValidationErrors {
   const source = body["source_project"];
   if (source !== undefined && source !== null) {
     const project = record(source);
+    let validStaticDirectory = false;
+    if (project) {
+      try {
+        sourceStaticDirectory(project);
+        validStaticDirectory = true;
+      } catch {
+        // Return the same field-level validation response as the other source inputs.
+      }
+    }
     if (
       !project ||
       project["provider"] !== "github" ||
       !/^[A-Za-z0-9_.-]+$/.test(String(project["owner"] ?? "")) ||
       !/^[A-Za-z0-9_.-]+$/.test(String(project["repository"] ?? "")) ||
       !/^[a-f0-9]{40}$/i.test(String(project["commit"] ?? "")) ||
-      !isArchivePath(project["project_directory"], true) ||
-      !isArchivePath(project["output_directory"]) ||
-      !String(project["build_command"] ?? "").trim() ||
-      !/^\d{1,2}(?:\.\d{1,2})?$/.test(String(project["runtime"] ?? "")) ||
+      !validStaticDirectory ||
+      (project["build_command"] !== undefined && typeof project["build_command"] !== "string") ||
+      (project["runtime"] !== undefined && typeof project["runtime"] !== "string") ||
       Object.keys(project).some(
         (key) =>
           ![
@@ -352,6 +387,7 @@ export function deploymentProfileErrors(value: unknown): ValidationErrors {
             "owner",
             "repository",
             "commit",
+            "static_directory",
             "project_directory",
             "build_command",
             "output_directory",
@@ -360,7 +396,7 @@ export function deploymentProfileErrors(value: unknown): ValidationErrors {
       )
     )
       errors["source_project"] = [
-        "requires pinned GitHub source, relative directories, build command, and a numeric Node.js version",
+        "requires pinned GitHub source and a repository-relative static_directory",
       ];
   }
   return errors;

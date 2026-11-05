@@ -7,7 +7,7 @@ export const integrationScopeLabels: Readonly<Record<string, string>> = {
   "applications:write":
     "Install and manage applications created through this integration",
   "applications:publish":
-    "Publish reviewed applications and enable them in your sandboxes",
+    "Deploy applications and enable them in your sandboxes",
   "projects:create": "Create editable projects in repositories you authorize",
 };
 

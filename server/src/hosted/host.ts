@@ -1,8 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
-import type { HostedChannel } from '@fhir-studio/core';
-import path from 'node:path';
 import { loadHostingConfig } from './config.js';
 import { buildDirectory, safeAssetPath } from './filesystem.js';
 import { getPrisma } from '../db/prisma.js';
@@ -25,7 +23,6 @@ function track(
   req: Request,
   res: Response,
   applicationId: string,
-  channel: HostedChannel,
   started: number,
 ): void {
   const bot = isKnownBot(req.get('user-agent') || '');
@@ -43,7 +40,7 @@ function track(
       String(res.getHeader('Content-Type') || '').includes('text/html');
     usage.record({
       applicationId: applicationId,
-      channel,
+      channel: 'published',
       status: res.statusCode,
       document,
       bot,
@@ -78,7 +75,7 @@ app.use(async (req, res) => {
   );
   res.setHeader(
     'Content-Security-Policy',
-    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${config.studioOrigin}/api/sandboxes/ ${config.studioOrigin}/oauth/token ${config.studioOrigin}/oauth/revoke ${config.studioOrigin}/oauth/jwks.json ${config.studioOrigin}/.well-known/; frame-src ${config.studioOrigin}/oauth/; frame-ancestors ${config.studioOrigin}; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action ${config.studioOrigin}/oauth/`,
+    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${config.studioOrigin}/api/sandboxes/ ${config.studioOrigin}/oauth/token ${config.studioOrigin}/oauth/revoke ${config.studioOrigin}/oauth/jwks.json ${config.studioOrigin}/.well-known/; frame-src ${config.studioOrigin}/oauth/; frame-ancestors ${config.frameAncestors.join(' ')}; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action ${config.studioOrigin}/oauth/`,
   );
   const host = req.hostname.toLowerCase();
   const suffix = `.${config.domain}`;
@@ -89,7 +86,7 @@ app.use(async (req, res) => {
   const match = host
     .slice(0, -suffix.length)
     .match(
-      /^(app|preview)-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/,
+      /^app-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/,
     );
   if (!match || !['GET', 'HEAD'].includes(req.method)) {
     res.sendStatus(404);
@@ -98,22 +95,18 @@ app.use(async (req, res) => {
   const key = req.ip || 'unknown';
   const rate = rates.get(key) || { start: Date.now(), count: 0 };
   rates.set(key, rate);
-  const channel: HostedChannel =
-    match[1] === 'preview' ? 'preview' : 'published';
   if (++rate.count > 600) {
-    if (knownApplications.has(match[2]))
-      track(req, res, match[2], channel, started);
+    if (knownApplications.has(match[1])) track(req, res, match[1], started);
     res.sendStatus(429);
     return;
   }
   const project = await getPrisma().hostedApplication.findFirst({
-    where: { id: match[2], deletedAt: null, suspended: false },
+    where: { id: match[1], deletedAt: null, suspended: false },
   });
-  const buildId =
-    channel === 'preview' ? project?.previewBuildId : project?.publishedBuildId;
+  const buildId = project?.publishedBuildId;
   if (project) {
     if (knownApplications.size < 4096) knownApplications.add(project.id);
-    track(req, res, project.id, channel, started);
+    track(req, res, project.id, started);
   }
   if (!project || !buildId) {
     res.sendStatus(404);
@@ -129,11 +122,13 @@ app.use(async (req, res) => {
   if (req.path === '/_studio/config.json') {
     res.setHeader('Cache-Control', 'no-store');
     res.json({
-      clientId: `hosted-${project.id}-${channel}`,
+      clientId: `hosted-${project.id}-published`,
       studioOrigin: config.studioOrigin,
       callbackPath: build.callbackPath,
       scope: build.scope,
-      callbackPaths: (build.runtimeContract as { callback_paths?: string[] } | null)?.callback_paths || [build.callbackPath],
+      callbackPaths: (
+        build.runtimeContract as { callback_paths?: string[] } | null
+      )?.callback_paths || [build.callbackPath],
       configuration: build.publicConfiguration,
       runtimeContractVersion: 1,
     });
@@ -148,11 +143,15 @@ app.use(async (req, res) => {
     res.sendStatus(404);
     return;
   }
-  const root = buildDirectory(config, project.id, build.contentBuildId || build.id);
+  const root = buildDirectory(
+    config,
+    project.id,
+    build.contentBuildId || build.id,
+  );
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(
-    path.join(root, file),
-    { dotfiles: 'deny', cacheControl: false },
+    file,
+    { root, dotfiles: 'deny', cacheControl: false },
     (error) => {
       if (error && !res.headersSent) res.sendStatus(404);
     },

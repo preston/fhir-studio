@@ -272,7 +272,7 @@ export async function usageReport(
   const where = {
     ...(applicationIds ? { applicationId: { in: applicationIds } } : {}),
     hour: { gte: from, lt: to },
-    ...(channel ? { channel } : {}),
+    channel: channel || 'published',
   };
   // Aggregate numeric metrics in SQL; load sketches only for a single app to avoid instance-wide visitor identities.
   const rows = await db.hostedUsageHour.groupBy({
@@ -324,7 +324,6 @@ export async function usageReport(
   });
   totals.bytes = String(bytes);
   const sketches = {
-    preview: new Uint8Array(HLL_SIZE),
     published: new Uint8Array(HLL_SIZE),
   };
   const durations = LATENCY_LIMITS.map(() => 0);
@@ -384,7 +383,6 @@ export async function usageReport(
     visitors:
       applicationIds?.length === 1
         ? {
-            preview: estimateVisitors(sketches.preview),
             published: estimateVisitors(sketches.published),
           }
         : null,

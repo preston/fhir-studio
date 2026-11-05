@@ -52,3 +52,6 @@ Desktop.ini
 ui/public/configuration.js
 # Host-mounted application files are runtime data.
 .data/hosted-apps/
+
+# Data files
+data/

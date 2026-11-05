@@ -92,7 +92,6 @@ export async function applicationAccess(
       'Your application role does not permit this operation.',
     );
   const activeIds = [
-    app.previewBuildId,
     app.publishedBuildId,
     app.desiredBuildId,
   ].filter(

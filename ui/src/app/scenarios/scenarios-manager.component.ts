@@ -217,7 +217,6 @@ export class ScenariosManagerComponent implements OnInit {
         if (scenario.userPersonaId && !persona) throw new Error('The scenario persona is unavailable. Select an available persona.');
 
         const launchUrl = new URL(application.launchUri, window.location.origin);
-        launchUrl.searchParams.set('iss', `${window.location.origin}/api/sandboxes/${sandbox.sandboxId}/fhir/${sandbox.fhirVersion.toLowerCase()}`);
         return this.scenariosService.createLaunchContext(sandbox.sandboxId, {
           applicationId: application.id,
           clientId: application.clientId,
@@ -233,6 +232,7 @@ export class ScenariosManagerComponent implements OnInit {
             { type: 'Location', id: scenario.locationFhirId },
           ].filter((item) => item.id).map((item) => ({ type: item.type, reference: `${item.type}/${item.id}` })),
         }).pipe(map((context) => {
+          launchUrl.searchParams.set('iss', context.iss);
           launchUrl.searchParams.set('launch', context.launch);
           return launchUrl.toString();
         }));

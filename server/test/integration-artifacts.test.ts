@@ -10,6 +10,7 @@ import {
   artifactErrors,
   deploymentProfileErrors,
   defaultStaticSmartContract,
+  sourceStaticDirectory,
 } from "../src/integrations/catalog-contract.js";
 
 test("artifact downloads reject local, reserved and mapped addresses before contacting sources", async () => {
@@ -41,6 +42,60 @@ test("artifact downloads reject local, reserved and mapped addresses before cont
       downloadPublicArchive(url, "/unused", 100, new AbortController().signal),
       /public HTTPS/,
     );
+});
+
+test("editable source profiles select committed static files without build metadata", () => {
+  const source = {
+    provider: "github",
+    owner: "developer",
+    repository: "smart-app",
+    commit: "a".repeat(40),
+    static_directory: "apps/example/public",
+  };
+  const profile = {
+    name: "Example",
+    artifact_id: "static-source",
+    runtime_contract: defaultStaticSmartContract(),
+    source_project: source,
+  };
+  assert.deepEqual(deploymentProfileErrors(profile), {});
+  assert.equal(sourceStaticDirectory(source), "apps/example/public");
+  for (const directory of ["", "."]) {
+    assert.deepEqual(
+      deploymentProfileErrors({
+        ...profile,
+        source_project: { ...source, static_directory: directory },
+      }),
+      {},
+    );
+    assert.equal(sourceStaticDirectory({ static_directory: directory }), ".");
+  }
+  const legacy = {
+    ...source,
+    static_directory: undefined,
+    project_directory: "apps/example",
+    output_directory: "public",
+    build_command: "this command is never executed",
+    runtime: "not-a-runtime-selection",
+  };
+  assert.deepEqual(deploymentProfileErrors({ ...profile, source_project: legacy }), {});
+  assert.equal(sourceStaticDirectory(legacy), "apps/example/public");
+  assert.equal(sourceStaticDirectory({ project_directory: "apps/example", output_directory: "." }), "apps/example");
+  for (const directory of ["../outside", "/absolute", "public/../source", "C:/private", ".git/objects"]) {
+    assert.ok(deploymentProfileErrors({
+      ...profile,
+      source_project: { ...source, static_directory: directory },
+    }).source_project);
+    assert.throws(() => sourceStaticDirectory({ static_directory: directory }));
+  }
+  assert.ok(deploymentProfileErrors({
+    ...profile,
+    source_project: { ...source, token: "credential" },
+  }).source_project);
+  assert.ok(deploymentProfileErrors({
+    ...profile,
+    source_project: { ...source, static_directory: undefined },
+  }).source_project);
 });
 test("catalog profiles require actual static SMART inputs and reject source credentials and private runtime secrets", () => {
   const artifact = {

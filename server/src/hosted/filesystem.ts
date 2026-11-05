@@ -115,6 +115,7 @@ export async function downloadArtifact(
     !(
       /(^|\.)blob\.core\.windows\.net$/.test(target.hostname) ||
       /(^|\.)githubusercontent\.com$/.test(target.hostname) ||
+      target.hostname === 'codeload.github.com' ||
       /(^|\.)actions\.github\.com$/.test(target.hostname)
     )
   )
@@ -171,6 +172,7 @@ export async function extractArtifact(
   destination: string,
   config: HostingConfig,
   signal: AbortSignal,
+  options?: { repositoryDirectory: string },
 ): Promise<number> {
   await mkdir(destination, { recursive: true, mode: 0o750 });
   return new Promise((resolve, reject) => {
@@ -180,7 +182,7 @@ export async function extractArtifact(
       (error, zip) => {
         if (error || !zip)
           return reject(error || new Error('Invalid ZIP archive.'));
-        if (zip.entryCount > config.maxFiles) {
+        if (zip.entryCount > (options ? 100_000 : config.maxFiles)) {
           zip.close();
           reject(
             new HostingError(413, 'Artifact exceeds the entry count limit.'),
@@ -189,16 +191,37 @@ export async function extractArtifact(
         }
         let total = 0;
         let files = 0;
+        let repositoryRoot: string | undefined;
         const seen = new Set<string>();
         const fail = (cause: unknown) => {
           zip.close();
           reject(cause);
         };
         zip.on('error', fail);
-        zip.on('end', () => resolve(total));
+        zip.on('end', () => {
+          if (options && files === 0) reject(new HostingError(400, 'The selected repository directory contains no deployable static assets.'));
+          else resolve(total);
+        });
         zip.on('entry', (entry: yauzl.Entry) => {
           void (async () => {
             signal.throwIfAborted();
+            let archiveName = entry.fileName;
+            if (options) {
+              const parts = archiveName.replace(/\/$/, '').split('/');
+              if (archiveName.startsWith('/') || /[\\:\x00-\x1f]/.test(archiveName) || parts.some(part => !part || part === '.' || part === '..'))
+                throw new HostingError(400, 'Unsafe repository archive path.');
+              const root = parts.shift()!;
+              if (repositoryRoot && root !== repositoryRoot) throw new HostingError(400, 'Repository archive has multiple roots.');
+              repositoryRoot = root;
+              const relative = parts.join('/');
+              const directory = options.repositoryDirectory === '.' ? '' : options.repositoryDirectory;
+              if (!relative || (directory && !relative.startsWith(`${directory}/`))) {
+                zip.readEntry();
+                return;
+              }
+              archiveName = directory ? relative.slice(directory.length + 1) : relative;
+              if (entry.fileName.endsWith('/')) archiveName += '/';
+            }
             const mode = (entry.externalFileAttributes >>> 16) & 0xf000;
             if (
               entry.generalPurposeBitFlag & 1 ||
@@ -208,8 +231,12 @@ export async function extractArtifact(
                 400,
                 'Archive links, devices, and encrypted files are prohibited.',
               );
-            if (entry.fileName.endsWith('/')) {
-              const name = entry.fileName.slice(0, -1);
+            if (options && archiveName.split('/').some(part => part.startsWith('.') || part === 'node_modules')) {
+              zip.readEntry();
+              return;
+            }
+            if (archiveName.endsWith('/')) {
+              const name = archiveName.slice(0, -1);
               if (
                 name.split('/').some((p) => !p || p.startsWith('.')) ||
                 /[\\:\x00-\x1f]/.test(name) ||
@@ -219,7 +246,11 @@ export async function extractArtifact(
               zip.readEntry();
               return;
             }
-            const name = safeAssetPath(entry.fileName);
+            if (options && !extensions.has(path.extname(archiveName).toLowerCase())) {
+              zip.readEntry();
+              return;
+            }
+            const name = safeAssetPath(archiveName);
             if (seen.has(name.toLowerCase()))
               throw new HostingError(400, 'Duplicate artifact path.');
             seen.add(name.toLowerCase());
@@ -361,7 +392,6 @@ export async function cleanupStorage(config: HostingConfig, checkCancelled: () =
             })
           : null;
         const keep = new Set([
-          app?.previewBuildId,
           app?.publishedBuildId,
           desired &&
           ['WAITING', 'BUILDING', 'IMPORTING'].includes(desired.status)

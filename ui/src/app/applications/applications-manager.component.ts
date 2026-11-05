@@ -26,26 +26,20 @@ export class ApplicationsManagerComponent implements OnInit {
   public readonly errorMessage = signal<string | null>(null);
   public readonly formError = signal<string | null>(null);
 
-  public readonly showRegisterModal = signal<boolean>(false);
-  public newApplication = {
-    clientName: '',
-    launchUri: '',
-    redirectUrisText: '',
-    scope: 'launch/patient patient/*.read openid profile',
-    briefDescription: '',
-    author: '',
-    clientUri: '',
-    logoUri: '',
-  };
+  public readonly showApplicationModal = signal<boolean>(false);
+  public readonly editingApplicationId = signal<string | null>(null);
+  public readonly saving = signal<boolean>(false);
+  public applicationForm = this.emptyApplicationForm();
 
   constructor() {
     effect(() => {
       const active = this.sandboxService.activeSandbox();
-      if (active) {
-        untracked(() => {
+      untracked(() => {
+        this.closeApplicationModal();
+        if (active) {
           this.loadApplications(active.sandboxId);
-        });
-      }
+        }
+      });
     });
   }
 
@@ -85,41 +79,109 @@ export class ApplicationsManagerComponent implements OnInit {
     }
   }
 
-  public registerApplication(): void {
+  public canEditApplication(application: SmartApplication): boolean {
+    const sandbox = this.sandboxService.activeSandbox();
+    const user = this.auth.currentUser();
+    if (!sandbox || !user || application.sandboxId !== sandbox.id || application.hostedApplicationId ||
+        application.isSample || this.builtInApplicationPath(application)) return false;
+
+    const role = sandbox.collaborators?.find((collaborator) => collaborator.userId === user.id)?.role;
+    return this.auth.isGlobalAdmin() || sandbox.createdByUserId === user.id || role === 'MANAGE' || role === 'OWNER';
+  }
+
+  private emptyApplicationForm() {
+    return {
+      clientName: '',
+      launchUri: '',
+      redirectUrisText: '',
+      scope: 'launch/patient patient/*.read openid profile',
+      briefDescription: '',
+      author: '',
+      clientUri: '',
+      logoUri: '',
+    };
+  }
+
+  public openRegisterApplication(): void {
+    if (this.saving()) return;
+    this.applicationForm = this.emptyApplicationForm();
+    this.editingApplicationId.set(null);
+    this.formError.set(null);
+    this.showApplicationModal.set(true);
+  }
+
+  public openEditApplication(application: SmartApplication): void {
+    if (this.saving() || !this.canEditApplication(application)) return;
+    this.applicationForm = {
+      clientName: application.clientName,
+      launchUri: application.launchUri,
+      redirectUrisText: application.redirectUris.join('\n'),
+      scope: application.scope,
+      briefDescription: application.briefDescription ?? '',
+      author: application.author ?? '',
+      clientUri: application.clientUri ?? '',
+      logoUri: application.logoUri ?? '',
+    };
+    this.editingApplicationId.set(application.id);
+    this.formError.set(null);
+    this.showApplicationModal.set(true);
+  }
+
+  public closeApplicationModal(): void {
+    this.showApplicationModal.set(false);
+    this.editingApplicationId.set(null);
+    this.formError.set(null);
+  }
+
+  public saveApplication(): void {
+    if (this.saving()) return;
     this.formError.set(null);
     const current = this.sandboxService.activeSandbox();
-    if (!current || !this.newApplication.clientName || !this.newApplication.launchUri) {
+    if (!current) return;
+    const clientName = this.applicationForm.clientName.trim();
+    const launchUri = this.applicationForm.launchUri.trim();
+    if (!clientName || !launchUri) {
       this.formError.set('Application Name and Launch URI are required.');
       return;
     }
 
-    const redirectUris = this.newApplication.redirectUrisText
+    const redirectUris = this.applicationForm.redirectUrisText
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
 
-    this.applicationsService
-      .registerApplication(current.sandboxId, {
-        clientName: this.newApplication.clientName,
-        launchUri: this.newApplication.launchUri,
-        redirectUris: redirectUris.length > 0 ? redirectUris : [this.newApplication.launchUri],
-        scope: this.newApplication.scope,
-        briefDescription: this.newApplication.briefDescription,
-        author: this.newApplication.author,
-        clientUri: this.newApplication.clientUri,
-        logoUri: this.newApplication.logoUri,
-        isCustom: true,
-      })
-      .subscribe({
-        next: () => {
-          this.showRegisterModal.set(false);
-          this.toast.success(`Application '${this.newApplication.clientName}' registered successfully.`);
+    const applicationId = this.editingApplicationId();
+    const data = {
+      clientName,
+      launchUri,
+      redirectUris: redirectUris.length > 0 ? redirectUris : [launchUri],
+      scope: this.applicationForm.scope,
+      briefDescription: this.applicationForm.briefDescription,
+      author: this.applicationForm.author,
+      clientUri: this.applicationForm.clientUri,
+      logoUri: this.applicationForm.logoUri,
+    };
+    const request = applicationId
+      ? this.applicationsService.updateApplication(current.sandboxId, applicationId, data)
+      : this.applicationsService.registerApplication(current.sandboxId, { ...data, isCustom: true });
+
+    this.saving.set(true);
+    request.subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.toast.success(`Application '${clientName}' ${applicationId ? 'updated' : 'registered'} successfully.`);
+        if (this.sandboxService.activeSandbox()?.sandboxId === current.sandboxId) {
+          this.closeApplicationModal();
           this.loadApplications(current.sandboxId);
-        },
-        error: (err) => {
-          this.toast.error(err?.error?.error || 'Failed to register application.');
-        },
-      });
+        }
+      },
+      error: (err) => {
+        this.saving.set(false);
+        if (this.sandboxService.activeSandbox()?.sandboxId === current.sandboxId) {
+          this.formError.set(err?.error?.error || `Failed to ${applicationId ? 'update' : 'register'} application.`);
+        }
+      },
+    });
   }
 
   public deleteApplication(application: SmartApplication): void {

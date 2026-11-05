@@ -1,3 +1,4 @@
+import { manageSandbox, assertDeploymentSandboxes } from "./sandboxes.js";
 // Author: Preston Lee
 
 import crypto from "node:crypto";
@@ -33,20 +34,20 @@ import {
   type GitHubRepo,
 } from "../hosted/github.js";
 import { assertOwnerQuota, lockHostingAllocation } from "../hosted/quotas.js";
-import { provisionClients } from "../hosted/builds.js";
 import {
-  copyTemplateSnapshot,
-  commitFiles,
-  workflowPath,
-  managedWorkflow,
-} from "../hosted/source.js";
-import { assertActiveGrant, jsonValue, digest } from "./oauth.js";
+  provisionClients,
+  queueRepositoryDeployment,
+  CATALOG_DEPLOYMENT_EVENT,
+} from "../hosted/builds.js";
+import { copyTemplateSnapshot } from "../hosted/source.js";
+import { assertActiveGrant, jsonValue } from "./oauth.js";
 import type { JobExecutionContext } from "../jobs/types.js";
 import type {
   BuildArtifact,
   StaticSmartRuntimeContract,
   SourceProject,
 } from "./catalog-contract.js";
+import { sourceStaticDirectory } from "./catalog-contract.js";
 
 /** Reject non-global addresses before DNS-pinned HTTPS; every redirect is checked again. */
 export function publicAddress(address: string): boolean {
@@ -309,14 +310,21 @@ async function activeAuthority(
   app: HostedApplication,
   build: HostedBuild,
 ): Promise<IntegrationGrant> {
+  await assertActiveGrant(tx, build.integrationGrantId!, "applications:write");
   const grant = await assertActiveGrant(
     tx,
     build.integrationGrantId!,
-    "applications:write",
+    "applications:publish",
   );
   if (grant.clientId !== app.integrationClientId)
     throw new HostingError(403, "Application is outside this integration.");
-  await assertCurrentCapability(tx, app.id, grant.userId, "develop");
+  await assertCurrentCapability(tx, app.id, grant.userId, "publish");
+  await assertDeploymentSandboxes(
+    tx,
+    app.id,
+    grant.userId,
+    build.runtimeContract as unknown as StaticSmartRuntimeContract,
+  );
   return grant;
 }
 export async function importCatalogArtifact(
@@ -329,6 +337,19 @@ export async function importCatalogArtifact(
     where: { id: buildId },
   });
   if (build.status === "READY") return { buildId };
+  if (build.requestEvent !== CATALOG_DEPLOYMENT_EVENT) {
+    await db.hostedBuild.update({
+      where: { id: build.id },
+      data: {
+        status: "FAILED",
+        error: "Deployment workflow changed. Start a new deployment.",
+      },
+    });
+    throw new HostingError(
+      409,
+      "Deployment workflow changed. Start a new deployment.",
+    );
+  }
   const app = await db.hostedApplication.findUniqueOrThrow({
     where: { id: build.applicationId },
   });
@@ -388,7 +409,7 @@ export async function importCatalogArtifact(
         await assertActiveGrant(
           tx,
           build.integrationGrantId!,
-          "applications:write",
+          "applications:publish",
         );
         await lockApplication(tx, app.id);
         const current = await tx.hostedApplication.findUniqueOrThrow({
@@ -412,10 +433,7 @@ export async function importCatalogArtifact(
             409,
             "Import lease or deployment state changed.",
           );
-        if (
-          current.previewBuildId !== build.id &&
-          current.publishedBuildId !== build.id
-        )
+        if (current.publishedBuildId !== build.id)
           await rm(path.join(config.root, "apps", app.id, build.id), {
             recursive: true,
             force: true,
@@ -449,14 +467,14 @@ export async function importCatalogArtifact(
         });
         const activated = await tx.hostedApplication.update({
           where: { id: app.id },
-          data: { previewBuildId: build.id },
+          data: { publishedBuildId: build.id },
         });
         await provisionClients(activated, config, tx);
         await tx.hostedAudit.create({
           data: {
             applicationId: app.id,
             userId: grant.userId,
-            action: "CATALOG_PREVIEW_ACTIVATED",
+            action: "CATALOG_DEPLOYMENT_PUBLISHED",
             detail: { buildId: build.id, sha256: actual },
           },
         });
@@ -495,6 +513,9 @@ export async function createEditableProject(
   });
   const body = operation.request as unknown as {
     name: string;
+    _publishes?: boolean;
+    sandboxId?: string;
+    sandbox_id?: string;
     source_project: SourceProject;
     runtime_contract: StaticSmartRuntimeContract;
     repository: {
@@ -507,6 +528,11 @@ export async function createEditableProject(
     configuration: Record<string, unknown>;
     origin: Record<string, unknown>;
   };
+  if (body._publishes !== true)
+    throw new HostingError(
+      409,
+      "Deployment workflow changed. Start a new deployment.",
+    );
   const grant = await assertActiveGrant(db, grantId, "projects:create");
   if (
     operation.clientId !== grant.clientId ||
@@ -532,7 +558,7 @@ export async function createEditableProject(
     )
       throw new HostingError(409, "Editable operation lease expired.");
     if (applicationId) {
-      await assertCurrentCapability(db, applicationId, grant.userId, "develop");
+      await assertCurrentCapability(db, applicationId, grant.userId, "publish");
       const current = await db.hostedApplication.findUniqueOrThrow({
         where: { id: applicationId },
       });
@@ -553,6 +579,7 @@ export async function createEditableProject(
       400,
       "Provide valid pinned source and destination repository.",
     );
+  const staticDirectory = sourceStaticDirectory(source);
   const me = await github<{ login: string }>(token, "/user");
   const fullName = `${destination.owner}/${destination.name}`;
   let app = operation.applicationId
@@ -648,15 +675,24 @@ export async function createEditableProject(
           installationId:
             destination.installation_id || destination.installationId || "",
           branch: repo.default_branch,
-          projectDirectory: source.project_directory,
-          buildCommand: source.build_command,
-          outputDirectory: source.output_directory,
-          nodeVersion: source.runtime,
+          projectDirectory: "",
+          buildCommand: "",
+          outputDirectory: staticDirectory,
+          nodeVersion: "",
           launchPath: body.runtime_contract.launch_path,
           callbackPath: body.runtime_contract.callback_paths[0],
           scope: body.runtime_contract.scopes.join(" "),
           originatingCommit: source.commit,
         },
+      });
+      const sandbox = await manageSandbox(
+        tx,
+        grant.userId,
+        body.sandboxId || body.sandbox_id || "",
+        body.runtime_contract,
+      );
+      await tx.hostedSandbox.create({
+        data: { applicationId: created.id, sandboxId: sandbox.id },
       });
       await tx.integrationOperation.update({
         where: { id: operation.id },
@@ -678,7 +714,7 @@ export async function createEditableProject(
       409,
       "Application changed or was removed. Resume development in Studio.",
     );
-  await assertCurrentCapability(db, app.id, grant.userId, "develop");
+  await assertCurrentCapability(db, app.id, grant.userId, "publish");
   if (ctx.signal.aborted || (await ctx.isCancelled()))
     throw new HostingError(
       409,
@@ -752,22 +788,12 @@ export async function createEditableProject(
   if (ctx.signal.aborted || (await ctx.isCancelled()))
     throw new HostingError(409, "Operation cancelled. Repository retained.");
   await assertActiveGrant(db, grantId, "projects:create");
-  await assertCurrentCapability(db, app.id, grant.userId, "develop");
-  await ctx.updateProgress(65, "Installing Studio build workflow");
-  const current = await github<{ sha: string }>(
-    token,
-    `${base}/commits/${encodeURIComponent(app.branch)}`,
+  await assertCurrentCapability(db, app.id, grant.userId, "publish");
+  await ctx.updateProgress(
+    65,
+    "Verifying repository access for static deployment",
   );
-  await commitFiles(
-    token,
-    base,
-    app.branch,
-    current.sha,
-    [{ path: workflowPath(app.id), content: managedWorkflow(app) }],
-    "Install FHIR Studio build workflow",
-    () => checkpoint(app!.id, Number(expectedGeneration)),
-  );
-  // Verify the selected installation can build this repository. Organization approval may require a resumable retry.
+  // Organization approval for the copied repository may require a resumable retry.
   let installed = false;
   for (let page = 1; page <= 100; page++) {
     const repos = await github<{ repositories: GitHubRepo[] }>(
@@ -790,64 +816,10 @@ export async function createEditableProject(
     ? await db.hostedBuild.findUnique({ where: { id: app.desiredBuildId } })
     : null;
   if (!latest || ["FAILED", "CANCELLED"].includes(latest.status)) {
-    const head = await github<{ sha: string }>(
-      token,
-      `${base}/commits/${encodeURIComponent(app.branch)}`,
-    );
-    const build = await db.$transaction(async (tx) => {
-      await assertActiveGrant(tx, grantId, "applications:write");
-      await lockApplication(tx, app!.id);
-      await assertCurrentCapability(tx, app!.id, grant.userId, "develop");
-      const current = await tx.hostedApplication.findUniqueOrThrow({
-        where: { id: app!.id },
-      });
-      if (current.suspended || current.generation !== expectedGeneration)
-        throw new HostingError(409, "Application state changed.");
-      const created = await tx.hostedBuild.create({
-        data: {
-          applicationId: app!.id,
-          branch: app!.branch,
-          commit: head.sha,
-          generation: app!.generation,
-          requestedByUserId: grant.userId,
-          requestEvent: "workflow_dispatch",
-          runtimeContract: jsonValue(body.runtime_contract),
-          publicConfiguration: jsonValue(body.configuration),
-          integrationGrantId: grantId,
-          revisionDigest: digest(
-            JSON.stringify({
-              commit: head.sha,
-              contract: body.runtime_contract,
-              configuration: body.configuration,
-            }),
-          ),
-        },
-      });
-      await tx.hostedApplication.update({
-        where: { id: app!.id },
-        data: { desiredBuildId: created.id },
-      });
-      return created;
-    });
-    try {
-      await github(
-        token,
-        `${base}/actions/workflows/${encodeURIComponent(workflowPath(app.id))}/dispatches`,
-        "POST",
-        { ref: app.branch, inputs: { studio_request_id: build.id } },
-      );
-    } catch (error) {
-      await db.hostedBuild.update({
-        where: { id: build.id },
-        data: {
-          status: "FAILED",
-          error:
-            "Workflow dispatch failed. Check GitHub workflow permissions, then retry.",
-        },
-      });
-      throw error;
-    }
+    await checkpoint(app.id, Number(expectedGeneration));
+    await assertActiveGrant(db, grantId, "applications:publish");
+    await queueRepositoryDeployment(app.id, grant.userId, app.branch, config);
   }
-  await ctx.updateProgress(95, "Waiting for repository build");
+  await ctx.updateProgress(95, "Static repository deployment queued");
   return { applicationId: app.id, repository: app.repository };
 }

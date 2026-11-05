@@ -191,7 +191,7 @@ interface StorageReport {
                         ? 'Suspended'
                         : a.publishedBuildId
                           ? 'Published'
-                          : 'Preview / draft'
+                          : 'Not deployed'
                   }}
                   @if (a.deleteAfter) {
                     <div class="small">

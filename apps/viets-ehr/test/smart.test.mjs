@@ -15,7 +15,7 @@ const issuer = `${studioOrigin}/api/sandboxes/sandbox-one/fhir/R4`;
 const session = {
   issuer,
   studioOrigin,
-  clientId: "hosted-test-preview",
+  clientId: "hosted-test-published",
   patient: "patient-one",
   accessToken: "test-access-token",
   expiresAt: Date.now() + 3_600_000,
@@ -138,7 +138,7 @@ async function browser(run) {
     },
   });
   const location = {
-    origin: "https://preview-example.user.studio.example.org",
+    origin: "https://app-example.user.studio.example.org",
     pathname: "/index.html",
     search: `?iss=${encodeURIComponent(issuer)}&launch=opaque-launch`,
     replace: (value) => navigation.push(value),

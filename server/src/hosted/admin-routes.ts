@@ -69,10 +69,7 @@ export function usageRange(query: Record<string, unknown>): {
       400,
       'Choose a valid reporting range of up to 366 days. Older records remain available using an earlier range.',
     );
-  if (
-    query.channel &&
-    !['preview', 'published'].includes(String(query.channel))
-  )
+  if (query.channel && query.channel !== 'published')
     throw new HostingError(400, 'Invalid hosting channel.');
   from.setUTCMinutes(0, 0, 0);
   to.setTime(Math.ceil(to.getTime() / 3600000) * 3600000);
@@ -159,7 +156,6 @@ export function createHostingAdministrationRouter(): express.Router {
         {
           OR: [
             { reconciliationError: { not: null } },
-            { previewBuildId: { in: missingForFilter } },
             { publishedBuildId: { in: missingForFilter } },
             { owner: { isSuspended: true } },
             {
@@ -260,11 +256,7 @@ export function createHostingAdministrationRouter(): express.Router {
         )
       )
         issues.push('Build pending over 24 hours');
-      if (
-        [app.previewBuildId, app.publishedBuildId].some(
-          (id) => id && missing.has(id),
-        )
-      )
+      if (app.publishedBuildId && missing.has(app.publishedBuildId))
         issues.push('Deployed files missing');
       const { builds, _count, ...rest } = app;
       return {
