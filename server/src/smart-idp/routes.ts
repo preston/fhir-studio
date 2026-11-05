@@ -24,6 +24,7 @@ import { loadStudioOrigin } from '../hosted/config.js';
 import { requireEnv } from '../env.js';
 import { standalonePatient } from './patient-selection.js';
 import { ClientKeyResolver, keySetUrl } from './client-keys.js';
+import { isRegisteredRedirectUri } from './redirect-uris.js';
 
 function scopesWithin(requested: string, allowed: string, backend = false): boolean {
   const permitted = parseSmartV2Scopes(allowed);
@@ -241,8 +242,7 @@ export function createSmartIdpRouter(options: { clientKeys?: ClientKeyResolver }
       }
 
       const application = await prisma.application.findUnique({ where: { clientId: client_id }, include: { hostedApplication: true } });
-      const redirects = application && Array.isArray(application.redirectUris) ? application.redirectUris : [];
-      if (!application || !redirects.some(uri => typeof uri === 'string' && new URL(uri, studioBase()).href === redirect_uri)) { res.status(400).send('Unregistered redirect URI.'); return; }
+      if (!application || !isRegisteredRedirectUri(redirect_uri, application.redirectUris, studioBase(), studioOrigin)) { res.status(400).send('Unregistered redirect URI.'); return; }
       if (!code_challenge || !/^[A-Za-z0-9_-]{43}$/.test(code_challenge) || code_challenge_method !== 'S256' || !state) { res.status(400).send('State and PKCE S256 are required.'); return; }
       if (!scopesWithin(scope, application.scope)) { res.status(400).send('Requested scopes exceed registration.'); return; }
       const hosted = application.hostedApplication;
