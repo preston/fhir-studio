@@ -72,7 +72,7 @@ the same operator-controlled HTTPS proxy arrangement.
 ## Developer workflow
 
 A role must grant `permission_applications_deployment` before a user can access
-Application Studio, templates, hosting management APIs, or Profile connections/GitHub
+Application Studio, templates, hosting management APIs, or GitHub connection
 linking. New and existing roles default to false; enable it in **Administration → Roles**
 for approved users/groups. Global administrators retain their existing permission bypass.
 Seeding does not overwrite an operator's deployment permission grants.
@@ -93,14 +93,19 @@ and other authorized collaborators retain their application access. Personal cre
 remain encrypted for later reconnection/use if access is restored; users can revoke the
 GitHub App directly in GitHub Settings while Studio connections are inaccessible.
 
-Use **Profile connections** to authorize GitHub, reconnect, disconnect, and manage
-repository installations. Personal authorization and repository installation are
+Use **GitHub connection** (`/profile/connections`) in the profile menu to authorize
+GitHub, reconnect, disconnect, and manage repository installations. Personal authorization and repository installation are
 independent. Token renewal is automatic, protected by a cross-process database lock.
 Disconnect removes personal credentials, not shared installations or deployed files.
 Installation removal pauses imports/publication. Existing content survives GitHub outages.
 
-Use **SMART Applications → Application Studio** to connect an existing repository or
-populate a new, empty repository from a curated/community template. Repositories belong
+**Connected applications** (`/profile/connected-applications`) manages access granted
+to catalog platforms. Start those connections from the catalog platform. This screen
+also links to GitHub connection and Application Studio when deployment is available,
+or explains whether instance hosting or account permissions prevent access.
+
+Use **SMART Applications → Application Studio** (`/applications/hosted`) to connect
+an existing repository or populate a new, empty repository from a curated/community template. Repositories belong
 to the developer or their organization. For selected-repository installations, add a
 newly created repository to the installation before connecting it. Public builds normally
 use free standard GitHub runners; private builds consume the repository owner's allowance.

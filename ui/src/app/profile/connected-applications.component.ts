@@ -1,8 +1,10 @@
 // Author: Preston Lee
 
-import { Component, OnInit, inject, signal } from "@angular/core";
+import { Component, OnInit, inject, input, signal } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { HttpErrorResponse } from "@angular/common/http";
+import { RouterLink } from "@angular/router";
+import { AuthService } from "../core/services/auth.service.js";
 import { HostingService } from "../core/services/hosting.service.js";
 import { integrationScopeLabels } from "../integration/integration-ui.js";
 
@@ -17,12 +19,14 @@ interface ConnectedApplication {
 @Component({
   selector: "app-connected-applications",
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, RouterLink],
   templateUrl: "./connected-applications.component.html",
   styleUrl: "./connected-applications.component.scss",
 })
 export class ConnectedApplicationsComponent implements OnInit {
   private readonly api = inject(HostingService);
+  readonly auth = inject(AuthService);
+  readonly showRepositoryConnections = input(true);
   readonly connections = signal<ConnectedApplication[]>([]);
   readonly busy = signal(false);
   readonly error = signal("");

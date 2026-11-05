@@ -32,6 +32,7 @@ export class AuthService {
   private readonly isInitializedState = signal<boolean>(false);
   private readonly hostingEnabled = signal(true);
   private readonly integrationEnabled = signal(false);
+  readonly applicationHostingAvailable = this.hostingEnabled.asReadonly();
   readonly catalogIntegrationAvailable = this.integrationEnabled.asReadonly();
 
   public readonly currentUser = this.userState.asReadonly();

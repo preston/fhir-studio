@@ -10,7 +10,8 @@ import { HostingService } from '../core/services/hosting.service.js';
   standalone: true,
   imports: [RouterLink, ConnectedApplicationsComponent],
   template: `
-    <h2>Profile connections</h2>
+    <h2>GitHub connection</h2>
+    <p><a id="github-application-studio" class="btn btn-outline-primary" routerLink="/applications/hosted">Open Application Studio</a></p>
     <p><a id="profile-connected-applications" routerLink="/profile/connected-applications">Manage connected catalog applications</a></p>
     <p class="text-muted">
       Manage your personal GitHub authorization and repository installations.
@@ -99,7 +100,7 @@ import { HostingService } from '../core/services/hosting.service.js';
       Disconnecting removes your personal authorization. It does not uninstall a
       shared repository integration or remove deployed applications.
     </p>
-    <app-connected-applications />
+    <app-connected-applications [showRepositoryConnections]="false" />
   `,
 })
 export class ConnectionsComponent implements OnInit {
