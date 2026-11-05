@@ -1079,7 +1079,7 @@ export function createIntegrationRouter(): Router {
         ? await sandboxAccess(req.sessionAuth.userId, req.query.sandboxId)
         : null;
     const target = new URL(
-      "/applications/hosted",
+      "/deployment/github-repositories",
       requireEnv("FHIR_STUDIO_SERVER_UI_BASE_URL", "UI_BASE_URL"),
     );
     target.searchParams.set("app", app.id);

@@ -1,6 +1,6 @@
 // Author: Preston Lee
 
-import { Component, OnInit, inject, signal, effect, untracked } from '@angular/core';
+import { Component, OnInit, inject, signal, computed, effect, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -11,6 +11,8 @@ import { ApplicationsService, type SmartApplication } from '../core/services/app
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
 import { ToastService } from '../core/services/toast.service.js';
 import { FhirResourceSearchInputComponent, type FhirResourceSearchResult } from '../shared/fhir-resource-search-input/fhir-resource-search-input.component.js';
+
+type ScenarioSortField = 'title' | 'createdAt' | 'updatedAt';
 
 @Component({
   selector: 'app-scenarios-manager',
@@ -33,6 +35,44 @@ export class ScenariosManagerComponent implements OnInit {
   public readonly errorMessage = signal<string | null>(null);
   public readonly formError = signal<string | null>(null);
 
+  public readonly search = signal('');
+  public readonly applicationFilter = signal('all');
+  public readonly personaFilter = signal('all');
+  public readonly sortBy = signal<ScenarioSortField>('title');
+  public readonly sortOrder = signal<'asc' | 'desc'>('asc');
+
+  public readonly filteredScenarios = computed(() => {
+    const query = this.search().trim().toLowerCase();
+    const application = this.applicationFilter();
+    const persona = this.personaFilter();
+    const field = this.sortBy();
+    const order = this.sortOrder() === 'asc' ? 1 : -1;
+
+    return this.scenarios().filter((scenario) => {
+      if (application !== 'all' && (scenario.applicationId || 'default') !== application) return false;
+      if (persona !== 'all' && (scenario.userPersonaId || 'default') !== persona) return false;
+      if (!query) return true;
+
+      return [
+        scenario.title,
+        scenario.description,
+        scenario.application?.clientName || 'Default Application',
+        scenario.userPersona?.personaName || 'Default Practitioner',
+        scenario.patientName || scenario.patientFhirId || 'Sherlock Holmes',
+        scenario.patientFhirId,
+      ].some((value) => value?.toLowerCase().includes(query));
+    }).sort((a, b) => {
+      const comparison = field === 'title'
+        ? a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true })
+        : new Date(a[field]).getTime() - new Date(b[field]).getTime();
+      return comparison * order;
+    });
+  });
+
+  public readonly hasActiveFilters = computed(() =>
+    this.search().trim().length > 0 || this.applicationFilter() !== 'all' || this.personaFilter() !== 'all',
+  );
+
   public readonly showScenarioModal = signal<boolean>(false);
   public readonly editingScenarioId = signal<string | null>(null);
   public readonly saving = signal<boolean>(false);
@@ -44,6 +84,7 @@ export class ScenariosManagerComponent implements OnInit {
       const active = this.sandboxService.activeSandbox();
       untracked(() => {
         this.closeScenarioModal();
+        this.resetFilters();
         if (active) {
           this.loadData(active.sandboxId);
         }
@@ -55,6 +96,18 @@ export class ScenariosManagerComponent implements OnInit {
     if (this.sandboxService.sandboxes().length === 0) {
       this.sandboxService.getSandboxes().subscribe();
     }
+  }
+
+  public resetFilters(): void {
+    this.search.set('');
+    this.applicationFilter.set('all');
+    this.personaFilter.set('all');
+    this.sortBy.set('title');
+    this.sortOrder.set('asc');
+  }
+
+  public toggleSortOrder(): void {
+    this.sortOrder.update((order) => order === 'asc' ? 'desc' : 'asc');
   }
 
   public loadData(sandboxId?: string): void {

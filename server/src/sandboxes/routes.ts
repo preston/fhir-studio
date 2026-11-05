@@ -296,7 +296,7 @@ export function createSandboxesRouter(): Router {
         },
       });
 
-      // Create default synthetic personas for the new sandbox
+      // Create default personas for the new sandbox
       const defaultPersonas = [
         {
           personaUserId: 'practitioner-1',

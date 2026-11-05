@@ -38,9 +38,9 @@ interface StorageReport {
   template: `
     <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
       <div>
-        <h3>Application Hosting</h3>
+        <h3>Application Deployment</h3>
         <p class="text-muted mb-0">
-          Manage hosted applications, usage, storage, ownership and recovery.
+          Manage application deployments, usage, storage, ownership and recovery.
         </p>
       </div>
       <button

@@ -293,8 +293,9 @@ export function createHostingRouter() {
   });
   router.get('/api/github/install', (req, res) => {
     const returnTo =
+      req.query.returnTo === '/deployment/github-repositories' ||
       req.query.returnTo === '/applications/hosted'
-        ? '/applications/hosted'
+        ? '/deployment/github-repositories'
         : '/profile/connections';
     const state = encrypt(
       {
@@ -320,9 +321,10 @@ export function createHostingRouter() {
         if (
           saved.userId === req.sessionAuth!.userId &&
           saved.expires > Date.now() &&
-          saved.returnTo === '/applications/hosted'
+          (saved.returnTo === '/deployment/github-repositories' ||
+            saved.returnTo === '/applications/hosted')
         )
-          returnTo = saved.returnTo;
+          returnTo = '/deployment/github-repositories';
       } catch {
         /* An unverified setup URL never grants repository access. */
       }
@@ -337,7 +339,7 @@ export function createHostingRouter() {
       (item) => String(item.id) === req.query.installation_id,
     );
     res.redirect(
-      `${cfg.studioOrigin}${returnTo}${returnTo === '/applications/hosted' ? (installed ? `?installation=${installed.id}` : '?githubSetup=pending') : ''}`,
+      `${cfg.studioOrigin}${returnTo}${returnTo === '/deployment/github-repositories' ? (installed ? `?installation=${installed.id}` : '?githubSetup=pending') : ''}`,
     );
   });
   router.delete('/api/github/connection', async (req, res) => {

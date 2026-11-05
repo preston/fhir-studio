@@ -98,7 +98,7 @@ password in that terminal and leave it running alongside the API, UI, worker, an
 ## Developer workflow
 
 A role must grant `permission_applications_deployment` before a user can access
-Application Studio, templates, hosting management APIs, or GitHub connection
+**Deployment → GitHub Repositories**, templates, hosting management APIs, or GitHub connection
 linking. New and existing roles default to false; enable it in **Administration → Roles**
 for approved users/groups. Global administrators retain their existing permission bypass.
 Seeding does not overwrite an operator's deployment permission grants.
@@ -127,16 +127,16 @@ Installation removal invalidates queued deployments. Existing content survives G
 
 **Connected applications** (`/profile/connected-applications`) manages access granted
 to catalog platforms. Start those connections from the catalog platform. This screen
-also links to GitHub connection and Application Studio when deployment is available,
+also links to GitHub connection and GitHub Repositories when deployment is available,
 or explains whether instance hosting or account permissions prevent access.
 
-Use **SMART Applications → Application Studio** (`/applications/hosted`) to create
-an application referencing an existing GitHub repository. Choose an installation,
+Use **Deployment → GitHub Repositories** (`/deployment/github-repositories`) to add
+an existing application for deployment from a GitHub repository. Choose an installation,
 repository, branch, and **Static assets directory**, relative to the repository root.
 Use `.` for files at the repository root. The selected directory must already contain
 the complete browser application, including its launch and callback HTML files.
 
-Creating the application records its settings. Select **Deploy** to resolve
+Adding the application records its settings. Select **Deploy** to resolve
 the selected branch to an immutable commit and import only that directory. Studio
 does not change the repository or run a build. A successful deployment immediately publishes
 that revision at the application URL. Subsequent repository changes become available after another deployment.
@@ -163,7 +163,7 @@ scripts, and the hosting CSP apply to every framework.
 
 See [the community application contract](../apps/README.md) for contribution requirements
 and optional release packaging. The helper produces a ZIP from already built static
-assets; Application Studio deploys the committed static directory directly.
+assets; the GitHub Repositories page deploys the committed static directory directly.
 There is no local ZIP upload interface.
 
 Edit and build the application in your own development environment. Commit the files
@@ -248,7 +248,7 @@ is not migrated as a side effect of the implementation or tests.
 
 ## Hosting administration and usage
 
-**Administration → Application Hosting** provides inventory, traffic reports,
+**Administration → Application Deployment** provides inventory, traffic reports,
 health, storage inspection, owner quotas, audit history, and trash. Search and sort the
 inventory, inspect an application, select one or several applications, enter an
 administrative reason, and preview the exact versions and allocated storage before
@@ -281,7 +281,7 @@ retained files and are not automatically assigned a new recovery window.
 
 ### Usage collection
 
-Application Studio's **Usage** tab is available to owners and existing read collaborators.
+The **Usage** tab in **Deployment → GitHub Repositories** is available to owners and existing read collaborators.
 It reports requests, successful HTML GET document responses, response bytes, status classes,
 rate limits, aborted responses, known bot requests, server response duration, and consumed
 SMART launches. HTML responses include callback

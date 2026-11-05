@@ -5,7 +5,7 @@
   </div>
   <div class="d-flex gap-2">
     @if (auth.hasPermission('applications_deployment')) {
-      <a routerLink="/applications/hosted" class="btn btn-outline-primary"><i class="bi bi-github me-2"></i>Application Studio</a>
+      <a routerLink="/deployment/github-repositories" class="btn btn-outline-primary"><i class="bi bi-github me-2"></i>GitHub Repositories</a>
     }
     @if (auth.hasPermission('applications_register')) {
       <button class="btn btn-primary d-flex align-items-center gap-1" (click)="openRegisterApplication()" [disabled]="saving()">
@@ -45,7 +45,7 @@
               @if (builtInPath) {
                 <span class="badge bg-success">Built-in Application</span>
               } @else if (hostedApplicationId) {
-                <span class="badge bg-warning text-dark">Studio Managed</span>
+                <span class="badge bg-warning text-dark">Managed Deployment</span>
               } @else if (application.isSample) {
                 <span class="badge bg-info text-dark">Sample Application</span>
               } @else {
@@ -78,9 +78,9 @@
                 }
                 @if (hostedApplicationId) {
                   @if (auth.hasPermission('applications_deployment')) {
-                    <a routerLink="/applications/hosted" [queryParams]="{ app: hostedApplicationId }" class="btn btn-sm btn-warning d-flex align-items-center gap-1" [attr.aria-label]="'Manage ' + application.clientName + ' in Application Studio'">
+                    <a routerLink="/deployment/github-repositories" [queryParams]="{ app: hostedApplicationId }" class="btn btn-sm btn-warning d-flex align-items-center gap-1" [attr.aria-label]="'Manage deployment for ' + application.clientName">
                       <i class="bi bi-tools" aria-hidden="true"></i>
-                      <span>Manage in Application Studio</span>
+                      <span>Manage deployment</span>
                     </a>
                   }
                 } @else if (canEditApplication(application)) {

@@ -8,7 +8,7 @@ Studio container images.
 
 ## Deploy from this repository
 
-In **SMART Applications → Application Studio**, connect your GitHub account and
+In **Deployment → GitHub Repositories**, connect your GitHub account and
 grant the instance's GitHub App access to this repository (or your fork). Choose
 the repository, select its branch, and use:
 

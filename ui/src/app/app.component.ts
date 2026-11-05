@@ -56,6 +56,11 @@ export class AppComponent implements OnInit {
     return url.startsWith('/data-manager') || url.startsWith('/registry-importer');
   });
 
+  public readonly isDeploymentActive = computed(() => {
+    const url = this.navUrl();
+    return url.startsWith('/deployment/') || url.startsWith('/profile/connections');
+  });
+
   ngOnInit(): void {
     this.auth.loadSession().subscribe((res) => {
       if (res.authenticated) {

@@ -11,7 +11,7 @@
           <button class="btn btn-primary" type="button" (click)="auth.login()">Sign in</button>
         } @else if (!auth.applicationHostingAvailable()) {
           <p id="connected-applications-hosting-disabled" class="mb-0">
-            Application hosting is disabled. An administrator
+            Application deployment is disabled. An administrator
             must configure and enable it before you can connect GitHub
             repositories and deploy applications.
           </p>
@@ -23,12 +23,12 @@
         } @else {
           <p>
             Authorize your GitHub account and give the Studio GitHub App access to
-            your repositories. In Application Studio, choose a repository, branch,
+            your repositories. In Deployment → GitHub Repositories, choose a repository, branch,
             and directory containing your static files. Deploy to publish the application.
           </p>
           <div class="d-flex flex-wrap gap-2">
             <a id="connected-applications-github" class="btn btn-primary" routerLink="/profile/connections">Manage GitHub connection</a>
-            <a id="connected-applications-studio" class="btn btn-outline-primary" routerLink="/applications/hosted">Open Application Studio</a>
+            <a id="connected-applications-deployment" class="btn btn-outline-primary" routerLink="/deployment/github-repositories">Open GitHub Repositories</a>
           </div>
         }
       </div>

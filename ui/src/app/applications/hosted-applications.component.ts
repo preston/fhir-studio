@@ -314,7 +314,7 @@ export class HostedApplicationsComponent implements OnInit {
       this.publicAcknowledged = false;
       sessionStorage.removeItem("studio-app-wizard");
       this.notice.set(
-        "Application created. Select Deploy to copy the committed static files from your repository.",
+        "Application added for deployment. Select Deploy to copy the committed static files from your repository.",
       );
     });
   }

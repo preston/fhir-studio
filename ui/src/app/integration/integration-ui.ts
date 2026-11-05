@@ -36,10 +36,11 @@ export function verifiedLauncherPath(
   try {
     const url = new URL(value, origin);
     return url.origin === origin &&
-      url.pathname === "/applications/hosted" &&
+      (url.pathname === "/deployment/github-repositories" ||
+        url.pathname === "/applications/hosted") &&
       !url.username &&
       !url.password
-      ? url.pathname + url.search
+      ? "/deployment/github-repositories" + url.search
       : null;
   } catch {
     return null;

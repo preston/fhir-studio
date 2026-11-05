@@ -2,9 +2,9 @@
   class="studio-header d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4"
 >
   <div>
-    <h2 class="mb-1">Application Studio</h2>
+    <h2 class="mb-1">GitHub Repositories</h2>
     <p class="text-body-secondary mb-0">
-      Deploy static files from your repository and launch your application.
+      Manage application deployments from your GitHub repositories.
     </p>
   </div>
   <a routerLink="/profile/connections" class="btn btn-outline-secondary">
@@ -19,7 +19,7 @@
   <div class="alert alert-info" role="status">{{ notice() }}</div>
 }
 <div class="row g-4 studio-layout">
-  <aside class="col-lg-3" aria-label="Hosted applications">
+  <aside class="col-lg-3" aria-label="Applications managed for deployment">
     <div class="card application-sidebar">
       <div class="card-body">
         <button
@@ -29,7 +29,7 @@
           (click)="startCreate()"
           [disabled]="busy()"
         >
-          <i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New application
+          <i class="bi bi-plus-lg me-2" aria-hidden="true"></i>Add application
         </button>
         <div
           class="btn-group w-100 mb-3"
@@ -98,7 +98,7 @@
         <div class="card-body p-4">
           <div class="d-flex flex-wrap justify-content-between gap-2 mb-4">
             <div>
-              <h3 class="h4 mb-1">New application</h3>
+              <h3 class="h4 mb-1">Add application for deployment</h3>
               <p class="text-body-secondary mb-0">
                 Choose the directory containing your ready-to-serve HTML,
                 JavaScript, and other assets.
@@ -125,7 +125,7 @@
                 may access.
               </p>
               <a
-                href="/api/github/connect?returnTo=/applications/hosted"
+                href="/api/github/connect?returnTo=/deployment/github-repositories"
                 class="btn btn-primary"
                 (click)="rememberWizard()"
                 >{{
@@ -205,7 +205,7 @@
                   class="col-12 d-flex flex-wrap align-items-center gap-3 repository-help"
                 >
                   <a
-                    href="/api/github/install?returnTo=/applications/hosted"
+                    href="/api/github/install?returnTo=/deployment/github-repositories"
                     (click)="rememberWizard()"
                     >Manage repository access<i
                       class="bi bi-arrow-up-right ms-1"
@@ -333,16 +333,16 @@
                     !auth.hasPermission('applications_register')
                   "
                 >
-                  Create application
+                  Add application
                 </button>
                 <span class="small text-body-secondary"
-                  >Deploy after creating the application.</span
+                  >Deploy after adding the application.</span
                 >
               </div>
               @if (!auth.hasPermission("applications_register")) {
                 <p class="small text-danger mt-2 mb-0">
                   Your account needs application registration permission to
-                  create an application.
+                  add an application for deployment.
                 </p>
               }
             </fieldset>
@@ -915,7 +915,7 @@
                 >
                   <div class="col-md-6">
                     <label for="hosted-member-email" class="form-label"
-                      >Studio account email</label
+                      >Email</label
                     ><input
                       id="hosted-member-email"
                       name="memberEmail"
@@ -1006,7 +1006,7 @@
                   >
                     <div class="col-sm-8">
                       <label for="hosted-transfer-email" class="form-label"
-                        >Recipient Studio email</label
+                        >Email</label
                       ><input
                         id="hosted-transfer-email"
                         name="transferEmail"

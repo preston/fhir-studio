@@ -282,7 +282,7 @@ test('standalone does not substitute a default application when the saved applic
   assert.equal(state.component.launchingScenarioId(), null);
 });
 
-test('Application Studio uses the canonical launch issuer when opened on the UI development origin', async () => {
+test('GitHub Repositories uses the canonical launch issuer when opened on the UI development origin', async () => {
   const state = setup(components.HostedApplicationsComponent);
   state.component.app.set({
     id: 'hosted-app', publishedBuildId: 'published-build',
