@@ -95,13 +95,27 @@
               </select>
             </div>
             <div class="col-6">
-              <label for="persona-resource-id" class="form-label fw-semibold">FHIR Resource ID</label>
-              <input id="persona-resource-id" type="text" class="form-control font-monospace" [(ngModel)]="personaForm.fhirResourceId" placeholder="dr-vance-1">
+              <app-fhir-resource-search-input
+                inputId="persona-resource-id"
+                label="FHIR Resource ID"
+                [resourceType]="personaForm.fhirResourceType"
+                searchBy="id"
+                placeholder="Search by ID or enter a custom ID"
+                [(value)]="personaForm.fhirResourceId"
+                (resourceSelected)="selectResource($event)"
+              />
             </div>
           </div>
           <div class="mb-3">
-            <label for="persona-resource-name" class="form-label fw-semibold">FHIR Resource Name</label>
-            <input id="persona-resource-name" type="text" class="form-control" [(ngModel)]="personaForm.fhirResourceName" placeholder="Defaults to the persona name">
+            <app-fhir-resource-search-input
+              inputId="persona-resource-name"
+              label="FHIR Resource Name"
+              [resourceType]="personaForm.fhirResourceType"
+              searchBy="name"
+              placeholder="Search by name or enter a custom name"
+              [(value)]="personaForm.fhirResourceName"
+              (resourceSelected)="selectResource($event)"
+            />
           </div>
         </fieldset>
         <div class="modal-footer">

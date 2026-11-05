@@ -34,7 +34,17 @@
             "styles": [
               "../node_modules/bootstrap-icons/font/bootstrap-icons.css",
               "../node_modules/bootswatch/dist/materia/bootstrap.min.css",
-              "src/app/stylesheets/styles.scss"
+              "src/app/stylesheets/styles.scss",
+              {
+                "input": "../node_modules/bootswatch/dist/materia/bootstrap.min.css",
+                "bundleName": "studio-theme",
+                "inject": false
+              },
+              {
+                "input": "src/app/stylesheets/styles.scss",
+                "bundleName": "studio-theme",
+                "inject": false
+              }
             ],
             "scripts": [
               "../node_modules/@popperjs/core/dist/umd/popper.js",

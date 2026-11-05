@@ -71,7 +71,7 @@
               </ul>
             </li>
 
-            <!-- FHIR & Data Dropdown -->
+            <!-- Data Dropdown -->
             @if (auth.hasPermission('data_manager') || auth.hasPermission('package_import')) {
               <li class="nav-item dropdown">
                 <a
@@ -82,7 +82,7 @@
                   aria-expanded="false"
                   style="cursor: pointer;"
                 >
-                  FHIR & Data
+                  Data
                 </a>
                 <ul class="dropdown-menu shadow">
                   @if (auth.hasPermission('data_manager')) {

@@ -6,11 +6,12 @@ import { FormsModule } from '@angular/forms';
 import { SandboxService } from '../core/services/sandbox.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
 import { ToastService } from '../core/services/toast.service.js';
+import { FhirResourceSearchInputComponent, type FhirResourceSearchResult } from '../shared/fhir-resource-search-input/fhir-resource-search-input.component.js';
 
 @Component({
   selector: 'app-personas-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, FhirResourceSearchInputComponent],
   templateUrl: './personas-manager.component.html',
 })
 export class PersonasManagerComponent implements OnInit {
@@ -98,6 +99,11 @@ export class PersonasManagerComponent implements OnInit {
     this.showPersonaModal.set(false);
     this.editingPersonaId.set(null);
     this.formError.set(null);
+  }
+
+  public selectResource(resource: FhirResourceSearchResult): void {
+    this.personaForm.fhirResourceId = resource.id;
+    this.personaForm.fhirResourceName = resource.name;
   }
 
   public savePersona(): void {

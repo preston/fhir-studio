@@ -1,32 +1,4 @@
 <div class="container-fluid py-4 example-application-container">
-  <!-- Header / Application Banner -->
-  <div class="card shadow-sm border-0 mb-4 bg-primary text-white">
-    <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
-      <div class="d-flex align-items-center gap-3">
-        <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 54px; height: 54px;">
-          <i class="bi bi-hospital fs-3"></i>
-        </div>
-        <div>
-          <div class="d-flex align-items-center gap-2">
-            <h3 class="fw-bold mb-0">Example Application</h3>
-            <span class="badge bg-light text-primary fw-semibold">SMART on FHIR v2</span>
-            <span class="badge bg-info text-dark fw-semibold">Built-in</span>
-          </div>
-          <p class="mb-0 text-white-50 small">Reference client implementation demonstrating SMART v2 EHR launch, Standalone launch, PKCE S256, and live FHIR access.</p>
-        </div>
-      </div>
-
-      @if (mode() === 'connected') {
-        <div class="d-flex align-items-center gap-2">
-          <button class="btn btn-outline-light btn-sm d-flex align-items-center gap-1" (click)="disconnect()">
-            <i class="bi bi-power"></i>
-            <span>Disconnect</span>
-          </button>
-        </div>
-      }
-    </div>
-  </div>
-
   <!-- Global Alerts -->
   @if (errorMessage()) {
     <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
@@ -113,9 +85,12 @@
   <!-- Connected Mode - Clinical Data & Token Inspector -->
   @if (!loading() && mode() === 'connected') {
     <!-- Patient Context -->
-    <section class="patient-summary mb-4" aria-labelledby="patient-name">
-      <p class="text-muted small mb-1">Patient</p>
+    <section class="patient-summary mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3" aria-labelledby="patient-name">
       <h4 id="patient-name" class="mb-0">{{ patientDisplayName() }}</h4>
+      <button type="button" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" (click)="disconnect()">
+        <i class="bi bi-power" aria-hidden="true"></i>
+        <span>Disconnect</span>
+      </button>
     </section>
 
     <!-- Navigation Tabs -->

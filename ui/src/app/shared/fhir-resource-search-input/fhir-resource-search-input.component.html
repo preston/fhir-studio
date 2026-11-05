@@ -3,6 +3,7 @@
   <input
     type="text"
     class="form-control"
+    [class.font-monospace]="searchBy() === 'id'"
     [id]="inputId()"
     [ngModel]="value()"
     (ngModelChange)="edit($event)"
@@ -22,7 +23,7 @@
   @if (open()) {
     <div class="dropdown-menu show w-100 p-0 shadow" style="max-height: 16rem; overflow-y: auto;">
       <div [id]="inputId() + '-results'" role="listbox" [attr.aria-label]="label() + ' matches'" [attr.aria-busy]="searching()">
-        @for (patient of results(); track patient.id; let index = $index) {
+        @for (resource of results(); track resource.id; let index = $index) {
           <button
             type="button"
             class="dropdown-item text-wrap py-2"
@@ -32,29 +33,29 @@
             [attr.aria-selected]="activeIndex() === index"
             tabindex="-1"
             (mousedown)="$event.preventDefault()"
-            (click)="selectPatient(patient)"
+            (click)="selectResource(resource)"
           >
-            <span class="d-block fw-semibold">{{ patient.name }}</span>
-            <span class="d-block small">{{ patient.id }}</span>
+            <span class="d-block fw-semibold">{{ resource.name }}</span>
+            <span class="d-block small">{{ resource.id }}</span>
           </button>
         }
       </div>
       <div class="px-3 py-2 small text-body-secondary" role="status" aria-live="polite">
         @if (!sandboxService.activeSandbox()) {
-          Select a sandbox to search patients. Custom values are still allowed.
+          Select a sandbox to search {{ resourceType() }} resources. Custom values are still allowed.
         } @else if (searching()) {
-          Searching patients…
+          Searching {{ resourceType() }} resources…
         } @else if (searchError()) {
           {{ searchError() }}
         } @else if (results().length === 0) {
-          No matching patients. Your custom value will be used.
+          No matching {{ resourceType() }} resources. Your custom value will be used.
         } @else {
-          Select a patient to fill both fields, or keep your custom value.
+          Select a result to fill both fields, or keep your custom value.
         }
       </div>
     </div>
   }
 </div>
 <div [id]="inputId() + '-help'" class="form-text">
-  {{ searchBy() === 'id' ? 'Search by exact FHIR ID' : 'Search by patient name' }}, or enter any test value.
+  {{ searchBy() === 'id' ? 'Search by exact FHIR ID' : 'Search by ' + resourceType() + ' name' }}, or enter any test value.
 </div>

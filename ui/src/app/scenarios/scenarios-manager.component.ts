@@ -10,12 +10,12 @@ import { ScenariosService, type LaunchScenario } from '../core/services/scenario
 import { ApplicationsService, type SmartApplication } from '../core/services/applications.service.js';
 import { PersonasService, type UserPersona } from '../core/services/personas.service.js';
 import { ToastService } from '../core/services/toast.service.js';
-import { PatientSearchInputComponent, type PatientSearchResult } from '../shared/patient-search-input/patient-search-input.component.js';
+import { FhirResourceSearchInputComponent, type FhirResourceSearchResult } from '../shared/fhir-resource-search-input/fhir-resource-search-input.component.js';
 
 @Component({
   selector: 'app-scenarios-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule, PatientSearchInputComponent],
+  imports: [CommonModule, FormsModule, FhirResourceSearchInputComponent],
   templateUrl: './scenarios-manager.component.html',
 })
 export class ScenariosManagerComponent implements OnInit {
@@ -130,7 +130,7 @@ export class ScenariosManagerComponent implements OnInit {
     this.formError.set(null);
   }
 
-  public selectPatient(patient: PatientSearchResult): void {
+  public selectPatient(patient: FhirResourceSearchResult): void {
     this.scenarioForm.patientFhirId = patient.id;
     this.scenarioForm.patientName = patient.name;
   }

@@ -6,7 +6,7 @@ import { switchMap, timer } from 'rxjs';
 import { FhirService } from '../../core/services/fhir.service.js';
 import { SandboxService } from '../../core/services/sandbox.service.js';
 
-interface FhirPatient {
+interface FhirNamedResource {
   resourceType: string;
   id?: string;
   name?: Array<{
@@ -19,32 +19,33 @@ interface FhirPatient {
   }>;
 }
 
-export interface PatientSearchResult {
+export interface FhirResourceSearchResult {
   id: string;
   name: string;
 }
 
 @Component({
-  selector: 'app-patient-search-input',
+  selector: 'app-fhir-resource-search-input',
   standalone: true,
   imports: [FormsModule],
-  templateUrl: './patient-search-input.component.html',
+  templateUrl: './fhir-resource-search-input.component.html',
 })
-export class PatientSearchInputComponent {
+export class FhirResourceSearchInputComponent {
   private readonly fhirService = inject(FhirService);
   public readonly sandboxService = inject(SandboxService);
 
   public readonly inputId = input.required<string>();
   public readonly label = input.required<string>();
+  public readonly resourceType = input.required<string>();
   public readonly searchBy = input.required<'id' | 'name'>();
   public readonly placeholder = input('');
   public readonly value = model('');
-  public readonly patientSelected = output<PatientSearchResult>();
+  public readonly resourceSelected = output<FhirResourceSearchResult>();
 
   public readonly open = signal(false);
   public readonly searching = signal(false);
   public readonly searchError = signal<string | null>(null);
-  public readonly results = signal<PatientSearchResult[]>([]);
+  public readonly results = signal<FhirResourceSearchResult[]>([]);
   public readonly activeIndex = signal(-1);
   public readonly activeOptionId = computed(() =>
     this.open() && this.activeIndex() >= 0 ? `${this.inputId()}-option-${this.activeIndex()}` : null,
@@ -55,6 +56,7 @@ export class PatientSearchInputComponent {
       const sandbox = this.sandboxService.activeSandbox();
       const query = this.value().trim();
       const searchBy = this.searchBy();
+      const resourceType = this.resourceType();
       const open = this.open();
 
       this.results.set([]);
@@ -69,27 +71,27 @@ export class PatientSearchInputComponent {
       this.searching.set(true);
       // Unsubscribe immediately on each edit, blur, or sandbox change, including during the debounce.
       const subscription = timer(250)
-        .pipe(switchMap(() => this.fhirService.search<FhirPatient>(
-          sandbox.sandboxId, sandbox.fhirVersion, 'Patient', params,
+        .pipe(switchMap(() => this.fhirService.search<FhirNamedResource>(
+          sandbox.sandboxId, sandbox.fhirVersion, resourceType, params,
         )))
         .subscribe({
           next: (bundle) => {
-            const patients = new Map<string, PatientSearchResult>();
+            const resources = new Map<string, FhirResourceSearchResult>();
             for (const entry of bundle.entry || []) {
-              const patient = entry.resource;
-              if (patient.resourceType !== 'Patient' || !patient.id) continue;
-              const name = patient.name?.find((item) => item.use === 'official')
-                || patient.name?.find((item) => item.use === 'usual') || patient.name?.[0];
+              const resource = entry.resource;
+              if (resource.resourceType !== resourceType || !resource.id) continue;
+              const name = resource.name?.find((item) => item.use === 'official')
+                || resource.name?.find((item) => item.use === 'usual') || resource.name?.[0];
               const displayName = name?.text?.trim() || [
                 ...(name?.prefix || []), ...(name?.given || []), name?.family, ...(name?.suffix || []),
               ].filter(Boolean).join(' ').trim();
-              patients.set(patient.id, { id: patient.id, name: displayName || `Patient ${patient.id}` });
+              resources.set(resource.id, { id: resource.id, name: displayName || `${resourceType} ${resource.id}` });
             }
-            this.results.set([...patients.values()]);
+            this.results.set([...resources.values()]);
             this.searching.set(false);
           },
           error: () => {
-            this.searchError.set('Patient search is unavailable. You can still enter a custom value.');
+            this.searchError.set(`${resourceType} search is unavailable. You can still enter a custom value.`);
             this.searching.set(false);
           },
         });
@@ -102,9 +104,9 @@ export class PatientSearchInputComponent {
     this.open.set(true);
   }
 
-  public selectPatient(patient: PatientSearchResult): void {
+  public selectResource(resource: FhirResourceSearchResult): void {
     this.open.set(false);
-    this.patientSelected.emit(patient);
+    this.resourceSelected.emit(resource);
   }
 
   public onKeydown(event: KeyboardEvent): void {
@@ -123,10 +125,10 @@ export class PatientSearchInputComponent {
           ? (index + 1) % count : (index < 0 ? count - 1 : (index + count - 1) % count));
       }
     } else if (event.key === 'Enter' && this.open()) {
-      const patient = this.results()[this.activeIndex()];
-      if (patient) {
+      const resource = this.results()[this.activeIndex()];
+      if (resource) {
         event.preventDefault();
-        this.selectPatient(patient);
+        this.selectResource(resource);
       }
     }
   }

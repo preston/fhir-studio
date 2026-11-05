@@ -142,23 +142,25 @@
 
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <app-patient-search-input
+              <app-fhir-resource-search-input
                 inputId="scenario-patient-id"
                 label="Patient FHIR ID"
+                resourceType="Patient"
                 searchBy="id"
                 placeholder="SMART-1088792"
                 [(value)]="scenarioForm.patientFhirId"
-                (patientSelected)="selectPatient($event)"
+                (resourceSelected)="selectPatient($event)"
               />
             </div>
             <div class="col-md-6">
-              <app-patient-search-input
+              <app-fhir-resource-search-input
                 inputId="scenario-patient-name"
                 label="Patient Display Name"
+                resourceType="Patient"
                 searchBy="name"
                 placeholder="Sherlock Holmes"
                 [(value)]="scenarioForm.patientName"
-                (patientSelected)="selectPatient($event)"
+                (resourceSelected)="selectPatient($event)"
               />
             </div>
           </div>
